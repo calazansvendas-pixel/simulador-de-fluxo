@@ -1,5 +1,5 @@
 {
-  "name": "Simulador de Crédito Imobiliário",
+  "name": "Simulador de Fluxo",
   "description": "Simulador de Crédito Imobiliário, Ficha de Análise Financeira, Políticas Comerciais e Importação de Tabelas de Venda Excel",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

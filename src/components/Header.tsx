@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
               <img src={logoMorar} alt="Morar" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
             </div>
             <div className="min-w-0">
-              <span className="text-base sm:text-xl text-slate-900 font-bold tracking-tight truncate block">Simulador & Políticas Comerciais</span>
+              <span className="text-base sm:text-xl text-slate-900 font-bold tracking-tight truncate block">Simulador de Fluxo</span>
             </div>
           </div>
         </div>
