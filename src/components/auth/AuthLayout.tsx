@@ -17,7 +17,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
             <div className="w-10 h-10 rounded-xl bg-morar-50 border border-morar-200 flex items-center justify-center shadow-xs">
               <img src={logoMorar} alt="Morar" className="w-6 h-6 object-contain" />
             </div>
-            <span className="text-xl text-slate-900 font-bold tracking-tight">Simulador & Políticas Comerciais</span>
+            <span className="text-xl text-slate-900 font-bold tracking-tight">Simulador de Fluxo</span>
           </div>
         </div>
       </header>
