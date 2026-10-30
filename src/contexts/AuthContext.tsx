@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabaseClient';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { auth } from '../lib/firebaseClient';
 import { authService, DadosCadastro } from '../services/authService';
 import { PerfilUsuario } from '../types';
 
 interface AuthContextValue {
-  // null enquanto a checagem inicial de sessão não termina; depois disso,
-  // Session | null indica se há alguém logado.
-  session: Session | null | undefined;
+  // undefined enquanto a checagem inicial de sessão não termina; depois disso,
+  // User | null indica se há alguém logado.
+  session: User | null | undefined;
   perfil: PerfilUsuario | null;
   carregandoSessao: boolean;
   carregandoPerfil: boolean;
@@ -20,7 +20,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [session, setSession] = useState<User | null | undefined>(undefined);
   const [perfil, setPerfil] = useState<PerfilUsuario | null>(null);
   const [carregandoPerfil, setCarregandoPerfil] = useState<boolean>(false);
   const userIdRef = useRef<string | null>(null);
@@ -33,16 +33,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
-      const uid = data.session?.user?.id || null;
-      userIdRef.current = uid;
-      if (uid) carregarPerfil(uid);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      const uid = newSession?.user?.id || null;
+    // O Firebase chama o observador uma vez na inicialização (com a sessão
+    // restaurada ou null) e a cada login/logout.
+    const cancelar = onAuthStateChanged(auth, (usuario) => {
+      setSession(usuario);
+      const uid = usuario?.uid || null;
       if (uid !== userIdRef.current) {
         userIdRef.current = uid;
         if (uid) {
@@ -53,7 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => listener.subscription.unsubscribe();
+    return () => cancelar();
   }, [carregarPerfil]);
 
   const entrar = useCallback(async (email: string, senha: string) => {

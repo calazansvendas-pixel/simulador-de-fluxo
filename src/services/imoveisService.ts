@@ -1,89 +1,59 @@
-import { supabase } from '../lib/supabaseClient';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+  type DocumentData
+} from 'firebase/firestore';
+import { auth, db } from '../lib/firebaseClient';
+import { commitEmLotes, desempacotarJson, empacotarJson, idSeguro, mensagemDeErro } from '../lib/firestoreUtils';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { parseM2Number, parseCurrency, formatArea } from '../utils/formatters';
 
 /*
- * SQL DE CRIAÇÃO DO BANCO DE DADOS SUPABASE
- * =========================================
- * Execute este script no SQL Editor do seu projeto Supabase para criar as tabelas
+ * ESTRUTURA DO FIRESTORE — EMPREENDIMENTOS, UNIDADES E SIMULAÇÕES
+ * ===============================================================
+ * O Firestore não precisa de script de criação: as coleções nascem no primeiro
+ * documento gravado. As regras de segurança ficam em `firestore.rules`.
  *
- * -- Tabela de Empreendimentos
- * CREATE TABLE empreendimentos (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   nome TEXT NOT NULL,
- *   delivery_date_phase1 TEXT,
- *   delivery_date_phase2 TEXT
- * );
+ * empreendimentos/{id}       nome, delivery_date_phase1/2, is_featured,
+ *                            conditions_json (política de crédito),
+ *                            tabela_valid_from/to/file_name (vigência da tabela)
+ * unidades/{emp__torre__un}  uma por unidade (id determinístico, então regravar a
+ *                            mesma torre/unidade atualiza em vez de duplicar):
+ *                            empreendimento_id, torre, unidade, tipologia,
+ *                            area_privativa, quintal, preco_tabela,
+ *                            avaliacao_bancaria, itbi_*, status
+ * tabelas_arquivadas/{auto}  tabela de vendas anterior, guardada antes de ser
+ *                            sobrescrita por uma nova importação (rows_json)
+ * simulacoes/{auto}          propostas salvas: cliente_nome, renda, dados_json,
+ *                            criado_por, ancestrais_criador (cadeia de superiores do
+ *                            criador no momento em que salvou — é o que permite ao
+ *                            Gerente/Diretor ver a equipe), created_at
  *
- * -- Tabela de Unidades
- * CREATE TABLE unidades (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   empreendimento_id UUID REFERENCES empreendimentos(id) ON DELETE CASCADE,
- *   torre TEXT NOT NULL,
- *   unidade TEXT NOT NULL,
- *   tipologia TEXT,
- *   area_privativa NUMERIC,
- *   quintal NUMERIC,
- *   preco_tabela NUMERIC,
- *   avaliacao_bancaria NUMERIC,
- *   itbi_total NUMERIC,
- *   itbi_primeiro_imovel NUMERIC,
- *   itbi_segundo_imovel NUMERIC,
- *   status TEXT
- * );
- *
- * -- Se sua tabela unidades já existir, execute para adicionar as colunas opcionais:
- * -- ALTER TABLE unidades ADD COLUMN IF NOT EXISTS itbi_primeiro_imovel NUMERIC;
- * -- ALTER TABLE unidades ADD COLUMN IF NOT EXISTS itbi_segundo_imovel NUMERIC;
- *
- * -- Se sua tabela empreendimentos já existir, execute para adicionar as colunas de
- * -- política de crédito (necessário para que a política configurada em "Políticas &
- * -- Empreendimentos" fique compartilhada entre todos os usuários, em vez de ficar
- * -- salva apenas no navegador de quem editou):
- * -- ALTER TABLE empreendimentos ADD COLUMN IF NOT EXISTS conditions JSONB;
- * -- ALTER TABLE empreendimentos ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false;
- *
- * -- Colunas de vigência da tabela de vendas (necessário para que o status "Tabela
- * -- Vigente / Vencida" e o nome do arquivo importado fiquem compartilhados entre
- * -- todos os usuários, em vez de cada navegador calcular seu próprio valor):
- * -- ALTER TABLE empreendimentos ADD COLUMN IF NOT EXISTS tabela_valid_from TEXT;
- * -- ALTER TABLE empreendimentos ADD COLUMN IF NOT EXISTS tabela_valid_to TEXT;
- * -- ALTER TABLE empreendimentos ADD COLUMN IF NOT EXISTS tabela_file_name TEXT;
- *
- * -- Tabela de Tabelas de Vendas Arquivadas. Toda vez que uma nova tabela de vendas é
- * -- importada por cima de uma já vigente (ImportTableView), a tabela antiga (unidades +
- * -- vigência) é guardada aqui antes de ser sobrescrita, para consulta e exclusão
- * -- posterior em "Tabelas Arquivadas".
- * CREATE TABLE IF NOT EXISTS tabelas_arquivadas (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   empreendimento_id UUID REFERENCES empreendimentos(id) ON DELETE CASCADE,
- *   nome_empreendimento TEXT,
- *   file_name TEXT,
- *   valid_from TEXT,
- *   valid_to TEXT,
- *   rows JSONB,
- *   arquivado_em TIMESTAMPTZ DEFAULT now(),
- *   arquivado_por UUID
- * );
- * ALTER TABLE tabelas_arquivadas ENABLE ROW LEVEL SECURITY;
- * CREATE POLICY "logados_leem_tabelas_arquivadas" ON tabelas_arquivadas FOR SELECT USING (auth.role() = 'authenticated');
- * CREATE POLICY "logados_gravam_tabelas_arquivadas" ON tabelas_arquivadas FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
- *
- * -- Tabela de Simulações Salvas (propostas). Usada pelo botão "Salvar Simulação"
- * -- nas fichas Sinal c/ Morar e Sinal c/ Banco Direto, e pela tela "Simulações
- * -- Salvas" (visualizar / editar / excluir).
- * CREATE TABLE simulacoes (
- *   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
- *   cliente_nome TEXT,
- *   renda NUMERIC,
- *   empreendimento_id UUID REFERENCES empreendimentos(id) ON DELETE SET NULL,
- *   dados JSONB,
- *   created_at TIMESTAMPTZ DEFAULT now()
- * );
+ * Estruturas livres (conditions, dados, rows) são guardadas como texto JSON porque
+ * o Firestore não aceita arrays dentro de arrays.
  */
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function comId(snap: { id: string; data: () => DocumentData }): any {
+  return { id: snap.id, ...snap.data() };
+}
+
+function idDaUnidade(u: { empreendimento_id: string; torre: string; unidade: string }): string {
+  return idSeguro(u.empreendimento_id, u.torre, u.unidade);
+}
+
 export const imoveisService = {
-  // Converte unidades do formato Supabase para linhas de tabela (tableInfo.rows)
+  // Converte unidades do formato do banco para linhas de tabela (tableInfo.rows)
   converterUnidadesParaLinhas(unidades: any[]): (string | number)[][] {
     if (!unidades || unidades.length === 0) return [];
     return unidades.map(u => [
@@ -101,9 +71,9 @@ export const imoveisService = {
   },
 
   // Converte linhas de tabela (tableInfo.rows) para o formato de unidades esperado
-  // pelo Supabase (inverso de converterUnidadesParaLinhas). Compartilhado entre a
+  // pelo banco (inverso de converterUnidadesParaLinhas). Compartilhado entre a
   // importação de planilha (ImportTableView) e a migração automática de
-  // empreendimentos com id legado incompatível com o tipo UUID do banco.
+  // empreendimentos com id legado incompatível com o formato de id do banco.
   converterLinhasParaUnidades(empId: string, rows: (string | number)[][]): any[] {
     return rows.map(row => {
       const areaPriv = parseM2Number(row[3]);
@@ -138,23 +108,27 @@ export const imoveisService = {
     }).filter(u => u.torre !== '' && u.unidade !== '');
   },
 
-  // Lista todos os empreendimentos (Tenta Supabase, cai para Mock Local)
+  // Lista todos os empreendimentos (Tenta Firestore, cai para Mock Local)
   async listarEmpreendimentos() {
     try {
-      const { data, error } = await supabase.from('empreendimentos').select('*');
-      
-      if (error || !data || data.length === 0) {
-        console.warn('Supabase não configurado ou sem dados. Usando Mock (INITIAL_PRODUCTS).');
+      const snap = await getDocs(collection(db, 'empreendimentos'));
+
+      if (snap.empty) {
+        console.warn('Firestore sem dados de empreendimentos. Usando Mock (INITIAL_PRODUCTS).');
         return INITIAL_PRODUCTS; // Fallback
       }
-      return data;
+      return snap.docs.map(d => {
+        const { conditions_json, ...resto } = d.data();
+        const conditions = desempacotarJson(conditions_json);
+        return { id: d.id, ...resto, ...(conditions !== null ? { conditions } : {}) };
+      });
     } catch (e) {
-      console.warn('Erro ao conectar com Supabase. Usando Mock (INITIAL_PRODUCTS).');
+      console.warn('Erro ao conectar com o Firestore. Usando Mock (INITIAL_PRODUCTS).');
       return INITIAL_PRODUCTS; // Fallback
     }
   },
 
-  // Garante que o empreendimento exista no Supabase (nome, datas de entrega) e, quando
+  // Garante que o empreendimento exista no Firestore (nome, datas de entrega) e, quando
   // fornecida, grava também a política de crédito (conditions), o destaque (is_featured) e
   // a vigência da tabela de vendas atual (tabela_valid_from/to/file_name) — para que essas
   // informações fiquem compartilhadas entre todos os usuários, em vez de cada um ficar com
@@ -171,190 +145,95 @@ export const imoveisService = {
     tabela_file_name?: string;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(emp.id);
-      if (!isUUID) return { success: false, error: 'id não é um UUID válido' };
+      if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id não é um UUID válido' };
 
       const payload: Record<string, unknown> = {
-        id: emp.id,
         nome: emp.nome,
         delivery_date_phase1: emp.delivery_date_phase1 || null,
         delivery_date_phase2: emp.delivery_date_phase2 || null
       };
-      if (emp.conditions !== undefined) payload.conditions = emp.conditions;
+      if (emp.conditions !== undefined) payload.conditions_json = empacotarJson(emp.conditions);
       if (emp.is_featured !== undefined) payload.is_featured = emp.is_featured;
       if (emp.tabela_valid_from !== undefined) payload.tabela_valid_from = emp.tabela_valid_from;
       if (emp.tabela_valid_to !== undefined) payload.tabela_valid_to = emp.tabela_valid_to;
       if (emp.tabela_file_name !== undefined) payload.tabela_file_name = emp.tabela_file_name;
 
-      // Colunas opcionais que podem ainda não existir no schema do Supabase (quem estiver
-      // rodando um banco mais antigo ainda não rodou o ALTER TABLE indicado no topo deste
-      // arquivo). Tenta gravar tudo; se o Supabase reclamar de alguma coluna específica por
-      // não existir, remove só ela do payload e tenta de novo — assim o que já existir no
-      // schema não deixa de ser sincronizado por causa de uma coluna nova ainda pendente.
-      const colunasOpcionais = ['conditions', 'is_featured', 'tabela_valid_from', 'tabela_valid_to', 'tabela_file_name'];
-      let lastError: { code?: string; message?: string } | null = null;
-      for (let tentativa = 0; tentativa <= colunasOpcionais.length; tentativa++) {
-        const { error } = await supabase.from('empreendimentos').upsert([payload], { onConflict: 'id' });
-        if (!error) return { success: true };
-
-        const isMissingColumn = error.code === 'PGRST204' || /column .* does not exist/i.test(String(error.message || ''));
-        if (!isMissingColumn) {
-          return { success: false, error: error.message };
-        }
-
-        const colunaFaltante = colunasOpcionais.find(c => c in payload && new RegExp(c, 'i').test(String(error.message || '')));
-        if (!colunaFaltante) {
-          // Não conseguimos identificar qual coluna está faltando pela mensagem — remove
-          // todas as opcionais ainda presentes de uma vez, para não ficar em loop.
-          const restantes = colunasOpcionais.filter(c => c in payload);
-          if (restantes.length === 0) {
-            return { success: false, error: error.message };
-          }
-          restantes.forEach(c => delete payload[c]);
-          lastError = error;
-          continue;
-        }
-        console.warn(`Aviso: coluna "${colunaFaltante}" não encontrada no Supabase. Rode o ALTER TABLE indicado em imoveisService.ts. Gravando os demais campos por enquanto.`);
-        delete payload[colunaFaltante];
-        lastError = error;
-      }
-      return { success: false, error: lastError?.message || 'Erro ao sincronizar com o banco' };
+      // merge: true = comportamento de upsert (campos não enviados ficam como estão).
+      await setDoc(doc(db, 'empreendimentos', emp.id), payload, { merge: true });
+      return { success: true };
     } catch (e: any) {
-      console.warn('Aviso ao sincronizar empreendimento no Supabase:', e);
-      return { success: false, error: e?.message || 'Erro ao sincronizar com o banco' };
+      console.warn('Aviso ao sincronizar empreendimento no Firestore:', e);
+      return { success: false, error: mensagemDeErro(e, 'Erro ao sincronizar com o banco') };
     }
   },
 
-  // Salva lote de unidades no Supabase e recarrega a lista atualizada com suporte resiliente a esquemas legados
+  // Salva lote de unidades no Firestore e recarrega a lista atualizada
   async salvarUnidadesLote(empId: string, unidades: any[]) {
     if (!unidades || unidades.length === 0) {
       return { success: true, data: [] };
     }
 
-    // Helper para tentar upsert
-    const tryUpsert = async (payload: any[]) => {
-      return await supabase
-        .from('unidades')
-        .upsert(payload, {
-          onConflict: 'empreendimento_id, torre, unidade'
-        });
-    };
-
     try {
-      // 1. Tenta salvar com todas as colunas
-      let { error } = await tryUpsert(unidades);
-
-      // 2. Se a coluna 'itbi_segundo_imovel' ou 'itbi_primeiro_imovel' não existir no schema cache do Supabase
-      if (error && (error.code === 'PGRST204' || String(error.message || '').includes('itbi_segundo_imovel'))) {
-        console.warn('Aviso: Coluna itbi_segundo_imovel não encontrada no Supabase. Removendo do payload e tentando novamente...');
-        const payloadSemItbi2 = unidades.map(u => {
-          const { itbi_segundo_imovel, ...rest } = u;
-          return {
-            ...rest,
-            itbi_total: u.itbi_segundo_imovel || u.itbi_total || u.itbi_primeiro_imovel
-          };
-        });
-        const res2 = await tryUpsert(payloadSemItbi2);
-        error = res2.error;
-
-        // Se ainda falhar por falta de itbi_primeiro_imovel
-        if (error && (error.code === 'PGRST204' || String(error.message || '').includes('itbi_primeiro_imovel'))) {
-          console.warn('Aviso: Coluna itbi_primeiro_imovel não encontrada no Supabase. Removendo do payload...');
-          const payloadBase = payloadSemItbi2.map(u => {
-            const { itbi_primeiro_imovel, ...rest } = u;
-            return rest;
-          });
-          const res3 = await tryUpsert(payloadBase);
-          error = res3.error;
-        }
-      } else if (error && (error.code === 'PGRST204' || String(error.message || '').includes('itbi_primeiro_imovel'))) {
-        console.warn('Aviso: Coluna itbi_primeiro_imovel não encontrada no Supabase. Removendo do payload...');
-        const payloadSemItbi1 = unidades.map(u => {
-          const { itbi_primeiro_imovel, ...rest } = u;
-          return rest;
-        });
-        const res3 = await tryUpsert(payloadSemItbi1);
-        error = res3.error;
-      }
-
-      if (error) {
-        throw error;
-      }
+      await commitEmLotes(unidades, (batch, u) => {
+        batch.set(doc(db, 'unidades', idDaUnidade({ ...u, empreendimento_id: u.empreendimento_id || empId })), u, { merge: true });
+      });
 
       // Recarrega unidades diretamente do banco para garantir consistência
-      const { data: freshUnits, error: fetchErr } = await supabase
-        .from('unidades')
-        .select('*')
-        .eq('empreendimento_id', empId);
-
-      if (fetchErr) {
-        console.warn('Aviso ao recarregar unidades após upsert:', fetchErr);
+      try {
+        const fresh = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', empId)));
+        return { success: true, data: fresh.docs.map(comId) };
+      } catch (fetchErr) {
+        console.warn('Aviso ao recarregar unidades após gravar:', fetchErr);
         return { success: true, data: unidades };
       }
-
-      return { success: true, data: freshUnits || unidades };
     } catch (e: any) {
-      console.error('Erro no salvamento em lote de unidades no Supabase:', e);
-      return { success: false, error: e?.message || 'Erro ao sincronizar com o banco' };
+      console.error('Erro no salvamento em lote de unidades no Firestore:', e);
+      return { success: false, error: mensagemDeErro(e, 'Erro ao sincronizar com o banco') };
     }
   },
 
-  // Limpa/Exclui todas as unidades vinculadas a um empreendimento específico no Supabase
+  // Limpa/Exclui todas as unidades vinculadas a um empreendimento específico
   async limparUnidadesEmpreendimento(empId: string) {
     try {
-      const { error } = await supabase
-        .from('unidades')
-        .delete()
-        .eq('empreendimento_id', empId);
-
-      if (error) {
-        console.error('Erro ao excluir unidades do empreendimento no Supabase:', error);
-        throw error;
-      }
-
+      const snap = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', empId)));
+      await commitEmLotes(snap.docs, (batch, d) => batch.delete(d.ref));
       return { success: true };
     } catch (e: any) {
       console.error('Exceção ao excluir unidades:', e);
-      return { success: false, error: e?.message || 'Falha ao limpar unidades no banco' };
+      return { success: false, error: mensagemDeErro(e, 'Falha ao limpar unidades no banco') };
     }
   },
 
-  // Exclui um empreendimento e suas unidades do Supabase. Sem isso, excluir um
+  // Exclui um empreendimento, suas unidades e suas tabelas arquivadas (o que o
+  // ON DELETE CASCADE fazia no banco anterior). Sem isso, excluir um
   // empreendimento pelo app removia só localmente — o registro continuava no
   // banco e podia "voltar" na próxima sincronização de outro navegador.
   async excluirEmpreendimento(empId: string) {
     try {
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empId);
-      if (!isUUID) return { success: true }; // id local nunca sincronizado, nada a excluir no banco
+      if (!UUID_REGEX.test(empId)) return { success: true }; // id local nunca sincronizado, nada a excluir no banco
 
-      // Remove as unidades primeiro (redundante se houver ON DELETE CASCADE na FK,
-      // mas seguro mesmo se a constraint não existir no schema do usuário).
-      await supabase.from('unidades').delete().eq('empreendimento_id', empId);
-
-      const { error } = await supabase.from('empreendimentos').delete().eq('id', empId);
-      if (error) {
-        console.error('Erro ao excluir empreendimento no Supabase:', error);
-        return { success: false, error: error.message };
-      }
+      const [unidades, arquivadas] = await Promise.all([
+        getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', empId))),
+        getDocs(query(collection(db, 'tabelas_arquivadas'), where('empreendimento_id', '==', empId)))
+      ]);
+      await commitEmLotes([...unidades.docs, ...arquivadas.docs], (batch, d) => batch.delete(d.ref));
+      await deleteDoc(doc(db, 'empreendimentos', empId));
       return { success: true };
     } catch (e: any) {
       console.error('Exceção ao excluir empreendimento:', e);
-      return { success: false, error: e?.message || 'Falha ao excluir empreendimento no banco' };
+      return { success: false, error: mensagemDeErro(e, 'Falha ao excluir empreendimento no banco') };
     }
   },
 
-  // Lista unidades por empreendimento (Tenta Supabase, se falhar tenta Mock)
+  // Lista unidades por empreendimento (Tenta Firestore, se falhar tenta Mock)
   async listarUnidadesPorEmpreendimento(empId: string) {
     try {
-      const { data, error } = await supabase
-        .from('unidades')
-        .select('*')
-        .eq('empreendimento_id', empId);
-      
-      if (error || !data || data.length === 0) {
+      const snap = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', empId)));
+
+      if (snap.empty) {
         throw new Error('Fallback para Mock local');
       }
-      return data.map(u => ({
+      return snap.docs.map(comId).map((u: any) => ({
         ...u,
         area_privativa: parseM2Number(u.area_privativa),
         quintal: parseM2Number(u.quintal),
@@ -403,157 +282,114 @@ export const imoveisService = {
     dados: any;
   }) {
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         cliente_nome: dadosProposta.cliente_nome || 'Cliente Não Informado',
         renda: Number(dadosProposta.renda || 0),
-        dados: dadosProposta.dados
+        dados_json: empacotarJson(dadosProposta.dados),
+        created_at: new Date().toISOString()
       };
 
       // Marca quem criou a proposta — é o que permite, junto das regras de
-      // segurança (RLS) do Supabase, cada usuário ver as próprias simulações
-      // e (quando liberado) as da equipe abaixo dele na hierarquia.
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData?.user?.id) {
-        payload.criado_por = userData.user.id;
+      // segurança do Firestore, cada usuário ver as próprias simulações e
+      // (quando liberado) as da equipe abaixo dele na hierarquia. Guarda
+      // também a cadeia de superiores do criador nesse momento
+      // (`ancestrais_criador`), que é o que dá ao Gerente/Diretor acesso.
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        payload.criado_por = uid;
+        const meuPublico = await getDoc(doc(db, 'perfis_publicos', uid));
+        payload.ancestrais_criador = meuPublico.exists() ? (meuPublico.data().ancestrais || []) : [];
       }
 
-      // Validar se o empreendimento_id é um UUID válido para o Supabase
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dadosProposta.empreendimento_id || '');
-      if (isUUID) {
+      // Só vincula ao empreendimento se o id tiver o formato de id do banco
+      if (UUID_REGEX.test(dadosProposta.empreendimento_id || '')) {
         payload.empreendimento_id = dadosProposta.empreendimento_id;
       }
 
-      let { data, error } = await supabase
-        .from('simulacoes')
-        .insert([payload])
-        .select();
-
-      // Se a coluna criado_por ainda não existir (usuário não rodou a
-      // migração de Acesso & Permissões), grava ao menos sem o dono, para não
-      // perder a simulação enquanto isso.
-      if (error && (error.code === 'PGRST204' || /criado_por/i.test(String(error.message || '')))) {
-        console.warn('Aviso: coluna criado_por não encontrada em `simulacoes`. Rode o SQL indicado em authService.ts para habilitar a visão de propostas por hierarquia. Salvando sem o dono por enquanto.');
-        const { criado_por, ...payloadSemDono } = payload;
-        const res2 = await supabase.from('simulacoes').insert([payloadSemDono]).select();
-        data = res2.data;
-        error = res2.error;
-      }
-
-      if (error) {
-        console.error('Erro ao salvar no Supabase, salvando apenas no console/storage:', error);
-        return { success: false, error: error.message };
-      }
-      return { success: true, data };
+      const ref = await addDoc(collection(db, 'simulacoes'), payload);
+      const { dados_json, ...resto } = payload;
+      return { success: true, data: [{ id: ref.id, ...resto, dados: dadosProposta.dados }] };
     } catch (e: any) {
-      console.warn('Simulação salva em modo offline (Mock):', dadosProposta);
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      console.warn('Erro ao salvar simulação:', e);
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
   // Atualiza uma simulação já existente (usado pelo salvamento automático: em
-  // vez de criar uma linha nova a cada ajuste que a pessoa faz na mesma
-  // simulação, atualiza a mesma linha até ela mudar de torre/unidade/cliente).
+  // vez de criar um documento novo a cada ajuste que a pessoa faz na mesma
+  // simulação, atualiza o mesmo até ela mudar de torre/unidade/cliente).
   async atualizarSimulacao(id: string, dadosProposta: { cliente_nome?: string; renda?: number; empreendimento_id?: string; dados: any }) {
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         cliente_nome: dadosProposta.cliente_nome || 'Cliente Não Informado',
         renda: Number(dadosProposta.renda || 0),
-        dados: dadosProposta.dados
+        dados_json: empacotarJson(dadosProposta.dados)
       };
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dadosProposta.empreendimento_id || '');
-      if (isUUID) {
+      if (UUID_REGEX.test(dadosProposta.empreendimento_id || '')) {
         payload.empreendimento_id = dadosProposta.empreendimento_id;
       }
-      const { data, error } = await supabase.from('simulacoes').update(payload).eq('id', id).select();
-      if (error) {
-        return { success: false, error: error.message };
-      }
-      return { success: true, data };
+      await updateDoc(doc(db, 'simulacoes', id), payload);
+      const { dados_json, ...resto } = payload;
+      return { success: true, data: [{ id, ...resto, dados: dadosProposta.dados }] };
     } catch (e: any) {
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
-  // Lista todas as simulações salvas (mais recentes primeiro). A ordenação é feita
-  // no cliente por dados.salvo_em (sempre presente em toda simulação salva pela
-  // Ficha Sinal c/ Morar ou Sinal c/ Banco Direto), já que o esquema da tabela
-  // `simulacoes` não tem uma coluna de data garantida em todos os projetos.
+  // Lista as simulações salvas que a pessoa logada pode ver (mais recentes
+  // primeiro). A ordenação é feita no cliente por dados.salvo_em (sempre
+  // presente em toda simulação salva pela Ficha Sinal c/ Morar ou Sinal c/
+  // Banco Direto).
   async listarSimulacoes() {
     try {
-      const { data, error } = await supabase.from('simulacoes').select('*');
-      if (error) {
-        console.error('Erro ao listar simulações do Supabase:', error);
-        return { success: false, error: error.message, data: [] as any[] };
-      }
-
-      // Filtra por hierarquia aqui no app (a mesma regra que a Parte 2 do SQL
-      // reforça direto no banco quando for ligada, no dia do lançamento —
-      // até lá, essa é a única camada que impede um Corretor de ver a
-      // simulação de outro). Administrador vê tudo; cada um vê as próprias;
-      // quem tem "ver propostas da equipe" ligado também vê as de quem está
-      // de fato abaixo dele na hierarquia (via a função subordinados_de).
       interface InfoCriador { nome: string; cargo: string; imobiliaria: string; superiorId: string | null }
-      let visiveis = data || [];
-      let infoPorId: Record<string, InfoCriador> = {};
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData?.user?.id;
-      if (uid) {
-        const { data: meuPerfil, error: perfilError } = await supabase.from('perfis').select('id, nome_completo, cargo, imobiliaria, superior_id, ver_propostas_equipe').eq('id', uid).maybeSingle();
-        if (perfilError) {
-          console.warn('Aviso: não foi possível confirmar o perfil de quem está logado ao listar simulações (mostrando só as próprias, por segurança):', perfilError);
-        }
-        if (!meuPerfil) {
-          // Não deu pra confirmar quem é: por segurança, só mostra as próprias.
-          visiveis = visiveis.filter((s: any) => s.criado_por === uid);
-        } else if (meuPerfil.cargo === 'Administrador') {
-          // Administrador já tem leitura livre de `perfis` pela RLS — busca
-          // os dados direto, é mais simples e cobre qualquer criador.
-          const idsCriadores = Array.from(new Set(visiveis.map((s: any) => s.criado_por).filter(Boolean)));
-          if (idsCriadores.length > 0) {
-            const { data: perfis } = await supabase.from('perfis').select('id, nome_completo, cargo, imobiliaria, superior_id').in('id', idsCriadores);
-            infoPorId = Object.fromEntries((perfis || []).map((p: any) => [p.id, { nome: p.nome_completo, cargo: p.cargo, imobiliaria: p.imobiliaria, superiorId: p.superior_id }]));
+      const paraInfo = (p: any): InfoCriador => ({ nome: p.nome_completo, cargo: p.cargo, imobiliaria: p.imobiliaria, superiorId: p.superior_id ?? null });
 
-            // Busca também o nome de quem é superior de algum criador, caso
-            // esse superior não tenha feito nenhuma simulação (por isso não
-            // estaria na lista acima) — é o que permite o filtro "Gerente
-            // responsável" encontrar o Gerente mesmo que ele mesmo nunca
-            // tenha salvo uma proposta.
-            const idsSuperioresFaltando = Array.from(new Set(
-              Object.values(infoPorId).map(i => i.superiorId).filter((sid): sid is string => !!sid && !infoPorId[sid])
-            ));
-            if (idsSuperioresFaltando.length > 0) {
-              const { data: superiores } = await supabase.from('perfis').select('id, nome_completo, cargo, imobiliaria, superior_id').in('id', idsSuperioresFaltando);
-              (superiores || []).forEach((p: any) => {
-                infoPorId[p.id] = { nome: p.nome_completo, cargo: p.cargo, imobiliaria: p.imobiliaria, superiorId: p.superior_id };
-              });
-            }
+      const uid = auth.currentUser?.uid;
+      if (!uid) return { success: true, data: [] as any[] };
+
+      // As regras do Firestore já restringem o que cada um consegue ler;
+      // aqui as consultas pedem exatamente o que a pessoa tem direito de ver.
+      // Administrador vê tudo; cada um vê as próprias; quem tem "ver propostas
+      // da equipe" ligado também vê as de quem está abaixo dele na hierarquia.
+      const meuPerfilSnap = await getDoc(doc(db, 'perfis', uid));
+      const meuPerfil = meuPerfilSnap.exists() ? meuPerfilSnap.data() : null;
+
+      const simulacoesPorId = new Map<string, any>();
+      const juntar = (snap: { docs: { id: string; data: () => DocumentData }[] }) => snap.docs.forEach(d => simulacoesPorId.set(d.id, comId(d)));
+      let infoPorId: Record<string, InfoCriador> = {};
+
+      if (!meuPerfil) {
+        // Não deu pra confirmar quem é: por segurança, só mostra as próprias.
+        juntar(await getDocs(query(collection(db, 'simulacoes'), where('criado_por', '==', uid))));
+      } else if (meuPerfil.cargo === 'Administrador') {
+        juntar(await getDocs(collection(db, 'simulacoes')));
+        const publicos = await getDocs(collection(db, 'perfis_publicos'));
+        publicos.forEach(p => { infoPorId[p.id] = paraInfo(p.data()); });
+      } else {
+        // Quem não é Administrador só lê o espelho público (nome/cargo/
+        // imobiliária/superior) de quem está abaixo — nada de CPF/telefone/e-mail.
+        const meuPublico = await getDoc(doc(db, 'perfis_publicos', uid));
+        infoPorId = { [uid]: paraInfo(meuPublico.exists() ? meuPublico.data() : meuPerfil) };
+        juntar(await getDocs(query(collection(db, 'simulacoes'), where('criado_por', '==', uid))));
+        if (meuPerfil.ver_propostas_equipe) {
+          try {
+            juntar(await getDocs(query(collection(db, 'simulacoes'), where('ancestrais_criador', 'array-contains', uid))));
+            const subordinados = await getDocs(query(collection(db, 'perfis_publicos'), where('ancestrais', 'array-contains', uid)));
+            subordinados.forEach(s => { infoPorId[s.id] = paraInfo(s.data()); });
+          } catch (equipeErr) {
+            console.warn('Aviso: não foi possível buscar as propostas da equipe (a pessoa vai ver só as próprias por enquanto):', equipeErr);
           }
-        } else {
-          // Quem não é Administrador não tem permissão de ler o perfil de
-          // outras pessoas direto na tabela — por isso os dados da equipe vêm
-          // da função nomes_subordinados_de (só id/nome/cargo/imobiliária/
-          // superior, nada de CPF/telefone/e-mail).
-          infoPorId = { [uid]: { nome: meuPerfil.nome_completo, cargo: meuPerfil.cargo, imobiliaria: meuPerfil.imobiliaria, superiorId: meuPerfil.superior_id } };
-          const idsPermitidos = new Set<string>([uid]);
-          if (meuPerfil.ver_propostas_equipe) {
-            const { data: subordinados, error: rpcError } = await supabase.rpc('nomes_subordinados_de', { usuario_id: uid });
-            if (rpcError) {
-              console.warn('Aviso: não foi possível buscar os subordinados ao listar simulações (a pessoa vai ver só as próprias propostas por enquanto):', rpcError);
-            }
-            (subordinados || []).forEach((s: any) => {
-              idsPermitidos.add(s.id);
-              infoPorId[s.id] = { nome: s.nome_completo, cargo: s.cargo, imobiliaria: s.imobiliaria, superiorId: s.superior_id };
-            });
-          }
-          visiveis = visiveis.filter((s: any) => s.criado_por && idsPermitidos.has(s.criado_por));
         }
       }
 
-      const comCriador = visiveis.map((s: any) => {
+      const comCriador = Array.from(simulacoesPorId.values()).map((s: any) => {
+        const { dados_json, ...resto } = s;
         const info = s.criado_por ? infoPorId[s.criado_por] : null;
         const gerenteInfo = info?.superiorId ? infoPorId[info.superiorId] : null;
         return {
-          ...s,
+          ...resto,
+          dados: desempacotarJson(dados_json) ?? {},
           criado_por_nome: info?.nome || null,
           criado_por_cargo: info?.cargo || null,
           criado_por_imobiliaria: info?.imobiliaria || null,
@@ -569,42 +405,35 @@ export const imoveisService = {
       return { success: true, data: ordenadas };
     } catch (e: any) {
       console.warn('Erro ao listar simulações:', e);
-      return { success: false, error: e?.message || 'Erro de conexão', data: [] as any[] };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão'), data: [] as any[] };
     }
   },
 
   // Exclui uma simulação salva pelo id
   async excluirSimulacao(id: string) {
     try {
-      const { error } = await supabase.from('simulacoes').delete().eq('id', id);
-      if (error) {
-        console.error('Erro ao excluir simulação no Supabase:', error);
-        return { success: false, error: error.message };
-      }
+      await deleteDoc(doc(db, 'simulacoes', id));
       return { success: true };
     } catch (e: any) {
       console.warn('Erro ao excluir simulação:', e);
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
   // Exclui várias simulações salvas de uma vez (seleção em lote na tela de
-  // Simulações Salvas). O RLS de `simulacoes` já restringe quais linhas cada
+  // Simulações Salvas). As regras do Firestore restringem quais documentos cada
   // usuário pode de fato apagar (a própria, ou qualquer uma se Administrador)
-  // — por isso devolvemos quantas foram realmente excluídas (via `.select()`
-  // no delete), para avisar quando o lote pedido for maior que o permitido.
+  // — por isso cada exclusão é tentada separadamente e devolvemos quantas
+  // foram realmente excluídas, para avisar quando o lote pedido for maior que
+  // o permitido.
   async excluirSimulacoesEmLote(ids: string[]) {
     if (ids.length === 0) return { success: true, excluidas: 0 };
     try {
-      const { data, error } = await supabase.from('simulacoes').delete().in('id', ids).select('id');
-      if (error) {
-        console.error('Erro ao excluir simulações em lote no Supabase:', error);
-        return { success: false, error: error.message };
-      }
-      return { success: true, excluidas: data?.length ?? 0 };
+      const resultados = await Promise.allSettled(ids.map(id => deleteDoc(doc(db, 'simulacoes', id))));
+      return { success: true, excluidas: resultados.filter(r => r.status === 'fulfilled').length };
     } catch (e: any) {
       console.warn('Erro ao excluir simulações em lote:', e);
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
@@ -622,25 +451,20 @@ export const imoveisService = {
       return { success: true };
     }
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const payload: Record<string, unknown> = {
+      await addDoc(collection(db, 'tabelas_arquivadas'), {
         empreendimento_id: empId,
         nome_empreendimento: nomeEmpreendimento,
         file_name: tableInfo.fileName || null,
         valid_from: tableInfo.validFrom || null,
         valid_to: tableInfo.validTo || null,
-        rows: tableInfo.rows,
-        arquivado_por: userData?.user?.id || null
-      };
-      const { error } = await supabase.from('tabelas_arquivadas').insert([payload]);
-      if (error) {
-        console.warn('Aviso ao arquivar tabela de vendas anterior:', error.message);
-        return { success: false, error: error.message };
-      }
+        rows_json: empacotarJson(tableInfo.rows),
+        arquivado_em: new Date().toISOString(),
+        arquivado_por: auth.currentUser?.uid || null
+      });
       return { success: true };
     } catch (e: any) {
       console.warn('Erro ao arquivar tabela de vendas anterior:', e);
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
@@ -648,14 +472,14 @@ export const imoveisService = {
   // informado, restringe ao empreendimento; caso contrário lista de todos (tela geral).
   async listarTabelasArquivadas(empId?: string): Promise<any[]> {
     try {
-      let query = supabase.from('tabelas_arquivadas').select('*').order('arquivado_em', { ascending: false });
-      if (empId) query = query.eq('empreendimento_id', empId);
-      const { data, error } = await query;
-      if (error) {
-        console.warn('Aviso ao listar tabelas arquivadas:', error.message);
-        return [];
-      }
-      return data || [];
+      const base = collection(db, 'tabelas_arquivadas');
+      const snap = await getDocs(empId ? query(base, where('empreendimento_id', '==', empId)) : base);
+      return snap.docs
+        .map(d => {
+          const { rows_json, ...resto } = d.data();
+          return { id: d.id, ...resto, rows: desempacotarJson(rows_json) ?? [] };
+        })
+        .sort((a: any, b: any) => String(b.arquivado_em || '').localeCompare(String(a.arquivado_em || '')));
     } catch (e) {
       console.warn('Erro ao listar tabelas arquivadas:', e);
       return [];
@@ -665,82 +489,49 @@ export const imoveisService = {
   // Exclui definitivamente uma tabela arquivada.
   async excluirTabelaArquivada(id: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await supabase.from('tabelas_arquivadas').delete().eq('id', id);
-      if (error) {
-        return { success: false, error: error.message };
-      }
+      await deleteDoc(doc(db, 'tabelas_arquivadas', id));
       return { success: true };
     } catch (e: any) {
       console.warn('Erro ao excluir tabela arquivada:', e);
-      return { success: false, error: e?.message || 'Erro de conexão' };
+      return { success: false, error: mensagemDeErro(e, 'Erro de conexão') };
     }
   },
 
-  // Rotina de Inicialização Automática (Verifica e insere dados iniciais se vazio)
+  // Rotina de Inicialização Automática (insere dados iniciais se o banco estiver vazio).
+  // A antiga verificação que relia TODAS as unidades a cada abertura do app, para
+  // corrigir áreas sem ponto decimal vindas de importações antigas, não foi mantida: no
+  // Firestore cobra-se por documento lido, e um banco novo não tem esse legado (a
+  // importação já normaliza as áreas com parseM2Number).
   async inicializarBancoSeNecessario() {
     try {
-      // 1. Verifica se a tabela 'empreendimentos' existe e se tem dados
-      const { data: emps, error: errEmp } = await supabase.from('empreendimentos').select('id').limit(1);
-      
-      if (errEmp) {
-        console.warn('As tabelas do Supabase ainda não existem. Por favor, execute o script SQL de criação no Supabase Editor.', errEmp.message);
-        return;
-      }
+      const emps = await getDocs(query(collection(db, 'empreendimentos'), limit(1)));
 
-      // Se a tabela estiver vazia, faz o Seed inicial
-      if (!emps || emps.length === 0) {
-        console.log('Tabela de empreendimentos vazia. Iniciando carga automática dos dados iniciais...');
-        
-        const empId = '11111111-1111-1111-1111-111111111111';
-        
-        const { error: insertEmpErr } = await supabase.from('empreendimentos').upsert([{
-          id: empId,
-          nome: 'Vista dos Colibris',
-          delivery_date_phase1: '2026-02-28',
-          delivery_date_phase2: '2027-02-28'
-        }], { onConflict: 'id' });
+      if (!emps.empty) return;
 
-        if (insertEmpErr && insertEmpErr.code !== '23505') {
-          console.error('Erro ao inserir empreendimento de teste:', insertEmpErr);
-          return;
-        }
+      console.log('Coleção de empreendimentos vazia. Iniciando carga automática dos dados iniciais...');
 
-        const { success: insertSuccess, error: insertUnitsErr } = await this.salvarUnidadesLote(empId, [
-          { empreendimento_id: empId, torre: 'D', unidade: '303', tipologia: '2Q', area_privativa: 44.02, quintal: 0.00, preco_tabela: 241902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
-          { empreendimento_id: empId, torre: 'D', unidade: '801', tipologia: '2Q', area_privativa: 42.14, quintal: 0.00, preco_tabela: 246902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
-          { empreendimento_id: empId, torre: 'C', unidade: '304', tipologia: '2Q', area_privativa: 44.02, quintal: 0.00, preco_tabela: 239902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
-          { empreendimento_id: empId, torre: 'C', unidade: '308', tipologia: '2Q', area_privativa: 43.50, quintal: 0.00, preco_tabela: 241902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' }
-        ]);
+      const empId = '11111111-1111-1111-1111-111111111111';
 
-        if (!insertSuccess) {
-          console.error('Erro ao inserir unidades de teste:', insertUnitsErr);
-        } else {
-          console.log('Carga inicial concluída com sucesso! (Vista dos Colibris)');
-        }
+      await setDoc(doc(db, 'empreendimentos', empId), {
+        nome: 'Vista dos Colibris',
+        delivery_date_phase1: '2026-02-28',
+        delivery_date_phase2: '2027-02-28'
+      }, { merge: true });
+
+      const { success: insertSuccess, error: insertUnitsErr } = await this.salvarUnidadesLote(empId, [
+        { empreendimento_id: empId, torre: 'D', unidade: '303', tipologia: '2Q', area_privativa: 44.02, quintal: 0.00, preco_tabela: 241902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
+        { empreendimento_id: empId, torre: 'D', unidade: '801', tipologia: '2Q', area_privativa: 42.14, quintal: 0.00, preco_tabela: 246902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
+        { empreendimento_id: empId, torre: 'C', unidade: '304', tipologia: '2Q', area_privativa: 44.02, quintal: 0.00, preco_tabela: 239902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' },
+        { empreendimento_id: empId, torre: 'C', unidade: '308', tipologia: '2Q', area_privativa: 43.50, quintal: 0.00, preco_tabela: 241902.00, avaliacao_bancaria: 218000.00, itbi_total: 19230.00, itbi_primeiro_imovel: 4806.00, itbi_segundo_imovel: 19230.00, status: 'DISPONÍVEL' }
+      ]);
+
+      if (!insertSuccess) {
+        console.error('Erro ao inserir unidades de teste:', insertUnitsErr);
       } else {
-        console.log('Banco de dados já contém dados. Verificando integridade das áreas...');
-        try {
-          const { data: unitsToFix } = await supabase.from('unidades').select('*');
-          if (unitsToFix && unitsToFix.length > 0) {
-            const corruptedUnits = unitsToFix.filter(u => Number(u.area_privativa) >= 200 || Number(u.quintal) >= 200);
-            if (corruptedUnits.length > 0) {
-              const fixedUnits = corruptedUnits.map(u => ({
-                ...u,
-                area_privativa: parseM2Number(u.area_privativa),
-                quintal: parseM2Number(u.quintal)
-              }));
-              await supabase.from('unidades').upsert(fixedUnits, { onConflict: 'empreendimento_id, torre, unidade' });
-              console.log(`Corrigidas ${fixedUnits.length} unidades com área sem ponto decimal no Supabase.`);
-            }
-          }
-        } catch (cleanErr) {
-          console.warn('Aviso ao verificar integridade das unidades:', cleanErr);
-        }
+        console.log('Carga inicial concluída com sucesso! (Vista dos Colibris)');
       }
-
     } catch (err) {
       console.warn('Falha silenciosa na rotina de inicialização do banco.', err);
     }
   }
 };
-

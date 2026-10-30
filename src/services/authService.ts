@@ -1,447 +1,52 @@
-import { supabase } from '../lib/supabaseClient';
+import {
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut
+} from 'firebase/auth';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
+  writeBatch,
+  type WriteBatch
+} from 'firebase/firestore';
+import { auth, db } from '../lib/firebaseClient';
+import { commitEmLotes, mensagemDeErro } from '../lib/firestoreUtils';
 import { Cargo, PerfilUsuario, StatusConta } from '../types';
 
 /*
- * SQL DE CRIAÇÃO DO BANCO DE DADOS — ACESSO & PERMISSÕES
- * =======================================================
- * Execute no SQL Editor do seu projeto Supabase, em DUAS ETAPAS SEPARADAS —
- * elas têm janelas de risco diferentes para quem já usa o app hoje, sem login.
+ * ESTRUTURA DO FIRESTORE — ACESSO & PERMISSÕES
+ * =============================================
+ * As regras de segurança ficam em `firestore.rules` (na raiz do projeto) e
+ * precisam ser publicadas no Firebase (Console > Firestore > Regras, ou
+ * `firebase deploy --only firestore:rules`). Coleções usadas aqui:
  *
- * ┌───────────────────────────────────────────────────────────────────────┐
- * │ PARTE 1 — pode rodar A QUALQUER MOMENTO, inclusive antes do merge.     │
- * │ Só cria coisas novas (tabela, coluna, funções) que o app de hoje nem   │
- * │ sabe que existem — não muda nada do que já está no ar.                │
- * └───────────────────────────────────────────────────────────────────────┘
+ * perfis/{uid}                    Dados privados do usuário (e-mail, CPF, telefone,
+ *                                 cargo, status, permissões...). O id é o uid do
+ *                                 Firebase Auth. A senha fica só no Firebase Auth.
+ * perfis_publicos/{uid}           Espelho SEM dados sensíveis (nome, cargo, imobiliária,
+ *                                 superior, empreendimentos liberados e `ancestrais`).
+ *                                 É o que substitui as funções SQL subordinados_de /
+ *                                 nomes_subordinados_de / empreendimentos_liberados_efetivos:
+ *                                 `ancestrais` guarda a cadeia de superiores (do direto ao
+ *                                 topo), mantida por este arquivo sempre que o superior muda.
+ * permissoes_padrao_por_cargo/{cargo}
+ * empreendimentos_padrao_por_cargo/{cargo}
  *
- * -- 1) Tabela de perfis (dados de negócio de cada usuário; a senha em si fica
- * --    guardada, criptografada, pelo próprio Supabase Auth — nunca aqui).
- * CREATE TABLE perfis (
- *   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
- *   email TEXT NOT NULL,
- *   nome_completo TEXT NOT NULL,
- *   telefone TEXT NOT NULL,
- *   cpf TEXT NOT NULL,
- *   imobiliaria TEXT NOT NULL,
- *   creci TEXT,
- *   cargo TEXT NOT NULL,
- *   superior_id UUID REFERENCES perfis(id) ON DELETE SET NULL,
- *   status TEXT NOT NULL DEFAULT 'pendente',
- *   telas_liberadas TEXT[] NOT NULL DEFAULT '{}',
- *   ver_propostas_equipe BOOLEAN NOT NULL DEFAULT false,
- *   created_at TIMESTAMPTZ DEFAULT now()
- * );
- *
- * -- 2) Gatilho: assim que uma conta é criada no Supabase Auth (signUp), cria
- * --    automaticamente a linha correspondente em `perfis`, lendo os dados do
- * --    cadastro (nome, CPF, cargo etc.) que o app manda como metadata. É o
- * --    banco fazendo essa gravação por dentro (SECURITY DEFINER), então não
- * --    esbarra na regra de segurança que só libera o próprio usuário depois
- * --    que ele confirma o e-mail (nesse momento inicial ainda não há sessão).
- * CREATE OR REPLACE FUNCTION public.handle_new_user()
- * RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
- * BEGIN
- *   INSERT INTO public.perfis (id, email, nome_completo, telefone, cpf, imobiliaria, creci, cargo, status, telas_liberadas, ver_propostas_equipe)
- *   VALUES (
- *     NEW.id,
- *     NEW.email,
- *     COALESCE(NEW.raw_user_meta_data->>'nome_completo', ''),
- *     COALESCE(NEW.raw_user_meta_data->>'telefone', ''),
- *     COALESCE(NEW.raw_user_meta_data->>'cpf', ''),
- *     COALESCE(NEW.raw_user_meta_data->>'imobiliaria', ''),
- *     NEW.raw_user_meta_data->>'creci',
- *     COALESCE(NEW.raw_user_meta_data->>'cargo', 'Corretor'),
- *     'pendente',
- *     '{}',
- *     false
- *   );
- *   RETURN NEW;
- * END;
- * $$;
- * CREATE TRIGGER on_auth_user_created
- *   AFTER INSERT ON auth.users
- *   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
- *
- * -- 3) Coluna de "dono" em cada simulação salva, para saber quem criou e
- * --    permitir a visão por hierarquia (Gerente/Diretor vendo a equipe).
- * ALTER TABLE simulacoes ADD COLUMN IF NOT EXISTS criado_por UUID REFERENCES auth.users(id) ON DELETE SET NULL;
- *
- * -- 4) Função auxiliar: este usuário é um Administrador ativo? Precisa ser
- * --    SECURITY DEFINER para não cair em recursão infinita quando usada
- * --    dentro de uma policy da própria tabela `perfis`.
- * CREATE OR REPLACE FUNCTION public.is_admin(usuario_id UUID)
- * RETURNS BOOLEAN LANGUAGE SQL SECURITY DEFINER SET search_path = public AS $$
- *   SELECT EXISTS (
- *     SELECT 1 FROM perfis WHERE id = usuario_id AND cargo = 'Administrador' AND status = 'ativo'
- *   );
- * $$;
- *
- * -- 5) Função auxiliar: lista os ids de todos os subordinados (diretos e
- * --    indiretos) de um usuário, sem expor nome/CPF/telefone de ninguém —
- * --    é o que permite Gerente/Diretor verem as propostas da equipe. O limite
- * --    de profundidade (20 níveis) é só uma proteção contra um ciclo acidental
- * --    de "superior hierárquico" travar a consulta; a tela de Administrador já
- * --    evita criar ciclos ao escolher o superior de alguém.
- * CREATE OR REPLACE FUNCTION public.subordinados_de(usuario_id UUID)
- * RETURNS TABLE(id UUID) LANGUAGE SQL SECURITY DEFINER SET search_path = public AS $$
- *   WITH RECURSIVE arvore AS (
- *     SELECT p.id, 1 AS profundidade FROM perfis p WHERE p.superior_id = usuario_id
- *     UNION ALL
- *     SELECT p.id, a.profundidade + 1 FROM perfis p INNER JOIN arvore a ON p.superior_id = a.id
- *     WHERE a.profundidade < 20
- *   )
- *   SELECT id FROM arvore;
- * $$;
- *
- * -- 5b) Igual à de cima, mas também traz NOME, CARGO, IMOBILIÁRIA e o
- * --     SUPERIOR de cada subordinado — é o que permite mostrar "Feito por:
- * --     <nome> — <cargo> — <imobiliária>" e filtrar por "Gerente
- * --     responsável" nas propostas da equipe, sem dar acesso ao perfil
- * --     completo (CPF, telefone, e-mail) de quem está abaixo dele. Se você
- * --     já rodou uma versão anterior desta função, rode a linha de DROP
- * --     abaixo antes do CREATE — o Postgres não deixa trocar as colunas de
- * --     retorno de uma função existente sem apagar e recriar.
- * DROP FUNCTION IF EXISTS public.nomes_subordinados_de(UUID);
- * CREATE OR REPLACE FUNCTION public.nomes_subordinados_de(usuario_id UUID)
- * RETURNS TABLE(id UUID, nome_completo TEXT, cargo TEXT, imobiliaria TEXT, superior_id UUID) LANGUAGE SQL SECURITY DEFINER SET search_path = public AS $$
- *   WITH RECURSIVE arvore AS (
- *     SELECT p.id, 1 AS profundidade FROM perfis p WHERE p.superior_id = usuario_id
- *     UNION ALL
- *     SELECT p.id, a.profundidade + 1 FROM perfis p INNER JOIN arvore a ON p.superior_id = a.id
- *     WHERE a.profundidade < 20
- *   )
- *   SELECT p.id, p.nome_completo, p.cargo, p.imobiliaria, p.superior_id FROM perfis p WHERE p.id IN (SELECT id FROM arvore);
- * $$;
- * GRANT EXECUTE ON FUNCTION public.is_admin(UUID) TO authenticated;
- * GRANT EXECUTE ON FUNCTION public.subordinados_de(UUID) TO authenticated;
- * GRANT EXECUTE ON FUNCTION public.nomes_subordinados_de(UUID) TO authenticated;
- *
- * -- 6) Segurança por linha (RLS) da tabela de perfis.
- * ALTER TABLE perfis ENABLE ROW LEVEL SECURITY;
- * CREATE POLICY "ver_proprio_perfil_ou_admin_ve_todos" ON perfis
- *   FOR SELECT USING (auth.uid() = id OR public.is_admin(auth.uid()));
- * -- Cadastro público só pode criar o PRÓPRIO perfil, e sempre como pendente
- * -- (impede alguém de se autoaprovar mandando status=ativo pela requisição).
- * CREATE POLICY "cadastro_cria_proprio_perfil_pendente" ON perfis
- *   FOR INSERT WITH CHECK (auth.uid() = id AND status = 'pendente');
- * -- Só o Administrador aprova, muda cargo/hierarquia/permissões, pausa ou exclui.
- * CREATE POLICY "admin_atualiza_qualquer_perfil" ON perfis
- *   FOR UPDATE USING (public.is_admin(auth.uid()));
- * CREATE POLICY "admin_exclui_qualquer_perfil" ON perfis
- *   FOR DELETE USING (public.is_admin(auth.uid()));
- * -- (RLS na tabela `perfis` é segura de ligar já: o app de hoje, no ar, nunca
- * -- lê nem grava nessa tabela — só o código deste PR usa ela.)
- *
- * -- 6b) Coluna com os campos do cadastro (ver CAMPOS_EDITAVEIS_EQUIPE em
- * --     src/config/telasApp.ts) que este usuário está autorizado, pelo
- * --     Administrador, a editar no cadastro de quem está abaixo dele na
- * --     hierarquia — ex.: um Gerente autorizado a corrigir só telefone e
- * --     imobiliária dos próprios corretores.
- * ALTER TABLE perfis ADD COLUMN IF NOT EXISTS campos_editaveis_equipe TEXT[] NOT NULL DEFAULT '{}';
- *
- * -- 6c) Função protegida que aplica a edição do cadastro de um subordinado.
- * --     Roda como SECURITY DEFINER (o Diretor/Gerente comum não tem permissão
- * --     de UPDATE direta em `perfis` — só o Administrador tem, pela policy
- * --     "admin_atualiza_qualquer_perfil"), mas revalida TUDO por dentro antes
- * --     de gravar qualquer coisa: (1) `subordinado_id` precisa estar na árvore
- * --     de `subordinados_de(auth.uid())`, senão nem é gente de baixo dele; (2)
- * --     cada campo só é gravado se a chave correspondente estiver presente no
- * --     `campos_editaveis_equipe` do próprio usuário logado — ou seja, a
- * --     autorização é sempre a que o Administrador concedeu, nunca a que o
- * --     app manda pedindo. Isso é o que garante a regra mesmo que alguém tente
- * --     chamar a função direto, pulando a tela.
- * CREATE OR REPLACE FUNCTION public.editar_cadastro_subordinado(
- *   subordinado_id UUID,
- *   novo_nome TEXT DEFAULT NULL,
- *   novo_telefone TEXT DEFAULT NULL,
- *   novo_cpf TEXT DEFAULT NULL,
- *   nova_imobiliaria TEXT DEFAULT NULL,
- *   novo_creci TEXT DEFAULT NULL,
- *   limpar_creci BOOLEAN DEFAULT FALSE,
- *   novo_cargo TEXT DEFAULT NULL,
- *   novo_superior_id UUID DEFAULT NULL,
- *   limpar_superior BOOLEAN DEFAULT FALSE,
- *   novas_telas TEXT[] DEFAULT NULL,
- *   novos_empreendimentos TEXT[] DEFAULT NULL,
- *   limpar_empreendimentos BOOLEAN DEFAULT FALSE
- * ) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
- * DECLARE
- *   permissoes TEXT[];
- * BEGIN
- *   IF NOT EXISTS (SELECT 1 FROM public.subordinados_de(auth.uid()) WHERE id = subordinado_id) THEN
- *     RAISE EXCEPTION 'Esse usuário não está na sua hierarquia.';
- *   END IF;
- *
- *   SELECT campos_editaveis_equipe INTO permissoes FROM perfis WHERE id = auth.uid();
- *
- *   IF novo_nome IS NOT NULL THEN
- *     IF NOT ('nome' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o nome.'; END IF;
- *     UPDATE perfis SET nome_completo = novo_nome WHERE id = subordinado_id;
- *   END IF;
- *   IF novo_telefone IS NOT NULL THEN
- *     IF NOT ('telefone' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o telefone.'; END IF;
- *     UPDATE perfis SET telefone = novo_telefone WHERE id = subordinado_id;
- *   END IF;
- *   IF novo_cpf IS NOT NULL THEN
- *     IF NOT ('cpf' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o CPF.'; END IF;
- *     UPDATE perfis SET cpf = novo_cpf WHERE id = subordinado_id;
- *   END IF;
- *   IF nova_imobiliaria IS NOT NULL THEN
- *     IF NOT ('imobiliaria' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar a imobiliária.'; END IF;
- *     UPDATE perfis SET imobiliaria = nova_imobiliaria WHERE id = subordinado_id;
- *   END IF;
- *   IF novo_creci IS NOT NULL OR limpar_creci THEN
- *     IF NOT ('creci' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o CRECI.'; END IF;
- *     UPDATE perfis SET creci = CASE WHEN limpar_creci THEN NULL ELSE novo_creci END WHERE id = subordinado_id;
- *   END IF;
- *   IF novo_cargo IS NOT NULL THEN
- *     IF NOT ('cargo' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o cargo.'; END IF;
- *     UPDATE perfis SET cargo = novo_cargo WHERE id = subordinado_id;
- *   END IF;
- *   IF novo_superior_id IS NOT NULL OR limpar_superior THEN
- *     IF NOT ('superior' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar o superior hierárquico.'; END IF;
- *     UPDATE perfis SET superior_id = CASE WHEN limpar_superior THEN NULL ELSE novo_superior_id END WHERE id = subordinado_id;
- *   END IF;
- *   IF novas_telas IS NOT NULL THEN
- *     IF NOT ('telas' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar as telas liberadas.'; END IF;
- *     UPDATE perfis SET telas_liberadas = novas_telas WHERE id = subordinado_id;
- *   END IF;
- *   IF novos_empreendimentos IS NOT NULL OR limpar_empreendimentos THEN
- *     IF NOT ('empreendimentos' = ANY(permissoes)) THEN RAISE EXCEPTION 'Sem permissão para editar os empreendimentos liberados.'; END IF;
- *     UPDATE perfis SET empreendimentos_liberados = CASE WHEN limpar_empreendimentos THEN NULL ELSE novos_empreendimentos END WHERE id = subordinado_id;
- *   END IF;
- *
- *   RETURN TRUE;
- * END;
- * $$;
- *
- * -- 6d) Lista, para quem tem ALGUMA permissão de campos_editaveis_equipe, os
- * --     próprios subordinados com os dados básicos necessários pra montar o
- * --     formulário de edição na tela (sem CPF completo nem e-mail — só o que
- * --     é de fato editável). Quem não tem nenhum campo autorizado recebe uma
- * --     lista vazia, mesmo que tente chamar a função direto — é uma segunda
- * --     camada de proteção, além da tela só mostrar a seção pra quem tem
- * --     `camposEditaveisEquipe` não vazio.
- * -- Atenção: como esta função é `plpgsql` e usa RETURNS TABLE(id UUID, ...),
- * -- o Postgres declara `id` como variável interna automaticamente — uma
- * -- referência a `id` sem qualificar a tabela (ex.: `WHERE id = usuario_id`)
- * -- fica ambígua entre a coluna `perfis.id` e essa variável, e a função falha
- * -- (com erro) toda vez que é chamada. Por isso o alias `pf` abaixo é
- * -- obrigatório, não cosmético.
- * -- Atenção: se você já rodou uma versão anterior desta função (antes do campo
- * -- `empreendimentos_liberados` existir), rode a linha de DROP abaixo antes do
- * -- CREATE — mesmo motivo do aviso de nomes_subordinados_de logo acima.
- * DROP FUNCTION IF EXISTS public.dados_equipe_para_edicao(UUID);
- * CREATE OR REPLACE FUNCTION public.dados_equipe_para_edicao(usuario_id UUID)
- * RETURNS TABLE(id UUID, nome_completo TEXT, telefone TEXT, cpf TEXT, imobiliaria TEXT, creci TEXT, cargo TEXT, superior_id UUID, telas_liberadas TEXT[], empreendimentos_liberados TEXT[])
- * LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
- * BEGIN
- *   IF usuario_id <> auth.uid() THEN
- *     RAISE EXCEPTION 'Só é possível consultar a própria equipe.';
- *   END IF;
- *   IF NOT EXISTS (SELECT 1 FROM perfis pf WHERE pf.id = usuario_id AND array_length(pf.campos_editaveis_equipe, 1) > 0) THEN
- *     RETURN;
- *   END IF;
- *   RETURN QUERY
- *     SELECT p.id, p.nome_completo, p.telefone, p.cpf, p.imobiliaria, p.creci, p.cargo, p.superior_id, p.telas_liberadas, p.empreendimentos_liberados
- *     FROM perfis p WHERE p.id IN (SELECT sub.id FROM public.subordinados_de(usuario_id) sub);
- * END;
- * $$;
- *
- * GRANT EXECUTE ON FUNCTION public.editar_cadastro_subordinado(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, BOOLEAN, TEXT, UUID, BOOLEAN, TEXT[], TEXT[], BOOLEAN) TO authenticated;
- * GRANT EXECUTE ON FUNCTION public.dados_equipe_para_edicao(UUID) TO authenticated;
- *
- * -- 6f) Empreendimentos (produtos) que cada usuário tem permissão de ver e usar
- * --     nas simulações — controla, por hierarquia, quem enxerga qual produto. Regra:
- * --     NULL = "segue automaticamente a hierarquia" (herda do superior direto, subindo
- * --     até achar alguém com uma lista definida, ou até o padrão do cargo de quem está
- * --     no topo). Qualquer array, mesmo vazio, é uma trava manual explícita — vence
- * --     sempre a herança, até que alguém edite de novo para "seguir automaticamente".
- * ALTER TABLE perfis ADD COLUMN IF NOT EXISTS empreendimentos_liberados TEXT[] NULL;
- *
- * -- Padrão por cargo: usado só quando a busca acima chega ao topo da hierarquia (a
- * --     pessoa não tem superior) e ainda assim não encontrou nenhuma trava manual no
- * --     caminho — nesse caso, cai no padrão configurado para o cargo dessa pessoa do
- * --     topo. Sem linha para o cargo (ou tabela vazia) = sem restrição nenhuma, mostra
- * --     todos os empreendimentos (mesmo default seguro usado em toda parte do app).
- * CREATE TABLE IF NOT EXISTS empreendimentos_padrao_por_cargo (
- *   cargo TEXT PRIMARY KEY,
- *   empreendimentos_liberados TEXT[] NOT NULL DEFAULT '{}'
- * );
- * ALTER TABLE empreendimentos_padrao_por_cargo ENABLE ROW LEVEL SECURITY;
- * CREATE POLICY "logados_leem_empreendimentos_padrao_por_cargo" ON empreendimentos_padrao_por_cargo
- *   FOR SELECT USING (auth.role() = 'authenticated');
- * CREATE POLICY "admin_grava_empreendimentos_padrao_por_cargo" ON empreendimentos_padrao_por_cargo
- *   FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
- *
- * -- Função que resolve, em tempo real (sempre lida do banco, nunca uma cópia
- * --     congelada), a lista efetiva de empreendimentos liberados para o próprio
- * --     usuário logado — sobe a árvore de `superior_id` até achar a primeira trava
- * --     manual (empreendimentos_liberados NOT NULL); se chegar ao topo sem achar
- * --     nenhuma, cai no padrão do cargo de quem está no topo. NULL de volta = sem
- * --     nenhuma restrição configurada em lugar nenhum da cadeia (o app mostra todos os
- * --     empreendimentos, é o default seguro). Só é possível consultar o próprio id —
- * --     mesma trava de `dados_equipe_para_edicao`.
- * CREATE OR REPLACE FUNCTION public.empreendimentos_liberados_efetivos(usuario_id UUID)
- * RETURNS TEXT[] LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
- * DECLARE
- *   atual_id UUID;
- *   atual_lista TEXT[];
- *   atual_cargo TEXT;
- *   profundidade INT := 0;
- * BEGIN
- *   IF usuario_id <> auth.uid() THEN
- *     RAISE EXCEPTION 'Só é possível consultar os próprios empreendimentos liberados.';
- *   END IF;
- *
- *   atual_id := usuario_id;
- *   WHILE atual_id IS NOT NULL AND profundidade < 20 LOOP
- *     SELECT p.empreendimentos_liberados, p.cargo, p.superior_id
- *       INTO atual_lista, atual_cargo, atual_id
- *       FROM perfis p WHERE p.id = atual_id;
- *
- *     IF atual_lista IS NOT NULL THEN
- *       RETURN atual_lista;
- *     END IF;
- *
- *     IF atual_id IS NULL THEN
- *       RETURN (SELECT epc.empreendimentos_liberados FROM empreendimentos_padrao_por_cargo epc WHERE epc.cargo = atual_cargo);
- *     END IF;
- *
- *     profundidade := profundidade + 1;
- *   END LOOP;
- *
- *   RETURN NULL;
- * END;
- * $$;
- * GRANT EXECUTE ON FUNCTION public.empreendimentos_liberados_efetivos(UUID) TO authenticated;
- *
- * -- 6e) Proprietário: existe no máximo UM usuário com proprietario=true no
- * --     sistema inteiro (índice único abaixo garante isso no banco, não só na
- * --     tela). É quem "é dono" do aplicativo — mesmo sendo Administrador como
- * --     qualquer outro, só ele mesmo pode editar, pausar ou excluir o próprio
- * --     cadastro; nenhum outro Administrador consegue tocar nele. A troca de
- * --     dono só acontece pela função transferir_propriedade, nunca por um
- * --     UPDATE comum — o gatilho abaixo BLOQUEIA qualquer tentativa de mudar
- * --     essa coluna fora dessa função, mesmo vinda do próprio dono editando a
- * --     si mesmo por engano.
- * ALTER TABLE perfis ADD COLUMN IF NOT EXISTS proprietario BOOLEAN NOT NULL DEFAULT false;
- * CREATE UNIQUE INDEX IF NOT EXISTS um_unico_proprietario ON perfis ((proprietario)) WHERE proprietario = true;
- *
- * -- Defina o dono inicial (troque o e-mail abaixo se não for o seu):
- * UPDATE perfis SET proprietario = true WHERE email = 'calazansvendas@gmail.com';
- *
- * CREATE OR REPLACE FUNCTION public.protege_coluna_proprietario()
- * RETURNS TRIGGER LANGUAGE plpgsql AS $$
- * BEGIN
- *   IF NEW.proprietario IS DISTINCT FROM OLD.proprietario
- *      AND COALESCE(current_setting('app.permitir_transferencia', true), '') <> 'true' THEN
- *     NEW.proprietario := OLD.proprietario;
- *   END IF;
- *   RETURN NEW;
- * END;
- * $$;
- * DROP TRIGGER IF EXISTS trg_protege_proprietario ON perfis;
- * CREATE TRIGGER trg_protege_proprietario
- *   BEFORE UPDATE ON perfis
- *   FOR EACH ROW EXECUTE FUNCTION public.protege_coluna_proprietario();
- *
- * -- Substitui as policies de UPDATE/DELETE de `perfis` (item 6 acima) para que
- * -- nenhum Administrador comum consiga editar ou excluir a linha do dono —
- * -- exceto o próprio dono editando a si mesmo.
- * DROP POLICY IF EXISTS "admin_atualiza_qualquer_perfil" ON perfis;
- * CREATE POLICY "admin_atualiza_perfil_exceto_dono_alheio" ON perfis
- *   FOR UPDATE USING (public.is_admin(auth.uid()) AND (auth.uid() = id OR NOT proprietario));
- * DROP POLICY IF EXISTS "admin_exclui_qualquer_perfil" ON perfis;
- * CREATE POLICY "admin_exclui_perfil_exceto_dono" ON perfis
- *   FOR DELETE USING (public.is_admin(auth.uid()) AND NOT proprietario);
- *
- * -- Única forma de trocar o dono: o dono atual chama esta função apontando
- * -- para outro Administrador ativo. Ela mesma libera, só durante a própria
- * -- transação, a trava do gatilho acima (set_config com is_local=true — a
- * -- liberação desaparece sozinha ao fim da transação, nunca vaza para outras
- * -- chamadas).
- * CREATE OR REPLACE FUNCTION public.transferir_propriedade(novo_proprietario_id UUID)
- * RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
- * DECLARE
- *   sou_dono BOOLEAN;
- *   alvo_valido BOOLEAN;
- * BEGIN
- *   SELECT proprietario INTO sou_dono FROM perfis WHERE id = auth.uid();
- *   IF NOT COALESCE(sou_dono, false) THEN
- *     RAISE EXCEPTION 'Só o proprietário atual pode transferir a propriedade.';
- *   END IF;
- *   IF novo_proprietario_id = auth.uid() THEN
- *     RAISE EXCEPTION 'Escolha outra pessoa para receber a propriedade.';
- *   END IF;
- *   SELECT (cargo = 'Administrador' AND status = 'ativo') INTO alvo_valido FROM perfis WHERE id = novo_proprietario_id;
- *   IF NOT COALESCE(alvo_valido, false) THEN
- *     RAISE EXCEPTION 'O novo proprietário precisa ser um Administrador ativo.';
- *   END IF;
- *
- *   PERFORM set_config('app.permitir_transferencia', 'true', true);
- *   UPDATE perfis SET proprietario = false WHERE id = auth.uid();
- *   UPDATE perfis SET proprietario = true WHERE id = novo_proprietario_id;
- *
- *   RETURN TRUE;
- * END;
- * $$;
- * GRANT EXECUTE ON FUNCTION public.transferir_propriedade(UUID) TO authenticated;
- *
- * ┌───────────────────────────────────────────────────────────────────────┐
- * │ PARTE 2 — NÃO RODAR AINDA. Só execute isto no exato momento em que o  │
- * │ merge deste PR for para produção (ou logo em seguida). `empreendimen- │
- * │ tos`, `unidades` e `simulacoes` são usadas pelo app QUE JÁ ESTÁ NO AR, │
- * │ sem login — os usuários de hoje acessam essas tabelas sem autenticar. │
- * │ Ligar aqui "exige estar logado" antes do código novo estar publicado  │
- * │ derruba, na hora, o Simulador e as Políticas & Empreendimentos para   │
- * │ todo mundo que usa o app agora.                                       │
- * └───────────────────────────────────────────────────────────────────────┘
- *
- * -- 7) Segurança por linha da tabela de simulações: cada um vê as próprias;
- * --    Administrador vê todas; quem tem "ver_propostas_equipe" ligado também
- * --    vê as de toda a equipe abaixo dele na hierarquia.
- * ALTER TABLE simulacoes ENABLE ROW LEVEL SECURITY;
- * CREATE POLICY "ve_proprias_ou_equipe_ou_admin" ON simulacoes
- *   FOR SELECT USING (
- *     criado_por = auth.uid()
- *     OR public.is_admin(auth.uid())
- *     OR (
- *       COALESCE((SELECT ver_propostas_equipe FROM perfis WHERE id = auth.uid()), false)
- *       AND criado_por IN (SELECT id FROM public.subordinados_de(auth.uid()))
- *     )
- *   );
- * CREATE POLICY "cria_propria_simulacao" ON simulacoes
- *   FOR INSERT WITH CHECK (criado_por = auth.uid());
- * CREATE POLICY "exclui_propria_ou_admin" ON simulacoes
- *   FOR DELETE USING (criado_por = auth.uid() OR public.is_admin(auth.uid()));
- * -- Atenção: simulações salvas ANTES desta migração não têm criado_por (ficam
- * -- NULL) — elas continuam visíveis só para o Administrador até lá.
- *
- * -- 6g) Condições comerciais liberadas no dropdown "Selecionar Condição" do
- * --     Simulador de Crédito (ver CONDICOES_APP em src/config/telasApp.ts) —
- * --     controle independente de `telas_liberadas` (o menu lateral): uma tela
- * --     pode estar liberada no menu sem a condição aparecer neste dropdown, e
- * --     vice-versa. Backfill com TODAS as condições para não tirar acesso de
- * --     ninguém que já usa o app hoje — o Administrador restringe depois, cargo
- * --     a cargo ou pessoa a pessoa, pela nova seção "Condições Comerciais
- * --     Liberadas (Dropdown)" no Painel do Administrador.
- * ALTER TABLE perfis ADD COLUMN IF NOT EXISTS condicoes_liberadas TEXT[] NOT NULL DEFAULT ARRAY[
- *   'sinal-morar', 'simulador-simplificado', 'sinal-morar-comissao-apartada',
- *   'simulador-simplificado-comissao-apartada', 'banco-direto',
- *   'banco-direto-comissao-apartada', 'parcelamento-morar'
- * ]::TEXT[];
- *
- * -- 8) Trava as tabelas de empreendimentos/unidades para exigir login (hoje
- * --    qualquer pessoa com a chave pública do projeto conseguia ler/gravar
- * --    direto, sem passar pelo app). Deixamos a checagem fina de "quem edita
- * --    Políticas" a cargo do app (aba só aparece pra quem tem a tela liberada);
- * --    aqui só fechamos a porta para quem nem logado está.
- * ALTER TABLE empreendimentos ENABLE ROW LEVEL SECURITY;
- * ALTER TABLE unidades ENABLE ROW LEVEL SECURITY;
- * CREATE POLICY "logados_leem_empreendimentos" ON empreendimentos FOR SELECT USING (auth.role() = 'authenticated');
- * CREATE POLICY "logados_gravam_empreendimentos" ON empreendimentos FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
- * CREATE POLICY "logados_leem_unidades" ON unidades FOR SELECT USING (auth.role() = 'authenticated');
- * CREATE POLICY "logados_gravam_unidades" ON unidades FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+ * Diferenças em relação ao Supabase (inevitáveis no Firebase):
+ *  - criar conta já deixa a pessoa logada (não há trava de "confirmar e-mail"); o
+ *    acesso continua barrado pelo status 'pendente' até o Administrador aprovar;
+ *  - excluir um usuário apaga o perfil, mas o login no Firebase Auth só pode ser
+ *    removido pelo Console ou por um backend (Admin SDK);
+ *  - o primeiro Administrador/proprietário precisa ser definido manualmente no
+ *    Console (editar perfis/{uid}: cargo='Administrador', status='ativo',
+ *    proprietario=true) — não há trigger de banco criando isso.
  */
 
 interface PerfilRow {
@@ -454,6 +59,7 @@ interface PerfilRow {
   creci: string | null;
   cargo: Cargo;
   superior_id: string | null;
+  ancestrais?: string[];
   status: StatusConta;
   telas_liberadas: string[] | null;
   condicoes_liberadas: string[] | null;
@@ -464,12 +70,20 @@ interface PerfilRow {
   created_at?: string;
 }
 
+// Campos de `perfis` que também existem no espelho público.
+const CAMPOS_PUBLICOS = ['nome_completo', 'cargo', 'imobiliaria', 'superior_id', 'ancestrais', 'empreendimentos_liberados'] as const;
+
+const TODAS_AS_CONDICOES_PADRAO = [
+  'sinal-morar', 'simulador-simplificado', 'sinal-morar-comissao-apartada',
+  'simulador-simplificado-comissao-apartada', 'banco-direto',
+  'banco-direto-comissao-apartada', 'parcelamento-morar'
+];
+
 // O cargo "Corretor Novato" foi renomeado para "Corretor Parceiro" só no
-// código (types.ts/telasApp.ts) — linhas já gravadas no Supabase antes dessa
-// mudança continuam com a string antiga até alguém rodar um UPDATE manual na
-// tabela `perfis`. Normaliza aqui, na fronteira leitura-do-banco, para que a
-// label exibida (cabeçalho, listagens de equipe etc.) já saia corrigida
-// mesmo antes dessa migração de dados.
+// código (types.ts/telasApp.ts) — linhas gravadas antes dessa mudança
+// continuam com a string antiga até alguém atualizar o documento. Normaliza
+// aqui, na fronteira leitura-do-banco, para que a label exibida (cabeçalho,
+// listagens de equipe etc.) já saia corrigida.
 function normalizarCargoLegado(cargo: Cargo): Cargo {
   return (cargo as string) === 'Corretor Novato' ? 'Corretor Parceiro' : cargo;
 }
@@ -490,10 +104,14 @@ function rowParaPerfil(row: PerfilRow): PerfilUsuario {
     condicoesLiberadas: row.condicoes_liberadas || [],
     verPropostasEquipe: !!row.ver_propostas_equipe,
     camposEditaveisEquipe: row.campos_editaveis_equipe || [],
-    empreendimentosLiberados: row.empreendimentos_liberados,
+    empreendimentosLiberados: row.empreendimentos_liberados ?? null,
     proprietario: !!row.proprietario,
     createdAt: row.created_at
   };
+}
+
+function docParaRow(snap: { id: string; data: () => any }): PerfilRow {
+  return { id: snap.id, ...snap.data() } as PerfilRow;
 }
 
 export interface MembroEquipeEditavel {
@@ -520,77 +138,158 @@ export interface DadosCadastro {
   senha: string;
 }
 
+// Enquanto o cadastro grava o perfil, quem carrega o perfil (AuthContext, que
+// dispara assim que a conta é criada e a pessoa fica logada) espera terminar —
+// senão leria "sem perfil" por um instante.
+let cadastroEmAndamento: Promise<unknown> | null = null;
+
+// Cadeia de superiores de alguém cujo superior direto é `superiorId`:
+// [superior, superior do superior, ...] (limite de 20 níveis, proteção contra
+// um ciclo acidental — a tela de Administrador já evita criar ciclos).
+async function cadeiaDoSuperior(superiorId: string | null): Promise<string[]> {
+  if (!superiorId) return [];
+  const snap = await getDoc(doc(db, 'perfis_publicos', superiorId));
+  const ancestraisDoSuperior: string[] = snap.exists() ? (snap.data().ancestrais || []) : [];
+  return [superiorId, ...ancestraisDoSuperior].slice(0, 20);
+}
+
+// Atualiza `perfis` e o espelho `perfis_publicos` juntos.
+function atualizarPerfilNoLote(batch: WriteBatch, id: string, mudancas: Record<string, unknown>) {
+  batch.update(doc(db, 'perfis', id), mudancas);
+  const publicas: Record<string, unknown> = {};
+  CAMPOS_PUBLICOS.forEach(campo => {
+    if (campo in mudancas) publicas[campo] = mudancas[campo];
+  });
+  if (Object.keys(publicas).length > 0) batch.update(doc(db, 'perfis_publicos', id), publicas);
+}
+
+// Troca o superior de `id` e reescreve `ancestrais` dele e de todos os
+// subordinados (diretos e indiretos) — o equivalente da árvore recursiva que
+// o SQL calculava na hora da consulta.
+async function mudarSuperiorNoLote(batch: WriteBatch, id: string, novoSuperiorId: string | null) {
+  const novaCadeia = await cadeiaDoSuperior(novoSuperiorId);
+  atualizarPerfilNoLote(batch, id, { superior_id: novoSuperiorId, ancestrais: novaCadeia });
+
+  const descendentes = await getDocs(query(collection(db, 'perfis_publicos'), where('ancestrais', 'array-contains', id)));
+  descendentes.forEach(d => {
+    const antigas: string[] = d.data().ancestrais || [];
+    const posicao = antigas.indexOf(id);
+    if (posicao < 0) return;
+    const ancestraisAtualizadas = [...antigas.slice(0, posicao + 1), ...novaCadeia].slice(0, 20);
+    atualizarPerfilNoLote(batch, d.id, { ancestrais: ancestraisAtualizadas });
+  });
+}
+
 export const authService = {
-  // Cria o usuário no Supabase Auth (dispara o e-mail de confirmação). Os
-  // dados do cadastro (nome, CPF, cargo etc.) vão junto como metadata do
-  // próprio usuário do Auth — é o gatilho `handle_new_user` (ver SQL acima)
-  // que cria a linha em `perfis` a partir daí, direto no banco. Isso evita
-  // depender do app tentar gravar em `perfis` logo em seguida: nesse momento
-  // ainda não existe sessão (o Supabase só libera sessão após a confirmação
-  // do e-mail), então uma gravação feita pelo app aqui esbarraria sempre nas
-  // regras de segurança (RLS) da tabela.
+  // Cria o usuário no Firebase Auth e grava o perfil (status 'pendente') nas
+  // coleções `perfis` e `perfis_publicos`. As regras do Firestore só deixam a
+  // própria pessoa criar o PRÓPRIO perfil, e sempre como pendente (impede
+  // alguém de se autoaprovar mandando status=ativo).
   async cadastrar(dados: DadosCadastro): Promise<{ success: boolean; error?: string }> {
-    try {
-      const { data, error } = await supabase.auth.signUp({
+    const executar = async (): Promise<{ success: boolean; error?: string }> => {
+      const credencial = await createUserWithEmailAndPassword(auth, dados.email, dados.senha);
+      const uid = credencial.user.uid;
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'perfis', uid), {
         email: dados.email,
-        password: dados.senha,
-        options: {
-          data: {
-            nome_completo: dados.nomeCompleto,
-            telefone: dados.telefone,
-            cpf: dados.cpf,
-            imobiliaria: dados.imobiliaria,
-            creci: dados.creci || null,
-            cargo: dados.cargo
-          }
-        }
+        nome_completo: dados.nomeCompleto,
+        telefone: dados.telefone,
+        cpf: dados.cpf,
+        imobiliaria: dados.imobiliaria,
+        creci: dados.creci || null,
+        cargo: dados.cargo,
+        superior_id: null,
+        ancestrais: [],
+        status: 'pendente',
+        telas_liberadas: [],
+        condicoes_liberadas: TODAS_AS_CONDICOES_PADRAO,
+        ver_propostas_equipe: false,
+        campos_editaveis_equipe: [],
+        empreendimentos_liberados: null,
+        proprietario: false,
+        created_at: new Date().toISOString()
       });
-      if (error) return { success: false, error: error.message };
-      if (!data.user) {
-        return { success: false, error: 'Não foi possível criar o usuário. Tente novamente.' };
-      }
+      batch.set(doc(db, 'perfis_publicos', uid), {
+        nome_completo: dados.nomeCompleto,
+        cargo: dados.cargo,
+        imobiliaria: dados.imobiliaria,
+        superior_id: null,
+        ancestrais: [],
+        empreendimentos_liberados: null
+      });
+      await batch.commit();
       return { success: true };
+    };
+
+    const tarefa = executar();
+    cadastroEmAndamento = tarefa.catch(() => null);
+    try {
+      return await tarefa;
     } catch (e: any) {
-      return { success: false, error: e?.message || 'Erro ao criar o cadastro.' };
+      return { success: false, error: mensagemDeErro(e, 'Erro ao criar o cadastro.') };
+    } finally {
+      cadastroEmAndamento = null;
     }
   },
 
   async entrar(email: string, senha: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
-    if (error) return { success: false, error: error.message };
-    return { success: true };
+    try {
+      await signInWithEmailAndPassword(auth, email, senha);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Não foi possível entrar.') };
+    }
   },
 
   async sair(): Promise<void> {
-    await supabase.auth.signOut();
+    await signOut(auth);
   },
 
   async recuperarSenha(email: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
-    });
-    if (error) return { success: false, error: error.message };
-    return { success: true };
+    try {
+      await sendPasswordResetEmail(auth, email);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Não foi possível enviar o e-mail de recuperação.') };
+    }
   },
 
   async meuPerfil(userId: string): Promise<PerfilUsuario | null> {
-    const { data, error } = await supabase.from('perfis').select('*').eq('id', userId).maybeSingle();
-    if (error || !data) return null;
-    return rowParaPerfil(data as PerfilRow);
+    if (cadastroEmAndamento) await cadastroEmAndamento;
+    try {
+      const snap = await getDoc(doc(db, 'perfis', userId));
+      if (!snap.exists()) return null;
+      return rowParaPerfil(docParaRow(snap));
+    } catch (e) {
+      console.warn('Erro ao carregar o perfil:', e);
+      return null;
+    }
   },
 
   // --- Painel do Administrador ---------------------------------------------
 
   async listarPendentes(): Promise<PerfilUsuario[]> {
-    const { data, error } = await supabase.from('perfis').select('*').eq('status', 'pendente').order('created_at', { ascending: true });
-    if (error || !data) return [];
-    return data.map(rowParaPerfil);
+    try {
+      const snap = await getDocs(query(collection(db, 'perfis'), where('status', '==', 'pendente')));
+      return snap.docs
+        .map(docParaRow)
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+        .map(rowParaPerfil);
+    } catch {
+      return [];
+    }
   },
 
   async listarAtivosEPausados(): Promise<PerfilUsuario[]> {
-    const { data, error } = await supabase.from('perfis').select('*').in('status', ['ativo', 'pausado']).order('nome_completo', { ascending: true });
-    if (error || !data) return [];
-    return data.map(rowParaPerfil);
+    try {
+      const snap = await getDocs(query(collection(db, 'perfis'), where('status', 'in', ['ativo', 'pausado'])));
+      return snap.docs
+        .map(docParaRow)
+        .sort((a, b) => (a.nome_completo || '').localeCompare(b.nome_completo || ''))
+        .map(rowParaPerfil);
+    } catch {
+      return [];
+    }
   },
 
   // Aprova um cadastro pendente, já definindo cargo/superior/telas confirmados
@@ -599,21 +298,26 @@ export const authService = {
     cargo: Cargo; superiorId: string | null; telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean;
     camposEditaveisEquipe?: string[];
   }) {
-    const { error } = await supabase.from('perfis').update({
-      status: 'ativo',
-      cargo: ajustes.cargo,
-      superior_id: ajustes.superiorId,
-      telas_liberadas: ajustes.telasLiberadas,
-      condicoes_liberadas: ajustes.condicoesLiberadas,
-      ver_propostas_equipe: ajustes.verPropostasEquipe,
-      campos_editaveis_equipe: ajustes.camposEditaveisEquipe ?? []
-    }).eq('id', id);
-    return { success: !error, error: error?.message };
+    try {
+      const batch = writeBatch(db);
+      atualizarPerfilNoLote(batch, id, {
+        status: 'ativo',
+        cargo: ajustes.cargo,
+        telas_liberadas: ajustes.telasLiberadas,
+        condicoes_liberadas: ajustes.condicoesLiberadas,
+        ver_propostas_equipe: ajustes.verPropostasEquipe,
+        campos_editaveis_equipe: ajustes.camposEditaveisEquipe ?? []
+      });
+      await mudarSuperiorNoLote(batch, id, ajustes.superiorId);
+      await batch.commit();
+      return { success: true as const, error: undefined };
+    } catch (e: any) {
+      return { success: false as const, error: mensagemDeErro(e, 'Erro ao aprovar o usuário.') };
+    }
   },
 
   async recusarUsuario(id: string) {
-    const { error } = await supabase.from('perfis').delete().eq('id', id);
-    return { success: !error, error: error?.message };
+    return this.excluirUsuario(id);
   },
 
   async editarCargoEPermissoes(id: string, ajustes: {
@@ -621,231 +325,298 @@ export const authService = {
     nomeCompleto: string; telefone: string; cpf: string; imobiliaria: string; creci?: string;
     camposEditaveisEquipe: string[]; empreendimentosLiberados: string[] | null;
   }) {
-    const { error } = await supabase.from('perfis').update({
-      cargo: ajustes.cargo,
-      superior_id: ajustes.superiorId,
-      telas_liberadas: ajustes.telasLiberadas,
-      condicoes_liberadas: ajustes.condicoesLiberadas,
-      ver_propostas_equipe: ajustes.verPropostasEquipe,
-      nome_completo: ajustes.nomeCompleto,
-      telefone: ajustes.telefone,
-      cpf: ajustes.cpf,
-      imobiliaria: ajustes.imobiliaria,
-      creci: ajustes.creci || null,
-      campos_editaveis_equipe: ajustes.camposEditaveisEquipe,
-      empreendimentos_liberados: ajustes.empreendimentosLiberados
-    }).eq('id', id);
-    return { success: !error, error: error?.message };
+    try {
+      const batch = writeBatch(db);
+      atualizarPerfilNoLote(batch, id, {
+        cargo: ajustes.cargo,
+        telas_liberadas: ajustes.telasLiberadas,
+        condicoes_liberadas: ajustes.condicoesLiberadas,
+        ver_propostas_equipe: ajustes.verPropostasEquipe,
+        nome_completo: ajustes.nomeCompleto,
+        telefone: ajustes.telefone,
+        cpf: ajustes.cpf,
+        imobiliaria: ajustes.imobiliaria,
+        creci: ajustes.creci || null,
+        campos_editaveis_equipe: ajustes.camposEditaveisEquipe,
+        empreendimentos_liberados: ajustes.empreendimentosLiberados
+      });
+      const atual = await getDoc(doc(db, 'perfis', id));
+      if ((atual.data()?.superior_id ?? null) !== ajustes.superiorId) {
+        await mudarSuperiorNoLote(batch, id, ajustes.superiorId);
+      }
+      await batch.commit();
+      return { success: true as const, error: undefined };
+    } catch (e: any) {
+      return { success: false as const, error: mensagemDeErro(e, 'Erro ao salvar as alterações.') };
+    }
   },
 
-  /*
-   * SQL DE CRIAÇÃO DO BANCO DE DADOS — PERMISSÕES PADRÃO POR CARGO
-   * ================================================================================
-   * Execute no SQL Editor do seu projeto Supabase — seguro rodar a qualquer
-   * momento (só cria uma tabela nova, isolada das demais). Guarda o que o
-   * Administrador configurou em "Editar permissões por cargo" (telas
-   * liberadas, ver propostas da equipe, campos editáveis da equipe) como o
-   * PADRÃO do cargo — independente de quantas contas esse cargo tem hoje.
-   * É o que faz "Salvar" funcionar mesmo com 0 usuários vinculados: antes,
-   * sem esta tabela, aplicarPermissoesPorCargo só dava UPDATE nas contas já
-   * existentes daquele cargo — com 0 contas, o clique não persistia nada em
-   * lugar nenhum. Agora ele grava aqui sempre, e é daqui que a aprovação de
-   * um cadastro pendente (handleAprovar em AdminPanelView.tsx) e a
-   * pré-preenchida do próprio painel de permissões passam a ler o padrão do
-   * cargo, em vez do array TELAS_PADRAO_POR_CARGO fixo no código-fonte
-   * (config/telasApp.ts, que continua servindo só de último fallback,
-   * quando nem esta tabela nem nenhuma conta existente têm nada configurado).
-   * A coluna condicoes_liberadas guarda, no mesmo padrão, o default por cargo
-   * das condições comerciais liberadas no dropdown "Selecionar Condição"
-   * (ver CONDICOES_APP em src/config/telasApp.ts).
-   * CREATE TABLE IF NOT EXISTS permissoes_padrao_por_cargo (
-   *   cargo TEXT PRIMARY KEY,
-   *   telas_liberadas TEXT[] NOT NULL DEFAULT '{}',
-   *   condicoes_liberadas TEXT[] NOT NULL DEFAULT '{}',
-   *   ver_propostas_equipe BOOLEAN NOT NULL DEFAULT false,
-   *   campos_editaveis_equipe TEXT[] NOT NULL DEFAULT '{}',
-   *   atualizado_em TIMESTAMPTZ DEFAULT now()
-   * );
-   * ALTER TABLE permissoes_padrao_por_cargo ADD COLUMN IF NOT EXISTS condicoes_liberadas TEXT[] NOT NULL DEFAULT '{}';
-   * ALTER TABLE permissoes_padrao_por_cargo ENABLE ROW LEVEL SECURITY;
-   * CREATE POLICY "logados_leem_permissoes_padrao_por_cargo" ON permissoes_padrao_por_cargo
-   *   FOR SELECT USING (auth.role() = 'authenticated');
-   * CREATE POLICY "admin_grava_permissoes_padrao_por_cargo" ON permissoes_padrao_por_cargo
-   *   FOR ALL USING (public.is_admin(auth.uid())) WITH CHECK (public.is_admin(auth.uid()));
-   */
-  // `error` só vem preenchido numa falha real de leitura (ex.: a tabela ainda
-  // não existe no Supabase porque o SQL acima não foi rodado) — nesse caso
-  // `dados` volta vazio e quem chama decide se avisa o Administrador, em vez
-  // de a tela cair nos padrões de fábrica sem explicação nenhuma.
+  // `error` só vem preenchido numa falha real de leitura — nesse caso `dados`
+  // volta vazio e quem chama decide se avisa o Administrador, em vez de a tela
+  // cair nos padrões de fábrica sem explicação nenhuma.
   async carregarPermissoesPadraoPorCargo(): Promise<{
     dados: Partial<Record<Cargo, {
       telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean; camposEditaveisEquipe: string[];
     }>>;
     error?: string;
   }> {
-    const { data, error } = await supabase.from('permissoes_padrao_por_cargo').select('*');
-    if (error) return { dados: {}, error: error.message };
-    const resultado: Partial<Record<Cargo, { telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean; camposEditaveisEquipe: string[] }>> = {};
-    (data as any[]).forEach(row => {
-      resultado[row.cargo as Cargo] = {
-        telasLiberadas: row.telas_liberadas || [],
-        condicoesLiberadas: row.condicoes_liberadas || [],
-        verPropostasEquipe: !!row.ver_propostas_equipe,
-        camposEditaveisEquipe: row.campos_editaveis_equipe || []
-      };
-    });
-    return { dados: resultado };
+    try {
+      const snap = await getDocs(collection(db, 'permissoes_padrao_por_cargo'));
+      const resultado: Partial<Record<Cargo, { telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean; camposEditaveisEquipe: string[] }>> = {};
+      snap.forEach(d => {
+        const row = d.data();
+        resultado[(row.cargo || d.id) as Cargo] = {
+          telasLiberadas: row.telas_liberadas || [],
+          condicoesLiberadas: row.condicoes_liberadas || [],
+          verPropostasEquipe: !!row.ver_propostas_equipe,
+          camposEditaveisEquipe: row.campos_editaveis_equipe || []
+        };
+      });
+      return { dados: resultado };
+    } catch (e: any) {
+      return { dados: {}, error: mensagemDeErro(e, 'Erro ao carregar as permissões padrão.') };
+    }
   },
 
   // Aplica a mesma política de permissões (telas liberadas, ver propostas da
   // equipe, campos editáveis da equipe) para TODO MUNDO que tem este cargo
-  // hoje (ativo ou pausado) — sobrescrevendo qualquer ajuste individual que
-  // essas pessoas já tivessem — E grava a mesma configuração como o padrão
-  // deste cargo em permissoes_padrao_por_cargo, para que cadastros futuros
-  // aprovados com este cargo já nasçam com essas regras. As duas gravações
-  // sempre acontecem juntas, mesmo quando não há NENHUMA conta com o cargo
-  // hoje (afetados = 0): é assim que o botão "Salvar" continua fazendo
-  // sentido nesse caso — a configuração é o padrão do cargo, não uma edição
-  // que precisa de alguém para "cair em cima". Dados pessoais (nome, CPF,
-  // superior etc.) não entram aqui, só ficam mesmo na edição individual.
+  // hoje (ativo ou pausado) — sobrescrevendo qualquer ajuste individual — E
+  // grava a mesma configuração como o padrão deste cargo em
+  // permissoes_padrao_por_cargo, para que cadastros futuros aprovados com este
+  // cargo já nasçam com essas regras. As duas gravações sempre acontecem
+  // juntas, mesmo quando não há NENHUMA conta com o cargo hoje (afetados = 0).
   async aplicarPermissoesPorCargo(cargo: Cargo, ajustes: {
     telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean; camposEditaveisEquipe: string[];
   }): Promise<{ success: boolean; error?: string; afetados?: number }> {
-    const [{ data, error }, { error: errorPadrao }] = await Promise.all([
-      supabase.from('perfis').update({
-        telas_liberadas: ajustes.telasLiberadas,
-        condicoes_liberadas: ajustes.condicoesLiberadas,
-        ver_propostas_equipe: ajustes.verPropostasEquipe,
-        campos_editaveis_equipe: ajustes.camposEditaveisEquipe
-      }).eq('cargo', cargo).in('status', ['ativo', 'pausado']).select('id'),
-      supabase.from('permissoes_padrao_por_cargo').upsert({
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'perfis'),
+        where('cargo', '==', cargo),
+        where('status', 'in', ['ativo', 'pausado'])
+      ));
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'permissoes_padrao_por_cargo', cargo), {
         cargo,
         telas_liberadas: ajustes.telasLiberadas,
         condicoes_liberadas: ajustes.condicoesLiberadas,
         ver_propostas_equipe: ajustes.verPropostasEquipe,
         campos_editaveis_equipe: ajustes.camposEditaveisEquipe,
         atualizado_em: new Date().toISOString()
-      }, { onConflict: 'cargo' })
-    ]);
-    return { success: !error && !errorPadrao, error: error?.message || errorPadrao?.message, afetados: data?.length ?? 0 };
+      });
+      await batch.commit();
+      await commitEmLotes(snap.docs, (lote, d) => {
+        lote.update(d.ref, {
+          telas_liberadas: ajustes.telasLiberadas,
+          condicoes_liberadas: ajustes.condicoesLiberadas,
+          ver_propostas_equipe: ajustes.verPropostasEquipe,
+          campos_editaveis_equipe: ajustes.camposEditaveisEquipe
+        });
+      });
+      return { success: true, afetados: snap.size };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Erro ao aplicar as permissões do cargo.'), afetados: 0 };
+    }
   },
 
   // --- Edição do cadastro da equipe (Diretor/Gerente autorizado) -----------
 
   // Lista os subordinados de `usuarioId` com os dados necessários para montar
   // o formulário de edição — só retorna algo se o próprio usuário logado tiver
-  // ao menos um campo autorizado em `camposEditaveisEquipe` (ver função
-  // `dados_equipe_para_edicao` no SQL acima).
+  // ao menos um campo autorizado em `camposEditaveisEquipe` (as regras do
+  // Firestore também barram a leitura de quem não tem).
   async listarEquipeParaEdicao(usuarioId: string): Promise<{ dados: MembroEquipeEditavel[]; error?: string }> {
-    const { data, error } = await supabase.rpc('dados_equipe_para_edicao', { usuario_id: usuarioId });
-    if (error) return { dados: [], error: error.message };
-    return {
-      dados: ((data as any[]) || []).map(row => ({
-        id: row.id,
-        nomeCompleto: row.nome_completo,
-        telefone: row.telefone,
-        cpf: row.cpf,
-        imobiliaria: row.imobiliaria,
-        creci: row.creci || undefined,
-        cargo: normalizarCargoLegado(row.cargo),
-        superiorId: row.superior_id,
-        telasLiberadas: row.telas_liberadas || [],
-        empreendimentosLiberados: row.empreendimentos_liberados
-      }))
-    };
+    try {
+      if (usuarioId !== auth.currentUser?.uid) return { dados: [], error: 'Só é possível consultar a própria equipe.' };
+      const meu = await getDoc(doc(db, 'perfis', usuarioId));
+      if (!meu.exists() || !((meu.data().campos_editaveis_equipe || []).length > 0)) return { dados: [] };
+
+      const snap = await getDocs(query(collection(db, 'perfis'), where('ancestrais', 'array-contains', usuarioId)));
+      return {
+        dados: snap.docs.map(d => {
+          const row = docParaRow(d);
+          return {
+            id: row.id,
+            nomeCompleto: row.nome_completo,
+            telefone: row.telefone,
+            cpf: row.cpf,
+            imobiliaria: row.imobiliaria,
+            creci: row.creci || undefined,
+            cargo: normalizarCargoLegado(row.cargo),
+            superiorId: row.superior_id,
+            telasLiberadas: row.telas_liberadas || [],
+            empreendimentosLiberados: row.empreendimentos_liberados ?? null
+          };
+        })
+      };
+    } catch (e: any) {
+      return { dados: [], error: mensagemDeErro(e, 'Erro ao carregar a equipe.') };
+    }
   },
 
   // Aplica a edição de um subordinado, campo a campo — só os campos
-  // efetivamente enviados (não-undefined) são gravados, e a função no banco
-  // (`editar_cadastro_subordinado`) revalida a autorização de cada um antes de
-  // aplicar, então esta chamada nunca é a última linha de defesa.
+  // efetivamente enviados (não-undefined) são gravados. A autorização de cada
+  // campo é revalidada aqui e, de novo, pelas regras do Firestore.
   async editarCadastroSubordinado(subordinadoId: string, ajustes: {
     nomeCompleto?: string; telefone?: string; cpf?: string; imobiliaria?: string;
     creci?: string | null; cargo?: Cargo; superiorId?: string | null; telasLiberadas?: string[];
     empreendimentosLiberados?: string[] | null;
   }): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.rpc('editar_cadastro_subordinado', {
-      subordinado_id: subordinadoId,
-      novo_nome: ajustes.nomeCompleto ?? null,
-      novo_telefone: ajustes.telefone ?? null,
-      novo_cpf: ajustes.cpf ?? null,
-      nova_imobiliaria: ajustes.imobiliaria ?? null,
-      novo_creci: ajustes.creci ?? null,
-      limpar_creci: ajustes.creci === null,
-      novo_cargo: ajustes.cargo ?? null,
-      novo_superior_id: ajustes.superiorId ?? null,
-      limpar_superior: ajustes.superiorId === null,
-      novas_telas: ajustes.telasLiberadas ?? null,
-      novos_empreendimentos: ajustes.empreendimentosLiberados ?? null,
-      limpar_empreendimentos: ajustes.empreendimentosLiberados === null
-    });
-    return { success: !error, error: error?.message };
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return { success: false, error: 'Sessão expirada. Entre novamente.' };
+
+      const [meu, alvoPublico] = await Promise.all([
+        getDoc(doc(db, 'perfis', uid)),
+        getDoc(doc(db, 'perfis_publicos', subordinadoId))
+      ]);
+      const permissoes: string[] = meu.data()?.campos_editaveis_equipe || [];
+      const naHierarquia = alvoPublico.exists() && ((alvoPublico.data().ancestrais || []) as string[]).includes(uid);
+      if (!naHierarquia) return { success: false, error: 'Esse usuário não está na sua hierarquia.' };
+
+      const exigir = (chave: string, rotulo: string) => {
+        if (!permissoes.includes(chave)) throw new Error(`Sem permissão para editar ${rotulo}.`);
+      };
+
+      const mudancas: Record<string, unknown> = {};
+      if (ajustes.nomeCompleto !== undefined) { exigir('nome', 'o nome'); mudancas.nome_completo = ajustes.nomeCompleto; }
+      if (ajustes.telefone !== undefined) { exigir('telefone', 'o telefone'); mudancas.telefone = ajustes.telefone; }
+      if (ajustes.cpf !== undefined) { exigir('cpf', 'o CPF'); mudancas.cpf = ajustes.cpf; }
+      if (ajustes.imobiliaria !== undefined) { exigir('imobiliaria', 'a imobiliária'); mudancas.imobiliaria = ajustes.imobiliaria; }
+      if (ajustes.creci !== undefined) { exigir('creci', 'o CRECI'); mudancas.creci = ajustes.creci || null; }
+      if (ajustes.cargo !== undefined) { exigir('cargo', 'o cargo'); mudancas.cargo = ajustes.cargo; }
+      if (ajustes.telasLiberadas !== undefined) { exigir('telas', 'as telas liberadas'); mudancas.telas_liberadas = ajustes.telasLiberadas; }
+      if (ajustes.empreendimentosLiberados !== undefined) {
+        exigir('empreendimentos', 'os empreendimentos liberados');
+        mudancas.empreendimentos_liberados = ajustes.empreendimentosLiberados;
+      }
+      if (ajustes.superiorId !== undefined) exigir('superior', 'o superior hierárquico');
+
+      const batch = writeBatch(db);
+      if (Object.keys(mudancas).length > 0) atualizarPerfilNoLote(batch, subordinadoId, mudancas);
+      if (ajustes.superiorId !== undefined) await mudarSuperiorNoLote(batch, subordinadoId, ajustes.superiorId);
+      await batch.commit();
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Erro ao editar o cadastro.') };
+    }
   },
 
   async definirStatus(id: string, status: StatusConta) {
-    const { error } = await supabase.from('perfis').update({ status }).eq('id', id);
-    return { success: !error, error: error?.message };
+    try {
+      await setDoc(doc(db, 'perfis', id), { status }, { merge: true });
+      return { success: true as const, error: undefined };
+    } catch (e: any) {
+      return { success: false as const, error: mensagemDeErro(e, 'Erro ao alterar o status.') };
+    }
   },
 
   // Remove o acesso da pessoa em definitivo (apaga o perfil, então ela some do
-  // app e de qualquer hierarquia). O login dela em si (Supabase Auth) só é
-  // apagado de fato com uma função de servidor à parte — não é algo seguro de
-  // fazer com a chave pública usada aqui; se um dia for necessário liberar o
-  // mesmo e-mail para um cadastro novo do zero, isso pede esse passo extra.
+  // app e de qualquer hierarquia). O login dela em si (Firebase Auth) só é
+  // apagado de fato pelo Console do Firebase ou por um backend (Admin SDK) —
+  // não é algo possível de fazer com a chave pública usada aqui.
   async excluirUsuario(id: string) {
-    const { error } = await supabase.from('perfis').delete().eq('id', id);
-    return { success: !error, error: error?.message };
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'perfis', id));
+      batch.delete(doc(db, 'perfis_publicos', id));
+      await batch.commit();
+      return { success: true as const, error: undefined };
+    } catch (e: any) {
+      return { success: false as const, error: mensagemDeErro(e, 'Erro ao excluir o usuário.') };
+    }
   },
 
   // --- Propriedade do aplicativo ---------------------------------------
 
-  // Só quem já é o proprietário atual consegue chamar com sucesso (a função
-  // no banco revalida isso de novo, por dentro — ver transferir_propriedade
-  // no SQL acima). `novoProprietarioId` precisa ser um Administrador ativo.
+  // Só quem já é o proprietário atual consegue (as regras do Firestore também
+  // exigem isso). `novoProprietarioId` precisa ser um Administrador ativo.
   async transferirPropriedade(novoProprietarioId: string): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.rpc('transferir_propriedade', { novo_proprietario_id: novoProprietarioId });
-    return { success: !error, error: error?.message };
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return { success: false, error: 'Sessão expirada. Entre novamente.' };
+      if (novoProprietarioId === uid) return { success: false, error: 'Escolha outra pessoa para receber a propriedade.' };
+
+      const [eu, alvo] = await Promise.all([
+        getDoc(doc(db, 'perfis', uid)),
+        getDoc(doc(db, 'perfis', novoProprietarioId))
+      ]);
+      if (!eu.data()?.proprietario) return { success: false, error: 'Só o proprietário atual pode transferir a propriedade.' };
+      if (!(alvo.data()?.cargo === 'Administrador' && alvo.data()?.status === 'ativo')) {
+        return { success: false, error: 'O novo proprietário precisa ser um Administrador ativo.' };
+      }
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'perfis', uid), { proprietario: false });
+      batch.update(doc(db, 'perfis', novoProprietarioId), { proprietario: true });
+      await batch.commit();
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Erro ao transferir a propriedade.') };
+    }
   },
 
   // --- Empreendimentos liberados (acesso por hierarquia) --------------------
 
   // Resolve, em tempo real, a lista efetiva de empreendimentos que o próprio
-  // usuário logado pode ver — nunca uma cópia congelada (ver função no SQL
-  // acima). `null` de volta (ou qualquer erro de rede/consulta) significa "sem
-  // restrição configurada", o mesmo default seguro usado em todo o app: uma
-  // falha aqui nunca deve travar ninguém para fora dos próprios produtos.
+  // usuário logado pode ver: sobe a árvore de `superior_id` até achar a
+  // primeira trava manual (lista não-nula); se chegar ao topo sem achar
+  // nenhuma, cai no padrão do cargo de quem está no topo. `null` de volta (ou
+  // qualquer erro de rede/consulta) significa "sem restrição configurada", o
+  // mesmo default seguro usado em todo o app.
   async empreendimentosLiberadosEfetivos(usuarioId: string): Promise<string[] | null> {
-    const { data, error } = await supabase.rpc('empreendimentos_liberados_efetivos', { usuario_id: usuarioId });
-    if (error) return null;
-    return (data as string[] | null) ?? null;
+    try {
+      let atualId: string | null = usuarioId;
+      for (let profundidade = 0; atualId && profundidade < 20; profundidade++) {
+        const snap = await getDoc(doc(db, 'perfis_publicos', atualId));
+        if (!snap.exists()) return null;
+        const dados = snap.data();
+        if (dados.empreendimentos_liberados != null) return dados.empreendimentos_liberados as string[];
+        if (!dados.superior_id) {
+          const padrao = await getDoc(doc(db, 'empreendimentos_padrao_por_cargo', String(dados.cargo)));
+          return padrao.exists() ? ((padrao.data().empreendimentos_liberados as string[]) ?? null) : null;
+        }
+        atualId = dados.superior_id as string;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   },
 
   // Lê o padrão de empreendimentos liberados configurado para cada cargo (usado
   // só quando a hierarquia não encontra nenhuma trava manual no caminho). Um
-  // cargo sem linha na tabela não aparece no resultado — o chamador deve tratar
-  // isso como "sem restrição", igual a uma lista vazia não é a mesma coisa.
+  // cargo sem documento não aparece no resultado — o chamador deve tratar
+  // isso como "sem restrição", que não é a mesma coisa que uma lista vazia.
   async listarEmpreendimentosPadraoPorCargo(): Promise<Record<string, string[]>> {
-    const { data, error } = await supabase.from('empreendimentos_padrao_por_cargo').select('*');
-    if (error || !data) return {};
-    const resultado: Record<string, string[]> = {};
-    data.forEach((row: { cargo: string; empreendimentos_liberados: string[] }) => {
-      resultado[row.cargo] = row.empreendimentos_liberados || [];
-    });
-    return resultado;
+    try {
+      const snap = await getDocs(collection(db, 'empreendimentos_padrao_por_cargo'));
+      const resultado: Record<string, string[]> = {};
+      snap.forEach(d => {
+        resultado[d.data().cargo || d.id] = (d.data().empreendimentos_liberados as string[]) || [];
+      });
+      return resultado;
+    } catch {
+      return {};
+    }
   },
 
   async salvarEmpreendimentosPadraoPorCargo(cargo: Cargo, empreendimentosLiberados: string[]): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.from('empreendimentos_padrao_por_cargo').upsert(
-      { cargo, empreendimentos_liberados: empreendimentosLiberados },
-      { onConflict: 'cargo' }
-    );
-    return { success: !error, error: error?.message };
+    try {
+      await setDoc(doc(db, 'empreendimentos_padrao_por_cargo', cargo), { cargo, empreendimentos_liberados: empreendimentosLiberados });
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Erro ao salvar o padrão do cargo.') };
+    }
   },
 
   // Remove a trava do cargo (volta a "sem restrição" — o mesmo que nunca ter
   // sido configurado).
   async removerEmpreendimentosPadraoPorCargo(cargo: Cargo): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase.from('empreendimentos_padrao_por_cargo').delete().eq('cargo', cargo);
-    return { success: !error, error: error?.message };
+    try {
+      await deleteDoc(doc(db, 'empreendimentos_padrao_por_cargo', cargo));
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: mensagemDeErro(e, 'Erro ao remover o padrão do cargo.') };
+    }
   }
 };

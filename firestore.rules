@@ -1,0 +1,171 @@
+rules_version = '2';
+
+// Regras de segurança do Firestore — substituem as policies (RLS) do Supabase.
+// Publique em: Firebase Console > Firestore Database > Regras, ou
+// `firebase deploy --only firestore:rules`.
+//
+// Modelo (ver comentário no topo de src/services/authService.ts):
+//  - perfis/{uid}          dados privados; só a própria pessoa, o Administrador e
+//                          os superiores na hierarquia (campo `ancestrais`) leem.
+//  - perfis_publicos/{uid} espelho sem CPF/telefone/e-mail, legível por quem está logado.
+//  - O primeiro Administrador/proprietário é definido manualmente no Console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() {
+      return request.auth != null;
+    }
+
+    function meuPerfil() {
+      return get(/databases/$(database)/documents/perfis/$(request.auth.uid)).data;
+    }
+
+    function ehAdmin() {
+      return logado()
+        && exists(/databases/$(database)/documents/perfis/$(request.auth.uid))
+        && meuPerfil().cargo == 'Administrador'
+        && meuPerfil().status == 'ativo';
+    }
+
+    function ehProprietario() {
+      return ehAdmin() && meuPerfil().proprietario == true;
+    }
+
+    function temPermissaoDeEquipe(chave) {
+      return chave in meuPerfil().campos_editaveis_equipe;
+    }
+
+    // Campos que um Gerente/Diretor autorizado pode alterar no cadastro de um
+    // subordinado (cada um exige a permissão correspondente concedida pelo Administrador).
+    function camposDeEquipeAutorizados(alterados) {
+      return alterados.hasOnly([
+          'nome_completo', 'telefone', 'cpf', 'imobiliaria', 'creci', 'cargo',
+          'superior_id', 'ancestrais', 'telas_liberadas', 'empreendimentos_liberados'
+        ])
+        && (!alterados.hasAny(['nome_completo']) || temPermissaoDeEquipe('nome'))
+        && (!alterados.hasAny(['telefone']) || temPermissaoDeEquipe('telefone'))
+        && (!alterados.hasAny(['cpf']) || temPermissaoDeEquipe('cpf'))
+        && (!alterados.hasAny(['imobiliaria']) || temPermissaoDeEquipe('imobiliaria'))
+        && (!alterados.hasAny(['creci']) || temPermissaoDeEquipe('creci'))
+        && (!alterados.hasAny(['cargo']) || temPermissaoDeEquipe('cargo'))
+        && (!alterados.hasAny(['superior_id', 'ancestrais']) || temPermissaoDeEquipe('superior'))
+        && (!alterados.hasAny(['telas_liberadas']) || temPermissaoDeEquipe('telas'))
+        && (!alterados.hasAny(['empreendimentos_liberados']) || temPermissaoDeEquipe('empreendimentos'));
+    }
+
+    function souSuperiorDe(dadosAtuais) {
+      return request.auth.uid in dadosAtuais.ancestrais;
+    }
+
+    // --- Perfis (privado) ---------------------------------------------------
+    match /perfis/{uid} {
+      allow get: if logado() && (request.auth.uid == uid || ehAdmin() || souSuperiorDe(resource.data));
+
+      allow list: if logado() && (
+        ehAdmin()
+        || (resource.data.ancestrais.hasAny([request.auth.uid])
+            && meuPerfil().campos_editaveis_equipe.size() > 0)
+      );
+
+      // Cadastro público: só cria o PRÓPRIO perfil, sempre pendente e sem privilégios.
+      allow create: if logado()
+        && request.auth.uid == uid
+        && request.resource.data.status == 'pendente'
+        && request.resource.data.proprietario == false
+        && request.resource.data.superior_id == null
+        && request.resource.data.ancestrais.size() == 0
+        && request.resource.data.telas_liberadas.size() == 0
+        && request.resource.data.campos_editaveis_equipe.size() == 0;
+
+      allow update: if logado() && (
+        // Administrador edita qualquer perfil, exceto o do proprietário (que só ele mesmo edita).
+        // `proprietario` só muda pela transferência feita pelo proprietário atual.
+        (ehAdmin()
+          && (request.auth.uid == uid || resource.data.proprietario != true)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['proprietario'])
+              || (ehProprietario()
+                  && (request.auth.uid == uid
+                      ? request.resource.data.proprietario == false
+                      : (request.resource.data.proprietario == true
+                         && resource.data.cargo == 'Administrador'
+                         && resource.data.status == 'ativo')))))
+        // Gerente/Diretor autorizado edita só os campos liberados, só de quem está abaixo.
+        || (souSuperiorDe(resource.data)
+            && meuPerfil().status == 'ativo'
+            && camposDeEquipeAutorizados(request.resource.data.diff(resource.data).affectedKeys()))
+      );
+
+      allow delete: if ehAdmin() && resource.data.proprietario != true;
+    }
+
+    // --- Perfis (espelho público, sem dados sensíveis) -----------------------
+    match /perfis_publicos/{uid} {
+      allow read: if logado();
+
+      allow create: if logado()
+        && request.auth.uid == uid
+        && request.resource.data.superior_id == null
+        && request.resource.data.ancestrais.size() == 0
+        && request.resource.data.empreendimentos_liberados == null;
+
+      allow update: if logado() && (
+        (ehAdmin() && (request.auth.uid == uid || !exists(/databases/$(database)/documents/perfis/$(uid))
+                       || get(/databases/$(database)/documents/perfis/$(uid)).data.proprietario != true))
+        || (souSuperiorDe(resource.data)
+            && meuPerfil().status == 'ativo'
+            && camposDeEquipeAutorizados(request.resource.data.diff(resource.data).affectedKeys()))
+      );
+
+      allow delete: if ehAdmin();
+    }
+
+    // --- Configurações por cargo (todos leem, só Administrador grava) --------
+    match /permissoes_padrao_por_cargo/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+    match /empreendimentos_padrao_por_cargo/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+    match /pdf_export_settings_por_cargo/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+    match /tela_visibilidade_por_cargo/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+
+    // --- Empreendimentos, unidades e tabelas arquivadas (exigem login) -------
+    // A checagem fina de "quem edita Políticas" fica a cargo do app (a aba só
+    // aparece para quem tem a tela liberada); aqui só se fecha a porta para
+    // quem nem está logado — igual às policies do Supabase.
+    match /empreendimentos/{id} {
+      allow read, write: if logado();
+    }
+    match /unidades/{id} {
+      allow read, write: if logado();
+    }
+    match /tabelas_arquivadas/{id} {
+      allow read, write: if logado();
+    }
+
+    // --- Simulações ----------------------------------------------------------
+    // Cada um vê as próprias; Administrador vê todas; quem tem "ver propostas da
+    // equipe" também vê as de quem está abaixo (via `ancestrais_criador`, a
+    // cadeia de superiores do criador gravada no momento em que a proposta foi salva).
+    match /simulacoes/{id} {
+      allow read: if logado() && (
+        resource.data.criado_por == request.auth.uid
+        || ehAdmin()
+        || (meuPerfil().ver_propostas_equipe == true
+            && resource.data.ancestrais_criador.hasAny([request.auth.uid]))
+      );
+      allow create: if logado() && request.resource.data.criado_por == request.auth.uid;
+      allow update: if logado() && (resource.data.criado_por == request.auth.uid || ehAdmin())
+        && request.resource.data.criado_por == resource.data.criado_por;
+      allow delete: if logado() && (resource.data.criado_por == request.auth.uid || ehAdmin());
+    }
+  }
+}

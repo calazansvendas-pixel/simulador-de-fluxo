@@ -3,7 +3,6 @@ import { FileCheck, CheckCircle, AlertCircle, Trash2, CalendarClock, UploadCloud
 import * as XLSX from 'xlsx';
 import { Product, TableInfo } from '../types';
 import { COLUMN_DEFINITIONS, formatCurrency, formatArea, normalizeHeader, parseCurrency, parseM2Number, isTabelaVencida, formatDateBr } from '../utils/formatters';
-import { supabase } from '../lib/supabaseClient';
 import { imoveisService } from '../services/imoveisService';
 
 interface ImportTableViewProps {
