@@ -116,7 +116,19 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
     }
   };
 
-  // When active import product changes, update local fields
+  // O id selecionado vem do App (começa como o de um empreendimento fixo) e pode não existir
+  // na lista carregada. Nesse caso o <select> do navegador MOSTRA a primeira opção, mas o
+  // estado continua apontando para outro id — e salvar acusava "nenhum empreendimento".
+  // Aqui o estado é alinhado com o que a lista realmente tem: pré-seleciona o primeiro.
+  React.useEffect(() => {
+    if (products.length > 0 && !products.some(p => p.id === activeImportProductId)) {
+      console.warn('Empreendimento selecionado não está na lista; selecionando o primeiro:', { activeImportProductId, primeiro: products[0].id });
+      onSelectImportProduct(products[0].id);
+    }
+  }, [products, activeImportProductId, onSelectImportProduct]);
+
+  // Ao TROCAR de empreendimento: carrega a vigência dele e descarta a planilha em preview.
+  // (Só depende do id: recarregar a lista de empreendimentos não pode apagar uma importação em andamento.)
   React.useEffect(() => {
     if (activeProd) {
       const monthDefaults = getCurrentMonthDates();
@@ -126,7 +138,8 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       setLookupTorre('');
       setLookupUnidade('');
     }
-  }, [activeImportProductId, products]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeImportProductId]);
 
   const hasTable = activeProd?.tableInfo && activeProd.tableInfo.active;
 
@@ -405,7 +418,13 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
   const handleSaveTable = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeProd) return;
+    console.log("Validação de salvamento - Empreendimento ID:", activeImportProductId);
+    console.log("handleSaveTable chamado", { activeImportProductId, temProduto: Boolean(activeProd), validFrom, validTo, temPlanilha: Boolean(tempParsedData) });
+    if (!activeProd) {
+      console.error('Salvar tabela: nenhum empreendimento selecionado. activeImportProductId =', activeImportProductId, '| ids disponíveis:', products.map(p => p.id));
+      onShowToast("Por favor, selecione um empreendimento na lista suspensa.");
+      return;
+    }
 
     // O <input type="date"> entrega YYYY-MM-DD; só acusa erro com campo vazio, data ilegível ou fim < início.
     console.log("Validando vigência:", { dataInicio: validFrom, dataFim: validTo });
@@ -453,16 +472,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       }
       setSavingMsg(`Salvando ${unidadesProcessadas.length} unidades...`);
 
-      // 1. Se já havia uma tabela vigente com unidades e uma planilha nova foi importada
-      // agora, guarda a tabela antiga em "Tabelas Arquivadas" antes de sobrescrevê-la.
-      if (tempParsedData && activeProd.tableInfo?.active && (activeProd.tableInfo.rows?.length || 0) > 0) {
-        const arquivarRes = await imoveisService.arquivarTabelaAtual(activeProd.id, activeProd.name, activeProd.tableInfo);
-        if (!arquivarRes.success) {
-          console.warn('Aviso: não foi possível arquivar a tabela anterior:', arquivarRes.error);
-        }
-      }
-
-      // 2. Substitui a tabela: grava as unidades novas em lote, exclui as antigas que sumiram
+      // Substitui a tabela (arquivando antes a vigente, se uma planilha nova foi importada): grava as unidades novas em lote, exclui as antigas que sumiram
       // da planilha e atualiza o empreendimento (vigência, nº de unidades, tabela ativa).
       // Sem rede o commit do Firestore pode ficar pendente para sempre: o timeout evita o botão travado.
       const res = await comTimeout(imoveisService.substituirTabelaEmpreendimento({
@@ -473,7 +483,9 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         tabela_valid_from: validFrom,
         tabela_valid_to: validTo,
         tabela_file_name: currentFileName
-      }, unidadesProcessadas), 90000, 'Tempo esgotado ao gravar no Firestore. Verifique a conexão e tente novamente');
+      }, unidadesProcessadas,
+        tempParsedData && activeProd.tableInfo?.active ? { nome: activeProd.name, tableInfo: activeProd.tableInfo } : undefined
+      ), 90000, 'Tempo esgotado ao gravar no Firestore. Verifique a conexão e tente novamente');
       if (!res.success) {
         throw new Error(res.error || 'Falha ao substituir a tabela');
       }
@@ -513,7 +525,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         active: true
       };
 
-      // 3. Salva no estado global e no cache local (localStorage)
+      // Salva no estado global e no cache local (localStorage)
       console.log('Tabela salva — atualizando estado do empreendimento:', { id: activeProd.id, active: newTableInfo.active, validFrom, validTo, unidades: finalRows.length });
       onSaveTableInfo(activeProd.id, newTableInfo);
       // Limpa o arquivo importado (preview e input) para a tela mostrar só a tabela vigente.
@@ -521,9 +533,9 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       setLookupTorre('');
       setLookupUnidade('');
       if (fileInputRef.current) fileInputRef.current.value = '';
-      onShowToast(`Tabela atualizada e ativada com sucesso! ${unidadesProcessadas.length} unidades gravadas.`);
+      onShowToast(`Tabela ativada com sucesso! ${unidadesProcessadas.length} unidades salvas.`);
 
-      // 4. Dispara evento customizado: o App recarrega empreendimentos e unidades do Firestore
+      // Dispara evento customizado: o App recarrega empreendimentos e unidades do Firestore
       // (syncFromFirestore), atualizando a badge e o contador de unidades em todas as abas
       window.dispatchEvent(new CustomEvent('tabela_atualizada'));
       if (arquivadasAbertas) carregarArquivadas(activeProd.id);
@@ -600,10 +612,11 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
               Selecione o Empreendimento para Importar / Consultar Tabela
             </label>
             <select
-              value={activeImportProductId}
+              value={activeProd ? activeProd.id : ''}
               onChange={(e) => onSelectImportProduct(e.target.value)}
               className="w-full bg-white font-bold text-slate-900 border border-slate-300 rounded-xl py-2.5 px-3.5 focus:outline-none focus:border-morar-600 text-xs shadow-xs cursor-pointer"
             >
+              {!activeProd && <option value="" disabled>Selecione um empreendimento...</option>}
               {products.map(p => {
                 const isActive = Boolean(p.tableInfo && p.tableInfo.active);
                 const isVencida = isActive && isTabelaVencida(p.tableInfo?.validTo, currentDate);
@@ -657,7 +670,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         )}
 
         {/* FORMULÁRIO DE IMPORTAÇÃO DA TABELA */}
-        <form onSubmit={handleSaveTable} className="space-y-5 text-xs">
+        <form onSubmit={handleSaveTable} noValidate className="space-y-5 text-xs">
           
           {/* PERÍODO DE VALIDADE DA TABELA */}
           <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-3">
@@ -863,6 +876,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                   </button>
                   <button
                     type="submit"
+                    onClick={(e) => console.log("CLIQUE NO BOTÃO DISPARADO!", e)}
                     disabled={isSaving}
                     className="px-5 py-2 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
@@ -936,6 +950,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
               </button>
               <button
                 type="submit"
+                onClick={(e) => console.log("CLIQUE NO BOTÃO DISPARADO!", e)}
                 disabled={isSaving}
                 className="px-5 py-2.5 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
               >

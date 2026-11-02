@@ -219,28 +219,65 @@ export const imoveisService = {
       tabela_valid_to: string;
       tabela_file_name: string;
     },
-    unidades: any[]
+    unidades: any[],
+    tabelaAnterior?: { nome: string; tableInfo: { fileName?: string; validFrom?: string; validTo?: string; rows?: (string | number)[][] } }
   ): Promise<{ success: boolean; error?: string; data?: any[]; removidas?: number }> {
     try {
       if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id do empreendimento não é um UUID válido' };
       if (!unidades || unidades.length === 0) return { success: false, error: 'a nova tabela não tem unidades' };
 
+      // Executa uma etapa registrando início, fim e, em caso de falha, o erro exato (código do
+      // Firestore, ex.: permission-denied) com o nome da etapa — aparece no console (F12).
+      const etapa = async <T,>(nome: string, fn: () => Promise<T>): Promise<T> => {
+        console.log(`[substituirTabela] ${nome}...`);
+        try {
+          const r = await fn();
+          console.log(`[substituirTabela] ${nome}: OK`);
+          return r;
+        } catch (err: any) {
+          console.error(`[substituirTabela] FALHOU na etapa "${nome}":`, { codigo: err?.code, mensagem: err?.message, empreendimento: emp.id, erro: err });
+          throw Object.assign(new Error(`${nome}: ${mensagemDeErro(err, err?.message || 'erro desconhecido')}`), { cause: err });
+        }
+      };
+
+      // 1) Arquivamento da tabela anterior (não bloqueia a importação se falhar).
+      if (tabelaAnterior && tabelaAnterior.tableInfo.rows && tabelaAnterior.tableInfo.rows.length > 0) {
+        try {
+          await etapa('arquivar tabela anterior', async () => {
+            const r = await this.arquivarTabelaAtual(emp.id, tabelaAnterior.nome, tabelaAnterior.tableInfo);
+            if (!r.success) throw new Error(r.error || 'falha ao arquivar');
+          });
+        } catch (e) {
+          console.warn('[substituirTabela] seguindo sem arquivar a tabela anterior.');
+        }
+      } else {
+        console.log('[substituirTabela] sem tabela anterior com unidades — nada a arquivar (tabelas_arquivadas só recebe documentos quando há tabela vigente sendo substituída).');
+      }
+
+      // 2) Unidades antigas que sumiram da nova planilha.
       const idsNovos = new Set(unidades.map(u => idDaUnidade({ ...u, empreendimento_id: emp.id })));
-      const existentes = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', emp.id)));
+      const existentes = await etapa('ler unidades existentes', () => getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', emp.id))));
       const obsoletas = existentes.docs.filter(d => !idsNovos.has(d.id));
 
-      // set sem merge: a unidade antiga é substituída inteira, sem sobrar campo velho.
-      await commitEmLotes(unidades, (batch, u) => {
+      // 3) Grava as novas (set sem merge: a unidade antiga é substituída inteira).
+      await etapa(`gravar ${unidades.length} unidades novas (lotes de 250)`, () => commitEmLotes(unidades, (batch, u) => {
         batch.set(doc(db, 'unidades', idDaUnidade({ ...u, empreendimento_id: emp.id })), { ...u, empreendimento_id: emp.id });
-      });
-      await commitEmLotes(obsoletas, (batch, d) => batch.delete(d.ref));
+      }));
 
-      const meta = await this.sincronizarEmpreendimento({
-        ...emp,
-        tabela_total_unidades: unidades.length,
-        tabela_ativa: true,
-        data_importacao_tabela: new Date().toISOString(),
-        atualizado_em: new Date().toISOString()
+      // 4) Exclui as obsoletas.
+      await etapa(`excluir ${obsoletas.length} unidades antigas (lotes de 250)`, () => commitEmLotes(obsoletas, (batch, d) => batch.delete(d.ref)));
+
+      // 5) Atualiza o documento do empreendimento.
+      const meta = await etapa('atualizar empreendimento', async () => {
+        const r = await this.sincronizarEmpreendimento({
+          ...emp,
+          tabela_total_unidades: unidades.length,
+          tabela_ativa: true,
+          data_importacao_tabela: new Date().toISOString(),
+          atualizado_em: new Date().toISOString()
+        });
+        if (!r.success) throw new Error(r.error || 'falha ao atualizar o empreendimento');
+        return r;
       });
       if (!meta.success) return { success: false, error: meta.error };
 
@@ -254,7 +291,7 @@ export const imoveisService = {
       return { success: true, data, removidas: existentes.size };
     } catch (e: any) {
       console.error('Erro ao substituir a tabela no Firestore:', e);
-      return { success: false, error: mensagemDeErro(e, 'Erro ao substituir a tabela no banco') };
+      return { success: false, error: e?.message || mensagemDeErro(e, 'Erro ao substituir a tabela no banco') };
     }
   },
 
