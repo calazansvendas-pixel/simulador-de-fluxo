@@ -17,6 +17,13 @@ interface ImportTableViewProps {
   currentDate: string;
 }
 
+// Rejeita se a promessa não resolver no prazo (ex.: commit do Firestore preso sem rede).
+const comTimeout = <T,>(p: Promise<T>, ms: number, mensagem: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(mensagem)), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+
 // Helper to get first and last day of current month in YYYY-MM-DD format
 const getCurrentMonthDates = () => {
   const now = new Date();
@@ -69,6 +76,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
   } | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
+  const [savingMsg, setSavingMsg] = useState('');
 
   // Tabelas de vendas arquivadas (versões antigas substituídas) do empreendimento
   // selecionado — ver "Tabelas Arquivadas" mais abaixo.
@@ -418,12 +426,32 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       return;
     }
 
+    const DATA_ISO = /^d{4}-d{2}-d{2}$/;
+    if (!DATA_ISO.test(validFrom) || !DATA_ISO.test(validTo)) {
+      onShowToast("Datas de vigência inválidas. Use o seletor de datas.");
+      return;
+    }
+
+    // O empreendimento precisa ter id no formato UUID para ser gravado no Firestore
+    // (ver imoveisService.sincronizarEmpreendimento).
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activeProd.id)) {
+      console.error('Salvar tabela: id de empreendimento inválido para o Firestore:', activeProd.id);
+      onShowToast(`O empreendimento "${activeProd.name}" tem um id incompatível com o banco (${activeProd.id}) e não pode ser sincronizado.`);
+      return;
+    }
+
     setIsSaving(true);
-    
-    // Mapeamento dos dados processados para o formato esperado pelo Firestore
-    const unidadesProcessadas = imoveisService.converterLinhasParaUnidades(activeProd.id, currentRows);
+    setSavingMsg('Preparando unidades...');
+    let unidadesProcessadas: any[] = [];
 
     try {
+      // Mapeamento dos dados processados para o formato esperado pelo Firestore
+      unidadesProcessadas = imoveisService.converterLinhasParaUnidades(activeProd.id, currentRows);
+      if (unidadesProcessadas.length === 0) {
+        throw new Error('Nenhuma unidade válida (torre e unidade preenchidas) encontrada na tabela');
+      }
+      setSavingMsg(`Salvando ${unidadesProcessadas.length} unidades...`);
+
       // 1. Se já havia uma tabela vigente com unidades e uma planilha nova foi importada
       // agora, guarda a tabela antiga em "Tabelas Arquivadas" antes de sobrescrevê-la.
       if (tempParsedData && activeProd.tableInfo?.active && (activeProd.tableInfo.rows?.length || 0) > 0) {
@@ -435,7 +463,8 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
       // 2. Substitui a tabela: grava as unidades novas em lote, exclui as antigas que sumiram
       // da planilha e atualiza o empreendimento (vigência, nº de unidades, tabela ativa).
-      const res = await imoveisService.substituirTabelaEmpreendimento({
+      // Sem rede o commit do Firestore pode ficar pendente para sempre: o timeout evita o botão travado.
+      const res = await comTimeout(imoveisService.substituirTabelaEmpreendimento({
         id: activeProd.id,
         nome: activeProd.name,
         delivery_date_phase1: activeProd.deliveryDatePhase1 || activeProd.deliveryDate,
@@ -443,7 +472,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         tabela_valid_from: validFrom,
         tabela_valid_to: validTo,
         tabela_file_name: currentFileName
-      }, unidadesProcessadas);
+      }, unidadesProcessadas), 90000, 'Tempo esgotado ao gravar no Firestore. Verifique a conexão e tente novamente');
       if (!res.success) {
         throw new Error(res.error || 'Falha ao substituir a tabela');
       }
@@ -485,16 +514,26 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
       // 3. Salva no estado global e no cache local (localStorage)
       onSaveTableInfo(activeProd.id, newTableInfo);
+      // Limpa o arquivo importado (preview e input) para a tela mostrar só a tabela vigente.
       setTempParsedData(null);
+      setLookupTorre('');
+      setLookupUnidade('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       onShowToast(`Tabela anterior substituída e nova tabela ativada com sucesso! ${unidadesProcessadas.length} unidades gravadas no Firestore.`);
 
-      // 4. Dispara evento customizado para atualizar todos os componentes e abas abertas
+      // 4. Dispara evento customizado: o App recarrega empreendimentos e unidades do Firestore
+      // (syncFromFirestore), atualizando a badge e o contador de unidades em todas as abas
       window.dispatchEvent(new CustomEvent('tabela_atualizada'));
       if (arquivadasAbertas) carregarArquivadas(activeProd.id);
 
     } catch (err: any) {
-      console.error(err);
-      
+      console.error('Erro ao salvar a tabela de vendas:', {
+        empreendimento: activeProd.id,
+        vigencia: [validFrom, validTo],
+        unidades: currentRows.length,
+        erro: err
+      });
+
       // Fallback local se o banco falhar
       const newTableInfo: TableInfo = {
         validFrom,
@@ -509,6 +548,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       onShowToast(`Erro ao salvar no Firestore: ${err?.message || 'falha de conexão'}. A tabela foi mantida apenas localmente.`);
     } finally {
       setIsSaving(false);
+      setSavingMsg('');
     }
   };
 
@@ -825,7 +865,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                     className="px-5 py-2 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    <span>{isSaving ? 'Salvando...' : 'Salvar e Ativar Tabela'}</span>
+                    <span>{isSaving ? (savingMsg || 'Salvando...') : 'Salvar e Ativar Tabela'}</span>
                   </button>
                 </div>
               </div>
@@ -898,7 +938,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                 className="px-5 py-2.5 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
               >
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                <span>{isSaving ? 'Salvando...' : 'Salvar e Ativar Tabela'}</span>
+                <span>{isSaving ? (savingMsg || 'Salvando...') : 'Salvar e Ativar Tabela'}</span>
               </button>
             </div>
           )}

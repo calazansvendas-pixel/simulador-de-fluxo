@@ -19,7 +19,8 @@ export function desempacotarJson<T = any>(texto: unknown): T | null {
 }
 
 // Um WriteBatch do Firestore aceita no máximo 500 operações.
-const TAMANHO_LOTE = 400;
+// Limite do Firestore: 500 operações por WriteBatch. 300 deixa folga de segurança.
+const TAMANHO_LOTE = 300;
 
 export async function commitEmLotes<T>(itens: T[], aplicar: (batch: WriteBatch, item: T) => void): Promise<void> {
   for (let i = 0; i < itens.length; i += TAMANHO_LOTE) {

@@ -145,6 +145,7 @@ export const imoveisService = {
     tabela_file_name?: string;
     tabela_total_unidades?: number;
     tabela_ativa?: boolean;
+    data_importacao_tabela?: string;
   }): Promise<{ success: boolean; error?: string }> {
     try {
       if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id não é um UUID válido' };
@@ -156,11 +157,13 @@ export const imoveisService = {
       };
       if (emp.conditions !== undefined) payload.conditions_json = empacotarJson(emp.conditions);
       if (emp.is_featured !== undefined) payload.is_featured = emp.is_featured;
-      if (emp.tabela_valid_from !== undefined) payload.tabela_valid_from = emp.tabela_valid_from;
-      if (emp.tabela_valid_to !== undefined) payload.tabela_valid_to = emp.tabela_valid_to;
+      // valid_from/valid_to espelham tabela_valid_from/to (o App lê os tabela_*).
+      if (emp.tabela_valid_from !== undefined) { payload.tabela_valid_from = emp.tabela_valid_from; payload.valid_from = emp.tabela_valid_from; }
+      if (emp.tabela_valid_to !== undefined) { payload.tabela_valid_to = emp.tabela_valid_to; payload.valid_to = emp.tabela_valid_to; }
       if (emp.tabela_file_name !== undefined) payload.tabela_file_name = emp.tabela_file_name;
       if (emp.tabela_total_unidades !== undefined) payload.tabela_total_unidades = emp.tabela_total_unidades;
       if (emp.tabela_ativa !== undefined) payload.tabela_ativa = emp.tabela_ativa;
+      if (emp.data_importacao_tabela !== undefined) payload.data_importacao_tabela = emp.data_importacao_tabela;
 
       // merge: true = comportamento de upsert (campos não enviados ficam como estão).
       await setDoc(doc(db, 'empreendimentos', emp.id), payload, { merge: true });
@@ -233,7 +236,8 @@ export const imoveisService = {
       const meta = await this.sincronizarEmpreendimento({
         ...emp,
         tabela_total_unidades: unidades.length,
-        tabela_ativa: true
+        tabela_ativa: true,
+        data_importacao_tabela: new Date().toISOString()
       });
       if (!meta.success) return { success: false, error: meta.error };
 
