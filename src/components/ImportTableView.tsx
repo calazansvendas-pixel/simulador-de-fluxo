@@ -407,13 +407,20 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
     e.preventDefault();
     if (!activeProd) return;
 
+    // O <input type="date"> entrega YYYY-MM-DD; só acusa erro com campo vazio, data ilegível ou fim < início.
+    console.log("Validando vigência:", { dataInicio: validFrom, dataFim: validTo });
+    const inicio = new Date(validFrom).getTime();
+    const fim = new Date(validTo).getTime();
     if (!validFrom || !validTo) {
       onShowToast("Preencha as datas de vigência inicial e final.");
       return;
     }
-
-    if (validFrom > validTo) {
-      onShowToast("A data inicial não pode ser maior que a data final.");
+    if (isNaN(inicio) || isNaN(fim)) {
+      onShowToast("Data de vigência ilegível. Selecione as datas novamente.");
+      return;
+    }
+    if (fim < inicio) {
+      onShowToast("A data final não pode ser anterior à data inicial.");
       return;
     }
 
@@ -423,12 +430,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
     if (currentRows.length === 0) {
       onShowToast("A tabela está vazia. Nenhuma unidade para salvar.");
-      return;
-    }
-
-    const DATA_ISO = /^d{4}-d{2}-d{2}$/;
-    if (!DATA_ISO.test(validFrom) || !DATA_ISO.test(validTo)) {
-      onShowToast("Datas de vigência inválidas. Use o seletor de datas.");
       return;
     }
 
