@@ -12,7 +12,7 @@ import {
   PieChart
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
-import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
+import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
 import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
@@ -223,6 +223,13 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // ainda o consulta, mas sem nenhum campo de tela chamando o setter, fica
   // sempre `null`.
   const [dataITBI, setDataITBI] = useState<string>('setembro, 2026');
+
+  // Encadeamento automático das datas de parcelamento a partir do mês base ("Hoje é" do
+  // cabeçalho): Obra (INCC) e ITBI/Registro começam no mês seguinte ao base (base nov/2026 ->
+  // "dezembro, 2026") e a Pós-Obra (IPCA+1%) começa Obra + quantidade de parcelas de Obra
+  // (dez/2026 + 33 meses = setembro, 2029). Um campo que o usuário digita à mão deixa de ser
+  // recalculado; a Pós-Obra continua seguindo a data de Obra que estiver na tela.
+  const datasManuaisRef = useRef({ obra: false, pos: false, itbi: false });
   const [itbiTotalManual, setItbiTotalManual] = useState<number | null>(null);
 
   // Nada neste bloco é editável pela tela — a quantidade de parcelas do ITBI
@@ -696,6 +703,18 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const totalParcObra = faixasObra.reduce((acc, f) => acc + (Number(f.qtd) || 0), 0);
   const totalParcPos = faixasPos.reduce((acc, f) => acc + (Number(f.qtd) || 0), 0);
   const totalParcMorar = totalParcObra + totalParcPos;
+
+  useEffect(() => {
+    const base = indiceMesDeDataIso(currentDate) ?? indiceMesDeDataIso(new Date().toISOString().split('T')[0]);
+    if (base === null) return;
+    const inicioObra = base + 1;
+    if (!datasManuaisRef.current.obra) setDataObra(formatMesAno(inicioObra));
+    if (!datasManuaisRef.current.itbi) setDataITBI(formatMesAno(inicioObra));
+    if (!datasManuaisRef.current.pos) {
+      const obraNaTela = datasManuaisRef.current.obra ? (indiceMesDeTexto(dataObra) ?? inicioObra) : inicioObra;
+      setDataPos(formatMesAno(obraNaTela + totalParcObra));
+    }
+  }, [currentDate, totalParcObra, dataObra]);
 
   // Comissão Apartada — exclusiva da condição "Sinal c/ Morar (Comissão
   // Apartada)". A comissão sai do fluxo de Ato: os limites de risco
@@ -2431,7 +2450,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <input
                       type="text"
                       value={dataITBI}
-                      onChange={(e) => setDataITBI(e.target.value)}
+                      onChange={(e) => { datasManuaisRef.current.itbi = true; setDataITBI(e.target.value); }}
                       className="morar-input bg-transparent hover:bg-white/60 focus:bg-white border-b border-dashed border-emerald-300 font-bold text-emerald-900 px-1 py-0.5 text-[10px] w-24 text-center focus:outline-none"
                       placeholder="Data início"
                     />
@@ -2814,7 +2833,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <input
                     type="text"
                     value={dataObra}
-                    onChange={(e) => setDataObra(e.target.value)}
+                    onChange={(e) => { datasManuaisRef.current.obra = true; setDataObra(e.target.value); }}
                     className="morar-input bg-slate-50 hover:bg-slate-100 focus:bg-white border border-dashed border-slate-200 hover:border-slate-300 focus:border-morar-500 rounded-md px-2 py-0.5 text-xs font-bold text-slate-800 w-32 text-center transition-all focus:outline-none"
                     placeholder="Ex: setembro, 2026"
                   />
@@ -2911,7 +2930,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <input
                     type="text"
                     value={dataPos}
-                    onChange={(e) => setDataPos(e.target.value)}
+                    onChange={(e) => { datasManuaisRef.current.pos = true; setDataPos(e.target.value); }}
                     className="morar-input bg-slate-50 hover:bg-slate-100 focus:bg-white border border-dashed border-slate-200 hover:border-slate-300 focus:border-morar-500 rounded-md px-2 py-0.5 text-xs font-bold text-slate-800 w-32 text-center transition-all focus:outline-none"
                     placeholder="Ex: junho, 2029"
                   />

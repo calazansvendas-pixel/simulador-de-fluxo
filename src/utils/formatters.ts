@@ -243,3 +243,32 @@ export function isTabelaVencida(validTo: string | undefined, currentDate: string
   return validTo < currentDate;
 }
 
+// --- Datas de parcelamento no formato "dezembro, 2026" ---------------------------------
+const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** Índice absoluto de meses (ano * 12 + mês 0-11) -> "dezembro, 2026". */
+export function formatMesAno(indiceMes: number): string {
+  const ano = Math.floor(indiceMes / 12);
+  return `${MESES_PT[indiceMes - ano * 12]}, ${ano}`;
+}
+
+/** "YYYY-MM-DD" (ex.: o "Hoje é" do cabeçalho) -> índice absoluto de meses; null se inválido. */
+export function indiceMesDeDataIso(iso: string | undefined): number | null {
+  const m = /^(\d{4})-(\d{2})/.exec(iso || '');
+  if (!m) return null;
+  const mes = Number(m[2]);
+  return mes >= 1 && mes <= 12 ? Number(m[1]) * 12 + (mes - 1) : null;
+}
+
+/** "dezembro, 2026" (ou "dez/2026", "12/2026") -> índice absoluto de meses; null se não reconhecer. */
+export function indiceMesDeTexto(texto: string | undefined): number | null {
+  const t = (texto || '').trim().toLowerCase();
+  const ano = /(\d{4})/.exec(t);
+  if (!ano) return null;
+  const semAcento = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const nome = semAcento(t.replace(ano[1], ''));
+  const porNome = MESES_PT.findIndex(mes => nome.includes(semAcento(mes).slice(0, 3)));
+  if (porNome >= 0) return Number(ano[1]) * 12 + porNome;
+  const num = /(\d{1,2})/.exec(nome);
+  return num && Number(num[1]) >= 1 && Number(num[1]) <= 12 ? Number(ano[1]) * 12 + Number(num[1]) - 1 : null;
+}
