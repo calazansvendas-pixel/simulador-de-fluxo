@@ -514,13 +514,14 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       };
 
       // 3. Salva no estado global e no cache local (localStorage)
+      console.log('Tabela salva — atualizando estado do empreendimento:', { id: activeProd.id, active: newTableInfo.active, validFrom, validTo, unidades: finalRows.length });
       onSaveTableInfo(activeProd.id, newTableInfo);
       // Limpa o arquivo importado (preview e input) para a tela mostrar só a tabela vigente.
       setTempParsedData(null);
       setLookupTorre('');
       setLookupUnidade('');
       if (fileInputRef.current) fileInputRef.current.value = '';
-      onShowToast(`Tabela anterior substituída e nova tabela ativada com sucesso! ${unidadesProcessadas.length} unidades gravadas no Firestore.`);
+      onShowToast(`Tabela atualizada e ativada com sucesso! ${unidadesProcessadas.length} unidades gravadas.`);
 
       // 4. Dispara evento customizado: o App recarrega empreendimentos e unidades do Firestore
       // (syncFromFirestore), atualizando a badge e o contador de unidades em todas as abas

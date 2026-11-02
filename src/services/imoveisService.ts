@@ -146,6 +146,7 @@ export const imoveisService = {
     tabela_total_unidades?: number;
     tabela_ativa?: boolean;
     data_importacao_tabela?: string;
+    atualizado_em?: string;
   }): Promise<{ success: boolean; error?: string }> {
     try {
       if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id não é um UUID válido' };
@@ -158,10 +159,11 @@ export const imoveisService = {
       if (emp.conditions !== undefined) payload.conditions_json = empacotarJson(emp.conditions);
       if (emp.is_featured !== undefined) payload.is_featured = emp.is_featured;
       // valid_from/valid_to espelham tabela_valid_from/to (o App lê os tabela_*).
-      if (emp.tabela_valid_from !== undefined) { payload.tabela_valid_from = emp.tabela_valid_from; payload.valid_from = emp.tabela_valid_from; }
-      if (emp.tabela_valid_to !== undefined) { payload.tabela_valid_to = emp.tabela_valid_to; payload.valid_to = emp.tabela_valid_to; }
+      if (emp.tabela_valid_from !== undefined) { payload.tabela_valid_from = emp.tabela_valid_from; payload.valid_from = emp.tabela_valid_from; payload.vigencia_inicio = emp.tabela_valid_from; }
+      if (emp.tabela_valid_to !== undefined) { payload.tabela_valid_to = emp.tabela_valid_to; payload.valid_to = emp.tabela_valid_to; payload.vigencia_fim = emp.tabela_valid_to; }
       if (emp.tabela_file_name !== undefined) payload.tabela_file_name = emp.tabela_file_name;
-      if (emp.tabela_total_unidades !== undefined) payload.tabela_total_unidades = emp.tabela_total_unidades;
+      if (emp.tabela_total_unidades !== undefined) { payload.tabela_total_unidades = emp.tabela_total_unidades; payload.unidades_count = emp.tabela_total_unidades; }
+      if (emp.atualizado_em !== undefined) payload.atualizado_em = emp.atualizado_em;
       if (emp.tabela_ativa !== undefined) payload.tabela_ativa = emp.tabela_ativa;
       if (emp.data_importacao_tabela !== undefined) payload.data_importacao_tabela = emp.data_importacao_tabela;
 
@@ -237,7 +239,8 @@ export const imoveisService = {
         ...emp,
         tabela_total_unidades: unidades.length,
         tabela_ativa: true,
-        data_importacao_tabela: new Date().toISOString()
+        data_importacao_tabela: new Date().toISOString(),
+        atualizado_em: new Date().toISOString()
       });
       if (!meta.success) return { success: false, error: meta.error };
 
