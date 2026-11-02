@@ -39,7 +39,7 @@ import { Cargo, PerfilUsuario, StatusConta } from '../types';
  * permissoes_padrao_por_cargo/{cargo}
  * empreendimentos_padrao_por_cargo/{cargo}
  *
- * Diferenças em relação ao Supabase (inevitáveis no Firebase):
+ * Particularidades do Firebase:
  *  - criar conta já deixa a pessoa logada (não há trava de "confirmar e-mail"); o
  *    acesso continua barrado pelo status 'pendente' até o Administrador aprovar;
  *  - excluir um usuário apaga o perfil, mas o login no Firebase Auth só pode ser

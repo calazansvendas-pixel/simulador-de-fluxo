@@ -181,9 +181,9 @@ export type Cargo =
 
 export type StatusConta = 'pendente' | 'ativo' | 'pausado';
 
-// Espelha a tabela `perfis` no Supabase (ver SQL de criação em authService.ts).
-// `id` é sempre o mesmo id do usuário em auth.users (Supabase Auth cuida da
-// senha; esta tabela guarda só os dados de negócio: cargo, hierarquia, telas
+// Espelha o documento `perfis/{uid}` no Firestore (ver estrutura em authService.ts).
+// `id` é sempre o mesmo id do usuário em Firebase Auth (que cuida da
+// senha; este documento guarda só os dados de negócio: cargo, hierarquia, telas
 // liberadas e status de aprovação).
 export interface PerfilUsuario {
   id: string;

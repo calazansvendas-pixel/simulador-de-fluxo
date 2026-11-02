@@ -32,7 +32,7 @@ const ViewLoadingFallback = () => (
 );
 
 // O "Colina das Amoras" foi cadastrado originalmente com o id 'amoras', que não é um
-// UUID válido — a tabela `empreendimentos` do Supabase exige UUID como chave primária,
+// UUID válido — a coleção `empreendimentos` do Firestore exige UUID como id do documento,
 // então esse empreendimento nunca conseguiu sincronizar (nem a tabela de unidades, nem
 // a política de crédito). AMORAS_ID é o novo id compatível; qualquer produto carregado
 // com o id legado é migrado automaticamente para AMORAS_ID, preservando toda a política
@@ -81,10 +81,10 @@ export default function App({ perfil, onSair }: AppProps) {
   );
 
   // Sinaliza se ESTE carregamento remapeou um produto do id legado 'amoras' para
-  // AMORAS_ID — só nesse caso existe uma migração real a empurrar para o Supabase.
+  // AMORAS_ID — só nesse caso existe uma migração real a empurrar para o Firestore.
   // Um navegador novo (sem dado legado, já usando AMORAS_ID vindo de INITIAL_PRODUCTS)
   // não deve disparar esse push: a política dele ainda é só o padrão de fábrica, e
-  // empurrá-la incondicionalmente correria o risco de sobrescrever no Supabase a
+  // empurrá-la incondicionalmente correria o risco de sobrescrever no Firestore a
   // política real que outro navegador (o do admin) já tenha migrado.
   const migratedAmorasRef = React.useRef(false);
 
@@ -119,13 +119,13 @@ export default function App({ perfil, onSair }: AppProps) {
 
   React.useEffect(() => {
     // Inicialização do Banco de Dados (Seed Inicial) e Sincronização Completa
-    const syncFromSupabase = async () => {
+    const syncFromFirestore = async () => {
       try {
         await imoveisService.inicializarBancoSeNecessario();
 
         const dbEmps = await imoveisService.listarEmpreendimentos();
         if (dbEmps && Array.isArray(dbEmps) && dbEmps.length > 0 && 'nome' in dbEmps[0]) {
-          // Para cada empreendimento, busca as unidades mais recentes no Supabase
+          // Para cada empreendimento, busca as unidades mais recentes no Firestore
           const updatedFromDb = await Promise.all(dbEmps.map(async (dbEmp: any) => {
             const existing = productsRef.current.find(p => p.id === dbEmp.id) || INITIAL_PRODUCTS.find(p => p.id === dbEmp.id) || INITIAL_PRODUCTS[0];
 
@@ -134,7 +134,7 @@ export default function App({ perfil, onSair }: AppProps) {
               const units = await imoveisService.listarUnidadesPorEmpreendimento(dbEmp.id);
               if (units && units.length > 0) {
                 const rows = imoveisService.converterUnidadesParaLinhas(units);
-                // Vigência e nome do arquivo vêm do Supabase quando já sincronizados por
+                // Vigência e nome do arquivo vêm do Firestore quando já sincronizados por
                 // quem importou (ver ImportTableView.tsx) — sem isso, cada navegador
                 // ficava com seu próprio default local ("+3 meses a partir de agora"),
                 // então a mesma tabela podia parecer vigente para uns e vencida para
@@ -153,7 +153,7 @@ export default function App({ perfil, onSair }: AppProps) {
             }
 
             // A política de crédito (conditions) e o destaque (is_featured) vêm do
-            // Supabase quando já foram sincronizados por algum usuário — assim todo
+            // Firestore quando já foram sincronizados por algum usuário — assim todo
             // mundo que abre o link vê a mesma política, em vez de cada navegador
             // ficar com a sua própria cópia local desatualizada.
             const dbConditions = Array.isArray(dbEmp.conditions) && dbEmp.conditions.length > 0
@@ -173,8 +173,8 @@ export default function App({ perfil, onSair }: AppProps) {
           }));
 
           // Mescla com o estado atual em vez de substituir: preserva empreendimentos que
-          // só existem localmente (ex.: recém-criados e ainda não sincronizados no Supabase).
-          // Mas um id com formato UUID É rastreável no Supabase — se ele não aparece mais em
+          // só existem localmente (ex.: recém-criados e ainda não sincronizados no Firestore).
+          // Mas um id com formato UUID É rastreável no Firestore — se ele não aparece mais em
           // dbEmps, foi excluído por alguém (não apenas "ainda não sincronizado"), então não
           // deve ser preservado, senão um empreendimento apagado "voltaria" para sempre em
           // qualquer navegador que já tivesse essa cópia salva localmente.
@@ -184,22 +184,22 @@ export default function App({ perfil, onSair }: AppProps) {
           setProducts([...updatedFromDb, ...localOnly]);
         }
       } catch (err) {
-        console.warn('Sincronização com Supabase usando fallback local:', err);
+        console.warn('Sincronização com Firestore usando fallback local:', err);
       }
     };
 
-    syncFromSupabase();
+    syncFromFirestore();
 
-    window.addEventListener('tabela_atualizada', syncFromSupabase);
+    window.addEventListener('tabela_atualizada', syncFromFirestore);
     return () => {
-      window.removeEventListener('tabela_atualizada', syncFromSupabase);
+      window.removeEventListener('tabela_atualizada', syncFromFirestore);
     };
   }, []);
 
   // Migração única do "Colina das Amoras" (id legado 'amoras', incompatível com UUID) para
   // o novo AMORAS_ID: o id já foi trocado no estado local (ver useState de `products` acima);
   // aqui só falta empurrar a política de crédito e a tabela de unidades — que nunca tinham
-  // chegado ao Supabase por causa do id antigo — para que o empreendimento fique visível
+  // chegado ao Firestore por causa do id antigo — para que o empreendimento fique visível
   // para todos os usuários, com tudo que já estava configurado preservado.
   React.useEffect(() => {
     if (!migratedAmorasRef.current) return;
@@ -211,7 +211,7 @@ export default function App({ perfil, onSair }: AppProps) {
       return;
     }
 
-    const migrarAmorasParaSupabase = async () => {
+    const migrarAmorasParaFirestore = async () => {
       try {
         const empResult = await imoveisService.sincronizarEmpreendimento({
           id: amoras.id,
@@ -240,13 +240,13 @@ export default function App({ perfil, onSair }: AppProps) {
         // falha real (rede indisponível etc.) deixa a flag em aberto para tentar de
         // novo no próximo carregamento, em vez de desistir silenciosamente.
         localStorage.setItem(AMORAS_MIGRATION_FLAG, '1');
-        console.log('Migração do Colina das Amoras para o Supabase concluída com sucesso.');
+        console.log('Migração do Colina das Amoras para o Firestore concluída com sucesso.');
       } catch (e) {
-        console.warn('Aviso: falha ao migrar Colina das Amoras para o Supabase. Será tentado novamente no próximo carregamento do app.', e);
+        console.warn('Aviso: falha ao migrar Colina das Amoras para o Firestore. Será tentado novamente no próximo carregamento do app.', e);
       }
     };
 
-    migrarAmorasParaSupabase();
+    migrarAmorasParaFirestore();
   }, []);
 
   // Persist products on change
@@ -566,7 +566,7 @@ export default function App({ perfil, onSair }: AppProps) {
       }
     }
 
-    // Sincroniza a política de crédito com o Supabase, para que fique valendo para
+    // Sincroniza a política de crédito com o Firestore, para que fique valendo para
     // todos os usuários que abrirem o app (e não só no navegador de quem editou).
     imoveisService.sincronizarEmpreendimento({
       id: updatedProduct.id,
@@ -575,7 +575,7 @@ export default function App({ perfil, onSair }: AppProps) {
       delivery_date_phase2: updatedProduct.deliveryDatePhase2,
       conditions: updatedProduct.conditions,
       is_featured: updatedProduct.isFeatured || false
-    }).catch(e => console.warn('Aviso ao sincronizar política de crédito no Supabase:', e));
+    }).catch(e => console.warn('Aviso ao sincronizar política de crédito no Firestore:', e));
   };
 
   const handleDeleteProduct = async (productId: string) => {
@@ -584,15 +584,15 @@ export default function App({ perfil, onSair }: AppProps) {
       return;
     }
 
-    // Exclui no Supabase primeiro — sem isso, o registro continuaria no banco e
+    // Exclui no Firestore primeiro — sem isso, o registro continuaria no banco e
     // poderia "voltar" na próxima sincronização de outro navegador/usuário.
     try {
       const result = await imoveisService.excluirEmpreendimento(productId);
       if (!result.success) {
-        console.warn('Aviso ao excluir empreendimento no Supabase:', result.error);
+        console.warn('Aviso ao excluir empreendimento no Firestore:', result.error);
       }
     } catch (e) {
-      console.warn('Aviso ao excluir empreendimento no Supabase:', e);
+      console.warn('Aviso ao excluir empreendimento no Firestore:', e);
     }
 
     const remaining = products.filter(p => p.id !== productId);
@@ -621,11 +621,11 @@ export default function App({ perfil, onSair }: AppProps) {
       return;
     }
 
-    // Exclui unidades no Supabase em segundo plano
+    // Exclui unidades no Firestore em segundo plano
     try {
       await imoveisService.limparUnidadesEmpreendimento(productId);
     } catch (e) {
-      console.warn('Aviso ao excluir unidades no Supabase:', e);
+      console.warn('Aviso ao excluir unidades no Firestore:', e);
     }
 
     setProducts(prev => prev.map(p => {
@@ -649,7 +649,7 @@ export default function App({ perfil, onSair }: AppProps) {
     setIsNewProductModalOpen(false);
     showToast(`Novo empreendimento "${newProd.name}" cadastrado com sucesso!`);
 
-    // Sincroniza com o Supabase imediatamente, para que o empreendimento já exista no banco
+    // Sincroniza com o Firestore imediatamente, para que o empreendimento já exista no banco
     // antes de qualquer sincronização automática recarregar a lista (o que o apagaria, já
     // que ela hoje mescla com o que está no banco em vez de sobrescrever pelo local).
     imoveisService.sincronizarEmpreendimento({
@@ -659,7 +659,7 @@ export default function App({ perfil, onSair }: AppProps) {
       delivery_date_phase2: newProd.deliveryDatePhase2,
       conditions: newProd.conditions,
       is_featured: newProd.isFeatured || false
-    }).catch(e => console.warn('Aviso ao sincronizar novo empreendimento no Supabase:', e));
+    }).catch(e => console.warn('Aviso ao sincronizar novo empreendimento no Firestore:', e));
   };
 
   return (

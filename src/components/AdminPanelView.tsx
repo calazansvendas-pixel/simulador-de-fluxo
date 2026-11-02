@@ -106,7 +106,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
   const [processandoTransferencia, setProcessandoTransferencia] = useState(false);
 
   // Painel de edição de cargo/hierarquia/permissões/dados cadastrais de um
-  // usuário ativo. E-mail não entra aqui — é o login de verdade (Supabase
+  // usuário ativo. E-mail não entra aqui — é o login de verdade (Firebase
   // Auth), separado do cadastro, e não dá pra trocar com segurança sem uma
   // peça extra de servidor que ainda não existe no projeto.
   const [editando, setEditando] = useState<PerfilUsuario | null>(null);
@@ -159,11 +159,11 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
   useEffect(() => {
     carregarPermissoesPadrao().then(error => {
       // Só no carregamento inicial: se a leitura falhar (o caso mais comum é
-      // a tabela `permissoes_padrao_por_cargo` ainda não ter sido criada no
-      // Supabase — ver SQL em authService.ts), avisa em vez de deixar a tela
+      // a coleção `permissoes_padrao_por_cargo` estar inacessível no
+      // Firestore — ver estrutura em authService.ts), avisa em vez de deixar a tela
       // cair silenciosamente nos padrões de fábrica sem nenhuma explicação.
       if (error) {
-        onShowToast(`Não foi possível carregar os padrões de permissão salvos no Supabase (${error}). Verifique se o SQL de "permissoes_padrao_por_cargo" já foi executado — usando os padrões de fábrica por enquanto.`);
+        onShowToast(`Não foi possível carregar os padrões de permissão salvos no Firestore (${error}). Verifique as regras de segurança da coleção "permissoes_padrao_por_cargo" — usando os padrões de fábrica por enquanto.`);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

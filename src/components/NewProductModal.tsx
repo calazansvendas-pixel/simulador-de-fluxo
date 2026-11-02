@@ -24,8 +24,8 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
-    // UUID (não um id de texto arbitrário): o Supabase exige esse formato na coluna
-    // empreendimentos.id, senão a sincronização é silenciosamente ignorada.
+    // UUID (não um id de texto arbitrário): o Firestore (imoveisService) exige esse formato no id do
+    // documento em empreendimentos, senão a sincronização é silenciosamente ignorada.
     const id = crypto.randomUUID();
     const optionsList = optionsText.trim()
       ? optionsText.split(',').map(o => o.trim()).filter(o => o !== '')

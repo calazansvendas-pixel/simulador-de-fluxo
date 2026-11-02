@@ -41,7 +41,7 @@ export const FichaMorarActionBar: React.FC<FichaMorarActionBarProps> = ({
         onClick={onSaveSimulation}
         disabled={isSavingSimulation}
         className={`${actionButtonClass} bg-emerald-50 hover:bg-emerald-100 text-emerald-700`}
-        title="Salvar proposta/simulação no banco Supabase"
+        title="Salvar proposta/simulação no banco Firestore"
       >
         {isSavingSimulation ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
         <span>{isSavingSimulation ? 'Salvando...' : 'Salvar'}</span>

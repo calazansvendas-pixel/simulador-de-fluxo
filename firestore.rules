@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Regras de segurança do Firestore — substituem as policies (RLS) do Supabase.
+// Regras de segurança do Firestore.
 // Publique em: Firebase Console > Firestore Database > Regras, ou
 // `firebase deploy --only firestore:rules`.
 //
@@ -140,7 +140,7 @@ service cloud.firestore {
     // --- Empreendimentos, unidades e tabelas arquivadas (exigem login) -------
     // A checagem fina de "quem edita Políticas" fica a cargo do app (a aba só
     // aparece para quem tem a tela liberada); aqui só se fecha a porta para
-    // quem nem está logado — igual às policies do Supabase.
+    // quem nem está logado.
     match /empreendimentos/{id} {
       allow read, write: if logado();
     }

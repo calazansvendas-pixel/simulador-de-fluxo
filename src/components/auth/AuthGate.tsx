@@ -9,7 +9,7 @@ interface AuthGateProps {
   // Só renderiza o app de verdade (via children) quando existe sessão E o
   // perfil está com status 'ativo'; até lá, mostra Login/Cadastro ou a tela de
   // status (pendente/pausado/sem-perfil). Isso mantém toda a lógica pesada do
-  // App (sincronização com Supabase etc.) fora da árvore de componentes
+  // App (sincronização com Firestore etc.) fora da árvore de componentes
   // enquanto ninguém autorizado estiver logado.
   children: (ctx: { perfil: PerfilUsuario; onSair: () => void }) => React.ReactNode;
 }

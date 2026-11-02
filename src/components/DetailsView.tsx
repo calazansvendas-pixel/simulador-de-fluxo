@@ -1656,7 +1656,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       if (res.success) {
         const novoId = (res.data as any[])?.[0]?.id;
         if (novoId) autoSavedIdRef.current = novoId;
-        if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Supabase com sucesso!`);
+        if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Firestore com sucesso!`);
       } else if (!silencioso) {
         onShowToast(`Proposta registrada: ${res.error || 'Aviso de sincronização'}`);
       }
@@ -1802,7 +1802,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             onClick={handleSaveSimulation}
             disabled={isSavingSimulation}
             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm shadow-emerald-500/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-            title="Salvar proposta/simulação no banco Supabase"
+            title="Salvar proposta/simulação no banco Firestore"
           >
             {isSavingSimulation ? (
               <>

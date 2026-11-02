@@ -360,7 +360,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   }, [currentProd?.id]);
 
   // Unidades "efetivas" para fins de seleção: some por completo quando a
-  // tabela está vencida, mesmo que o Supabase ainda tenha as linhas — é o que
+  // tabela está vencida, mesmo que o Firestore ainda tenha as linhas — é o que
   // impede escolher Torre/Unidade e simular com preços desatualizados.
   const dbUnitsEfetivos = tabelaVencida ? [] : dbUnits;
 
@@ -380,7 +380,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Validação estrita: se a torre ou unidade selecionada não estiver disponível, reseta a seleção
   useEffect(() => {
     if (!currentProd) return;
-    // Enquanto a busca das unidades no Supabase ainda está em andamento, availableTorres
+    // Enquanto a busca das unidades no Firestore ainda está em andamento, availableTorres
     // fica vazio momentaneamente — não podemos usar isso para invalidar uma torre/unidade
     // já restaurada (ex.: reabertura de simulação salva), senão ela é zerada antes dos
     // dados chegarem.
@@ -430,7 +430,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   const hasUnitSelected = Boolean(selectedTorre && selectedUnidade && matchingRow);
 
-  // Mapeamento dos atributos vindos do Supabase / Mocks
+  // Mapeamento dos atributos vindos do Firestore / Mocks
   const fase = matchingRow ? String(matchingRow.status || '1ª') : '-';
   const tipologia = matchingRow ? String(matchingRow.tipologia || '2 Quartos') : '-';
   const areaPriv = matchingRow ? formatArea(matchingRow.area_privativa) : '0,00 m²';
@@ -1947,7 +1947,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       if (res.success) {
         const novoId = (res.data as any[])?.[0]?.id;
         if (novoId) autoSavedIdRef.current = novoId;
-        if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Supabase com sucesso!`);
+        if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Firestore com sucesso!`);
       } else if (!silencioso) {
         onShowToast(`Proposta registrada: ${res.error || 'Aviso de sincronização'}`);
       }

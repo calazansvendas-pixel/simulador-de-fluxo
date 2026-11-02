@@ -26,7 +26,7 @@ export const app = initializeApp(firebaseConfig);
 // Sessão de login guardada por aba (sessionStorage), não persistente: a pessoa
 // continua logada enquanto a aba/navegador estiver aberto, mas fechar o
 // navegador exige um novo login — comportamento pedido explicitamente para
-// este app (era assim também com o Supabase).
+// este app.
 export const auth = initializeAuth(app, {
   persistence: browserSessionPersistence
 });
