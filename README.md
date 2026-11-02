@@ -14,7 +14,7 @@ Simulador de Crédito Imobiliário, Ficha de Análise Financeira, Políticas Com
 
 ## Stack
 
-React 19 + TypeScript + Vite 6 + Tailwind CSS 4, com persistência local (localStorage) e sincronização opcional com Supabase.
+React 19 + TypeScript + Vite 6 + Tailwind CSS 4, com persistência local (localStorage) e persistência no Firebase (Firestore).
 
 ## Rodar localmente
 

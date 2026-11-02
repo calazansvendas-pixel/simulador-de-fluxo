@@ -44,7 +44,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
   // IMPORTANTE: nunca cair para products[0] quando activeImportProductId não bate com
   // nenhum produto atual (ex.: uma janela momentânea logo após a lista de empreendimentos
-  // ser recarregada do Supabase). Um fallback silencioso para "o primeiro da lista" fazia
+  // ser recarregada do Firestore). Um fallback silencioso para "o primeiro da lista" fazia
   // a importação/arquivamento gravar no empreendimento errado sem nenhum aviso — é preciso
   // ficar sem produto selecionado (undefined) e deixar os `?.` abaixo lidarem com isso, em
   // vez de agir sobre dados de outro empreendimento.
@@ -111,14 +111,14 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
     }
   };
 
-  // Executa a exclusão de todas as unidades do empreendimento no Supabase e limpa o estado
+  // Executa a exclusão de todas as unidades do empreendimento no Firestore e limpa o estado
   const handleConfirmDeleteUnits = async () => {
     if (!activeProd) return;
     setIsDeleting(true);
     try {
       const res = await imoveisService.limparUnidadesEmpreendimento(activeProd.id);
       if (!res.success) {
-        console.warn('Aviso ao excluir no Supabase:', res.error);
+        console.warn('Aviso ao excluir no Firestore:', res.error);
       }
       
       onDeleteTable(activeProd.id);
@@ -128,7 +128,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       
       // Notifica todos os módulos da aplicação
       window.dispatchEvent(new CustomEvent('tabela_atualizada'));
-      onShowToast(`Unidades de "${activeProd.name}" excluídas do Supabase com sucesso.`);
+      onShowToast(`Unidades de "${activeProd.name}" excluídas do Firestore com sucesso.`);
     } catch (err: any) {
       console.error('Erro ao excluir unidades:', err);
       onShowToast(`Erro ao limpar unidades: ${err?.message || 'Falha na operação'}`);
@@ -450,7 +450,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
     setIsSaving(true);
     
-    // Mapeamento dos dados processados para o formato esperado pelo Supabase
+    // Mapeamento dos dados processados para o formato esperado pelo Firestore
     const unidadesProcessadas = imoveisService.converterLinhasParaUnidades(activeProd.id, currentRows);
 
     try {
@@ -463,8 +463,8 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         }
       }
 
-      // 2. Garante que o empreendimento exista no Supabase, já com a vigência da nova tabela
-      await imoveisService.sincronizarEmpreendimento({
+      // 2. Cria/atualiza o empreendimento na coleção 'empreendimentos', já com a vigência da nova tabela
+      const empRes = await imoveisService.sincronizarEmpreendimento({
         id: activeProd.id,
         nome: activeProd.name,
         delivery_date_phase1: activeProd.deliveryDatePhase1 || activeProd.deliveryDate,
@@ -473,9 +473,15 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         tabela_valid_to: validTo,
         tabela_file_name: currentFileName
       });
+      if (!empRes.success) {
+        throw new Error(empRes.error || 'Falha ao gravar o empreendimento');
+      }
 
-      // 3. Realiza o upsert em lote e obtém os dados do banco
+      // 3. Grava as unidades em lote (WriteBatch do Firestore) e obtém os dados do banco
       const res = await imoveisService.salvarUnidadesLote(activeProd.id, unidadesProcessadas);
+      if (!res.success) {
+        throw new Error((res as any).error || 'Falha ao gravar as unidades');
+      }
       
       let finalRows = currentRows;
       if (res.success && res.data && res.data.length > 0) {
@@ -515,7 +521,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       // 4. Salva no estado global e no cache local (localStorage)
       onSaveTableInfo(activeProd.id, newTableInfo);
       setTempParsedData(null);
-      onShowToast(`Sucesso! ${unidadesProcessadas.length} unidades sincronizadas no banco Supabase.`);
+      onShowToast(`Sucesso! ${unidadesProcessadas.length} unidades salvas no Firestore.`);
 
       // 5. Dispara evento customizado para atualizar todos os componentes e abas abertas
       window.dispatchEvent(new CustomEvent('tabela_atualizada'));
@@ -535,7 +541,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       };
       onSaveTableInfo(activeProd.id, newTableInfo);
       setTempParsedData(null);
-      onShowToast("Tabela salva localmente. Aviso ao sincronizar com Supabase.");
+      onShowToast(`Erro ao salvar no Firestore: ${err?.message || 'falha de conexão'}. A tabela foi mantida apenas localmente.`);
     } finally {
       setIsSaving(false);
     }
@@ -614,7 +620,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                   type="button"
                   onClick={() => setIsDeleteModalOpen(true)}
                   className="text-xs text-rose-700 hover:text-white hover:bg-rose-600 font-bold flex items-center gap-1.5 bg-rose-50 px-3.5 py-1.5 rounded-xl border border-rose-200 transition-all shadow-2xs shrink-0 cursor-pointer"
-                  title="Excluir todas as unidades deste empreendimento no Supabase e na aplicação"
+                  title="Excluir todas as unidades deste empreendimento no Firestore e na aplicação"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Excluir Unidades Existentes</span>
@@ -629,7 +635,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                   type="button"
                   onClick={() => setIsDeleteModalOpen(true)}
                   className="text-xs text-rose-700 hover:text-white hover:bg-rose-600 font-bold flex items-center gap-1.5 bg-rose-50 px-3.5 py-1.5 rounded-xl border border-rose-200 transition-all shadow-2xs shrink-0 cursor-pointer"
-                  title="Excluir todas as unidades deste empreendimento no Supabase e na aplicação"
+                  title="Excluir todas as unidades deste empreendimento no Firestore e na aplicação"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Excluir Unidades Existentes</span>
@@ -644,7 +650,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                   type="button"
                   onClick={() => setIsDeleteModalOpen(true)}
                   className="text-xs text-slate-600 hover:text-rose-700 hover:bg-rose-50 font-semibold flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-all shadow-2xs shrink-0 cursor-pointer"
-                  title="Limpar quaisquer unidades residuais no Supabase"
+                  title="Limpar quaisquer unidades residuais no Firestore"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                   <span>Limpar Unidades no Banco</span>
@@ -1180,7 +1186,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
         </div>
       )}
 
-      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE UNIDADES NO SUPABASE */}
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE UNIDADES NO FIRESTORE */}
       {isDeleteModalOpen && (
         <div 
           id="modal-confirm-delete-units"
@@ -1196,7 +1202,7 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                 Excluir Unidades de {activeProd?.name || 'Empreendimento'}?
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Esta ação irá remover <strong>todas as unidades cadastradas</strong> deste empreendimento na tabela <code className="bg-slate-100 px-1 py-0.5 rounded text-rose-700 font-mono text-[11px]">unidades</code> do Supabase e desativar a tabela de vendas atual.
+                Esta ação irá remover <strong>todas as unidades cadastradas</strong> deste empreendimento na coleção <code className="bg-slate-100 px-1 py-0.5 rounded text-rose-700 font-mono text-[11px]">unidades</code> do Firestore e desativar a tabela de vendas atual.
               </p>
               <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-left mt-3">
                 <p className="text-[11px] text-amber-800 font-medium flex items-start gap-2">
