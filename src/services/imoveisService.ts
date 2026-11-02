@@ -143,6 +143,8 @@ export const imoveisService = {
     tabela_valid_from?: string;
     tabela_valid_to?: string;
     tabela_file_name?: string;
+    tabela_total_unidades?: number;
+    tabela_ativa?: boolean;
   }): Promise<{ success: boolean; error?: string }> {
     try {
       if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id não é um UUID válido' };
@@ -157,6 +159,8 @@ export const imoveisService = {
       if (emp.tabela_valid_from !== undefined) payload.tabela_valid_from = emp.tabela_valid_from;
       if (emp.tabela_valid_to !== undefined) payload.tabela_valid_to = emp.tabela_valid_to;
       if (emp.tabela_file_name !== undefined) payload.tabela_file_name = emp.tabela_file_name;
+      if (emp.tabela_total_unidades !== undefined) payload.tabela_total_unidades = emp.tabela_total_unidades;
+      if (emp.tabela_ativa !== undefined) payload.tabela_ativa = emp.tabela_ativa;
 
       // merge: true = comportamento de upsert (campos não enviados ficam como estão).
       await setDoc(doc(db, 'empreendimentos', emp.id), payload, { merge: true });
@@ -189,6 +193,61 @@ export const imoveisService = {
     } catch (e: any) {
       console.error('Erro no salvamento em lote de unidades no Firestore:', e);
       return { success: false, error: mensagemDeErro(e, 'Erro ao sincronizar com o banco') };
+    }
+  },
+
+  // Substitui por completo a tabela de vendas de um empreendimento (usado pela importação):
+  //  a) grava em lote (WriteBatch) todas as unidades novas, sobrescrevendo as de mesmo id;
+  //  b) exclui em lote as unidades antigas que não existem na nova tabela;
+  //  c) atualiza o documento do empreendimento (vigência, nº de unidades, tabela ativa).
+  // As unidades novas são gravadas ANTES de apagar as antigas: se a conexão cair no meio, o
+  // empreendimento fica com a tabela antiga + parte da nova, nunca com zero unidades. Ao final,
+  // as unidades do empreendimento são exatamente as da nova tabela (as antigas de mesma
+  // torre/unidade são sobrescritas, as demais excluídas).
+  async substituirTabelaEmpreendimento(
+    emp: {
+      id: string;
+      nome: string;
+      delivery_date_phase1?: string;
+      delivery_date_phase2?: string;
+      tabela_valid_from: string;
+      tabela_valid_to: string;
+      tabela_file_name: string;
+    },
+    unidades: any[]
+  ): Promise<{ success: boolean; error?: string; data?: any[]; removidas?: number }> {
+    try {
+      if (!UUID_REGEX.test(emp.id)) return { success: false, error: 'id do empreendimento não é um UUID válido' };
+      if (!unidades || unidades.length === 0) return { success: false, error: 'a nova tabela não tem unidades' };
+
+      const idsNovos = new Set(unidades.map(u => idDaUnidade({ ...u, empreendimento_id: emp.id })));
+      const existentes = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', emp.id)));
+      const obsoletas = existentes.docs.filter(d => !idsNovos.has(d.id));
+
+      // set sem merge: a unidade antiga é substituída inteira, sem sobrar campo velho.
+      await commitEmLotes(unidades, (batch, u) => {
+        batch.set(doc(db, 'unidades', idDaUnidade({ ...u, empreendimento_id: emp.id })), { ...u, empreendimento_id: emp.id });
+      });
+      await commitEmLotes(obsoletas, (batch, d) => batch.delete(d.ref));
+
+      const meta = await this.sincronizarEmpreendimento({
+        ...emp,
+        tabela_total_unidades: unidades.length,
+        tabela_ativa: true
+      });
+      if (!meta.success) return { success: false, error: meta.error };
+
+      let data: any[] = unidades;
+      try {
+        const fresh = await getDocs(query(collection(db, 'unidades'), where('empreendimento_id', '==', emp.id)));
+        data = fresh.docs.map(comId);
+      } catch (fetchErr) {
+        console.warn('Aviso ao recarregar unidades após substituir a tabela:', fetchErr);
+      }
+      return { success: true, data, removidas: existentes.size };
+    } catch (e: any) {
+      console.error('Erro ao substituir a tabela no Firestore:', e);
+      return { success: false, error: mensagemDeErro(e, 'Erro ao substituir a tabela no banco') };
     }
   },
 
