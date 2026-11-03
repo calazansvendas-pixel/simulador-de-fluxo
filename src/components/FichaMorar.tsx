@@ -2267,7 +2267,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   }
 
   return (
-    <div className="space-y-4 max-w-[1600px] mx-auto pb-12">
+    <div className="space-y-4 max-w-[1555px] mx-auto pb-12">
       
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
       {!hasTable && (
@@ -2302,7 +2302,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
         {/* COLUNA LATERAL ESQUERDA: cliente/ações + dados do imóvel (no desktop ocupa o espaço do antigo menu) */}
         {/* COLUNA LATERAL: card do imóvel/ações + card de financiamento */}
-        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-20">
+        <div className="w-full lg:w-[24.7%] min-[1555px]:w-[379px] shrink-0 space-y-4 lg:sticky lg:top-20">
         <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
         <FichaMorarActionBar
           vertical
@@ -2359,7 +2359,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         {/* ÁREA PRINCIPAL DOS QUADROS DE CÁLCULO */}
         <div className="flex-1 w-full min-w-0">
       {/* CORPO DA PÁGINA: GRID DE 2 COLUNAS IDÊNTICO AO DETAILSVIEW */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,56fr)_minmax(0,52fr)] gap-4 items-start">
         
         {/* ================= COLUNA DA ESQUERDA: DADOS DA APROVAÇÃO DE CRÉDITO ================= */}
         <div className="space-y-4">

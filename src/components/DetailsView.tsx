@@ -1799,7 +1799,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   }
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto space-y-4 animate-fade-in">
+    <div className="w-full max-w-[1555px] mx-auto space-y-4 animate-fade-in">
       
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
       {!hasTable && (
@@ -1834,7 +1834,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
         {/* COLUNA LATERAL ESQUERDA: cliente/ações + dados do imóvel (no desktop ocupa o espaço do antigo menu) */}
         {/* COLUNA LATERAL: card do imóvel/ações + card de financiamento */}
-        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-20">
+        <div className="w-full lg:w-[24.7%] min-[1555px]:w-[379px] shrink-0 space-y-4 lg:sticky lg:top-20">
         <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
         {/* IDENTIFICAÇÃO + AÇÕES */}
         <div className="flex flex-col gap-2 border-b border-slate-100 pb-2 text-xs">
@@ -2076,7 +2076,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
         {/* ÁREA PRINCIPAL DOS QUADROS DE CÁLCULO */}
         <div className="flex-1 w-full min-w-0">
       {/* CORPO DA PÁGINA: GRID DE 2 COLUNAS IDÊNTICO AO PDF */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,56fr)_minmax(0,52fr)] gap-4 items-start">
         
         {/* ================= COLUNA DA ESQUERDA ================= */}
         <div className="space-y-4">

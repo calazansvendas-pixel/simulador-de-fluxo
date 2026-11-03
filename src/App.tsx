@@ -685,7 +685,7 @@ export default function App({ perfil, onSair }: AppProps) {
         onSair={onSair}
       />
 
-      <div className={`flex flex-1 w-full mx-auto ${isTelaCalculo ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
+      <div className={`flex flex-1 w-full mx-auto ${isTelaCalculo ? 'max-w-[1555px]' : 'max-w-7xl'}`}>
 
         {/* SIDEBAR — nas telas de cálculo (2ª página) o menu não aparece: Ficha Morar, Detalhes e a
             variante simplificada ocupam toda a largura com o próprio painel lateral do imóvel. */}

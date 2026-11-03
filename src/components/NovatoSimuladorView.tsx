@@ -370,12 +370,12 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto pb-12">
+    <div className="max-w-[1555px] mx-auto pb-12">
       {/* LAYOUT: coluna lateral esquerda (mesma da FichaMorar) + folha de cálculo ao lado */}
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
 
         {/* COLUNA LATERAL: card do imóvel/navegação + card de financiamento */}
-        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-20">
+        <div className="w-full lg:w-[24.7%] min-[1555px]:w-[379px] shrink-0 space-y-4 lg:sticky lg:top-20">
           <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
             <FichaMorarActionBar
               vertical
@@ -436,7 +436,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
       <div className="bg-white p-6 sm:p-7 rounded-xl shadow-md border border-slate-200 w-full text-slate-900 space-y-3.5">
 
         {/* GRID PRINCIPAL: 2 COLUNAS */}
-        <div className="grid grid-cols-2 gap-3.5 items-start">
+        <div className="grid grid-cols-2 xl:grid-cols-[minmax(0,56fr)_minmax(0,52fr)] gap-3.5 items-start">
 
           {/* ================= COLUNA DA ESQUERDA ================= */}
           <div className="space-y-3">
