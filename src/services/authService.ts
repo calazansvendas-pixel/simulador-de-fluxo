@@ -389,11 +389,20 @@ export const authService = {
     telasLiberadas: string[]; condicoesLiberadas: string[]; verPropostasEquipe: boolean; camposEditaveisEquipe: string[];
   }): Promise<{ success: boolean; error?: string; afetados?: number }> {
     try {
-      const snap = await getDocs(query(
+      // Trava de segurança: o Administrador nunca perde o acesso ao Painel do Administrador,
+      // mesmo que desmarque tudo — a chave 'admin-panel' é sempre mantida para o cargo.
+      if (cargo === 'Administrador' && !ajustes.telasLiberadas.includes('admin-panel')) {
+        ajustes = { ...ajustes, telasLiberadas: [...ajustes.telasLiberadas, 'admin-panel'] };
+      }
+      const snapTodos = await getDocs(query(
         collection(db, 'perfis'),
         where('cargo', '==', cargo),
         where('status', 'in', ['ativo', 'pausado'])
       ));
+      // As regras do Firestore só deixam alterar o perfil do proprietário do app ao próprio
+      // proprietário; sem este filtro, um Administrador comum faria o lote inteiro falhar.
+      const meuUid = auth.currentUser?.uid;
+      const snap = { docs: snapTodos.docs.filter(d => d.data().proprietario !== true || d.id === meuUid) };
       const batch = writeBatch(db);
       batch.set(doc(db, 'permissoes_padrao_por_cargo', cargo), {
         cargo,
@@ -412,7 +421,7 @@ export const authService = {
           campos_editaveis_equipe: ajustes.camposEditaveisEquipe
         });
       });
-      return { success: true, afetados: snap.size };
+      return { success: true, afetados: snap.docs.length };
     } catch (e: any) {
       return { success: false, error: mensagemDeErro(e, 'Erro ao aplicar as permissões do cargo.'), afetados: 0 };
     }

@@ -48,7 +48,14 @@ interface AppProps {
 
 export default function App({ perfil, onSair }: AppProps) {
   const ehAdministrador = perfil.cargo === 'Administrador';
-  const telasLiberadas = ehAdministrador ? undefined : perfil.telasLiberadas;
+  // O Administrador também respeita as telas que ele mesmo configurou para o próprio perfil
+  // (para despoluir o menu). O Painel do Administrador fica sempre liberado para ele, e um perfil
+  // sem telas gravadas (nunca configurado) continua vendo tudo.
+  const telasLiberadas = ehAdministrador
+    ? (perfil.telasLiberadas && perfil.telasLiberadas.length > 0
+        ? Array.from(new Set([...perfil.telasLiberadas, 'admin-panel']))
+        : undefined)
+    : perfil.telasLiberadas;
   // Controle independente de telasLiberadas — filtra o dropdown "Selecionar
   // Condição" do Simulador (ver SimulatorView.tsx), não o menu lateral.
   const condicoesLiberadas = ehAdministrador ? undefined : perfil.condicoesLiberadas;
@@ -71,6 +78,8 @@ export default function App({ perfil, onSair }: AppProps) {
     }
     return 'simulator';
   });
+  // Segunda página (cálculo do fluxo): sem Sidebar; cada ficha traz o próprio painel lateral.
+  const isTelaCalculo = activeTab === 'ficha-morar' || activeTab === 'ficha-morar-simplificada' || activeTab === 'details';
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   // Gaveta do menu lateral em telas pequenas (abaixo de md) — independente de
   // isSidebarCollapsed, que só controla a largura (ícone x completo) do menu
@@ -441,18 +450,10 @@ export default function App({ perfil, onSair }: AppProps) {
   // escolhida é uma das variantes "**" — nesse caso o roteamento não é mais
   // "inteligente" por isComissaoApartada/kind, é a tela exata que a opção pede.
   const handleSelectConditionWithRouting = (cond: CommercialCondition, targetTab?: ActiveTab) => {
-    // Reset da unidade ativa só quando a condição comercial MUDA de verdade
-    // (id diferente) — trocar apenas a variante de tela (completa <->
-    // simplificada) da MESMA condição via targetTab preserva Torre/Unidade e
-    // o restante da simulação intactos, como pedido.
-    const condicaoMudou = activeAnalysisCondition?.id !== cond.id;
+    // Torre e Unidade (selectedUnits) NÃO são zeradas ao trocar de condição comercial: a
+    // mesma unidade segue ativa na nova condição e o fluxo é recalculado para ela.
+    // (Trocar de empreendimento continua limpando a seleção, dentro das fichas.)
     setActiveAnalysisCondition(cond);
-    if (condicaoMudou && activeAnalysisProduct) {
-      setSelectedUnits(prev => ({
-        ...prev,
-        [activeAnalysisProduct.id]: { torre: '', unidade: '' }
-      }));
-    }
     if (targetTab) {
       if (activeTab !== targetTab) {
         setActiveTab(targetTab);
@@ -667,6 +668,7 @@ export default function App({ perfil, onSair }: AppProps) {
       
       {/* HEADER */}
       <Header
+        hideSidebarToggle={isTelaCalculo}
         currentDate={currentDate}
         onDateChange={setCurrentDate}
         onResetAll={handleResetAll}
@@ -683,18 +685,21 @@ export default function App({ perfil, onSair }: AppProps) {
         onSair={onSair}
       />
 
-      <div className="flex flex-1 w-full max-w-7xl mx-auto">
+      <div className={`flex flex-1 w-full mx-auto ${isTelaCalculo ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
 
-        {/* SIDEBAR */}
-        <Sidebar
-          activeTab={activeTab}
-          onSelectTab={handleSidebarTabSelect}
-          isCollapsed={isSidebarCollapsed}
-          activeConditionKind={activeAnalysisCondition ? getConditionKind(activeAnalysisCondition.name) : undefined}
-          telasLiberadas={telasLiberadas}
-          isMobileOpen={isMobileSidebarOpen}
-          onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        />
+        {/* SIDEBAR — nas telas de cálculo (2ª página) o menu não aparece: Ficha Morar, Detalhes e a
+            variante simplificada ocupam toda a largura com o próprio painel lateral do imóvel. */}
+        {isTelaCalculo ? null : (
+          <Sidebar
+            activeTab={activeTab}
+            onSelectTab={handleSidebarTabSelect}
+            isCollapsed={isSidebarCollapsed}
+            activeConditionKind={activeAnalysisCondition ? getConditionKind(activeAnalysisCondition.name) : undefined}
+            telasLiberadas={telasLiberadas}
+            isMobileOpen={isMobileSidebarOpen}
+            onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
 
         {/* MAIN VIEW AREA */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
@@ -726,7 +731,9 @@ export default function App({ perfil, onSair }: AppProps) {
                 handleSelectConditionWithRouting(cond);
               }}
               onSelectCondition={handleSelectConditionWithRouting}
+              condicoesLiberadas={condicoesLiberadas}
               simulationData={simulationData}
+              onSimulationDataChange={setSimulationData}
               selectedUnits={selectedUnits}
               onUnitSelectChange={handleUnitSelectChange}
               onBackToSimulator={() => setActiveTab('simulator')}
@@ -766,6 +773,7 @@ export default function App({ perfil, onSair }: AppProps) {
               cargoUsuario={perfil.cargo}
               isNovato={activeTab === 'ficha-morar-simplificada'}
               condicoesLiberadas={condicoesLiberadas}
+              onSimulationDataChange={setSimulationData}
             />
           )}
 

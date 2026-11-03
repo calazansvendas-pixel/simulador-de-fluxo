@@ -12,7 +12,7 @@ import {
   PieChart
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
-import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
+import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
 import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
@@ -24,6 +24,7 @@ import { MonthStepper } from './MonthStepper';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
 import { FichaMorarProdutoGrid } from './FichaMorarProdutoGrid';
+import { PainelFinanciamento } from './PainelFinanciamento';
 import { EmptySimulationNotice } from './EmptySimulationNotice';
 import { FluxoEntradaConstrutora } from './FluxoEntradaConstrutora';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from 'recharts';
@@ -41,6 +42,8 @@ interface FichaMorarProps {
   // "**" — ver handleConditionDropdownChange abaixo e CONDICOES_APP.
   onSelectCondition?: (condition: CommercialCondition, targetTab?: ActiveTab) => void;
   simulationData: SimulationData;
+  // Atualiza o estado global da simulação (App): usado pelos seletores de % financiado e 1º imóvel.
+  onSimulationDataChange?: (data: SimulationData) => void;
   selectedUnits: Record<string, SelectedUnit>;
   onUnitSelectChange: (productId: string, unit: SelectedUnit) => void;
   onBackToSimulator: () => void;
@@ -75,6 +78,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   onSelectProduct,
   onSelectCondition,
   simulationData,
+  onSimulationDataChange,
   selectedUnits,
   onUnitSelectChange,
   onBackToSimulator,
@@ -302,14 +306,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   useEffect(() => {
     const key = currentProd ? `${currentProd.id}::${currentCond?.id || ''}` : null;
     const isRealSwitch = prevProdCondKeyRef.current !== null && prevProdCondKeyRef.current !== key;
+    // Mesmo empreendimento, só a condição comercial mudou: Torre/Unidade permanecem selecionadas
+    // (o resto do fluxo volta ao padrão da nova condição e é recalculado para a mesma unidade).
+    const soCondicaoMudou = isRealSwitch && !!currentProd && prevProdCondKeyRef.current!.split('::')[0] === currentProd.id;
     prevProdCondKeyRef.current = key;
     // No mount inicial (ex.: reabertura de uma simulação salva via "Editar"), a torre/unidade
     // já vêm restauradas em selectedUnits — não zera aqui, senão a seleção se perde assim que
     // a ficha monta. Só limpa quando o usuário de fato troca de produto/condição já dentro da ficha.
     if (!isRealSwitch) return;
 
-    setSelectedTorre('');
-    setSelectedUnidade('');
+    if (!soCondicaoMudou) {
+      setSelectedTorre('');
+      setSelectedUnidade('');
+    }
     setValAtoManual(null);
     setAtoInputText('');
     setIsEditingAto(false);
@@ -339,7 +348,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       { qtd: 12, valor: 0 },
       { qtd: 0, valor: 0 }
     ]);
-    if (currentProd) {
+    if (currentProd && !soCondicaoMudou) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
   }, [currentProd?.id, currentCond?.id]);
@@ -477,6 +486,28 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // é o que o app entende por "refazer todo o cálculo".
   const handleToggleFirstHome = () => {
     setIsFirstHomeLocal(prev => !prev);
+    resetarAjustesManuais();
+  };
+
+  // Seletor "1º imóvel" do painel lateral: mesmo fluxo do toggle (ITBI com/sem desconto, rateio
+  // e totais recalculados), mas gravando também no estado global da simulação.
+  const handleFirstHomeChange = (value: boolean) => {
+    if (value === isFirstHomeLocal) return;
+    setIsFirstHomeLocal(value);
+    resetarAjustesManuais();
+    onSimulationDataChange?.({ ...simulationData, isFirstHome: value });
+  };
+
+  // Seletor "% financiado" (80% / 90%): o financiamento bancário depende de simulationData.finPercent;
+  // os ajustes manuais saem para sinal e séries serem recalculados com o novo valor.
+  const handleFinancingPercentageChange = (finPercent: 0.8 | 0.9) => {
+    if (simulationData.finPercent === finPercent) return;
+    resetarAjustesManuais();
+    onSimulationDataChange?.({ ...simulationData, finPercent });
+  };
+
+  // Descarta os ajustes manuais do fluxo para o motor refazer Ato, ITBI e séries do zero.
+  const resetarAjustesManuais = () => {
     setValAtoManual(null);
     setAtoInputText('');
     setIsEditingAto(false);
@@ -887,6 +918,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // abaixo, usados pelo editor completo e pelos indicadores de risco).
   const totalFaseObraSemITBI = Math.round(somaTotalObra * 100) / 100;
   const totalFasePosSemITBI = Math.round(somaTotalPos * 100) / 100;
+  // Com o rateio de ITBI oculto na tela (Configurar Visibilidade dos Quadros), os rodapés de
+  // fase mostram só as parcelas da construtora, sem o ITBI parcelado.
+  const mostrarRateioItbi = telaSettings.mostrarRateioItbiParcelaBruta ?? true;
 
   // SOMA TOTAL DO ITBI PARCELADO E TOTAIS POR FASE C/ ITBI
   // A parcela mensal é sempre um valor arredondado (ex.: R$ 594,25); somando
@@ -1784,6 +1818,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         ? formatDeliveryText(currentProd.deliveryDatePhase1)
         : '';
 
+  // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
+  const entregaChaves = formatDateMonthYear(
+    currentProd.deliveryDate
+      || (fase.includes('2') && currentProd.deliveryDatePhase2 ? currentProd.deliveryDatePhase2 : undefined)
+      || currentProd.deliveryDatePhase1
+      || currentProd.deliveryDatePhase2
+  );
+
   const hasTable = dbUnitsEfetivos.length > 0;
 
   const pctObra = baseLiquidaComITBI > 0 ? (totalFaseObraComITBI / baseLiquidaComITBI) * 100 : 0;
@@ -2066,6 +2108,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           precoTabelaOriginal={precoTabelaOriginal}
           evaluation={evaluation}
           deliveryText={deliveryText}
+          entregaChaves={entregaChaves}
+          finPercent={simulationData.finPercent}
+          onFinPercentChange={handleFinancingPercentageChange}
+          onFirstHomeChange={handleFirstHomeChange}
           income={income}
           subsidy={subsidyEfetivo}
           fgts={fgtsEfetivo}
@@ -2221,24 +2267,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   }
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto pb-12">
+    <div className="space-y-4 max-w-[1600px] mx-auto pb-12">
       
-      {/* BARRA SUPERIOR DE NAVEGAÇÃO — componente compartilhado com a tela
-          simplificada (NovatoSimuladorView), estritamente idêntico. */}
-      <FichaMorarTopBar
-        onBackToSimulator={onBackToSimulator}
-        products={products}
-        currentProd={currentProd}
-        onSelectProduct={onSelectProduct}
-        onProductChange={handleProductDropdownChange}
-        currentCond={currentCond}
-        onSelectCondition={onSelectCondition}
-        onConditionChange={handleConditionDropdownChange}
-        deliveryText={deliveryText}
-        condicoesLiberadas={condicoesLiberadas}
-        isSimplificado={false}
-      />
-
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
       {!hasTable && (
         <div className={`${tabelaVencida ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'} border rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm`}>
@@ -2268,9 +2298,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         </div>
       )}
 
-      {/* CARD DO IMÓVEL E CLIENTE CENTRALIZADOS */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm space-y-2.5 w-full overflow-hidden">
+      {/* LAYOUT: painel do imóvel à esquerda + quadros de cálculo ao lado (empilha no mobile/tablet) */}
+      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
+        {/* COLUNA LATERAL ESQUERDA: cliente/ações + dados do imóvel (no desktop ocupa o espaço do antigo menu) */}
+        {/* COLUNA LATERAL: card do imóvel/ações + card de financiamento */}
+        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-24">
+        <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
         <FichaMorarActionBar
+          vertical
+          onBack={onBackToSimulator}
+          entregaChaves={entregaChaves}
           clientName={simulationData.clientName}
           agency={simulationData.agency}
           onLimpar={handleResetFicha}
@@ -2279,7 +2316,23 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           onOpenPdfExport={() => setIsPdfModalOpen(true)}
         />
 
+        <FichaMorarTopBar
+          vertical
+          onBackToSimulator={onBackToSimulator}
+          products={products}
+          currentProd={currentProd}
+          onSelectProduct={onSelectProduct}
+          onProductChange={handleProductDropdownChange}
+          currentCond={currentCond}
+          onSelectCondition={onSelectCondition}
+          onConditionChange={handleConditionDropdownChange}
+          deliveryText={deliveryText}
+          condicoesLiberadas={condicoesLiberadas}
+          isSimplificado={false}
+        />
+
         <FichaMorarProdutoGrid
+          vertical
           selectedTorre={selectedTorre}
           selectedUnidade={selectedUnidade}
           availableTorres={availableTorres}
@@ -2293,10 +2346,20 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           precoTabelaOriginal={precoTabelaOriginal}
           evaluation={evaluation}
         />
-      </div>
+        </aside>
 
+        <PainelFinanciamento
+          finPercent={simulationData.finPercent}
+          isFirstHome={isFirstHomeLocal}
+          onFinPercentChange={handleFinancingPercentageChange}
+          onFirstHomeChange={handleFirstHomeChange}
+        />
+        </div>
+
+        {/* ÁREA PRINCIPAL DOS QUADROS DE CÁLCULO */}
+        <div className="flex-1 w-full min-w-0">
       {/* CORPO DA PÁGINA: GRID DE 2 COLUNAS IDÊNTICO AO DETAILSVIEW */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         
         {/* ================= COLUNA DA ESQUERDA: DADOS DA APROVAÇÃO DE CRÉDITO ================= */}
         <div className="space-y-4">
@@ -2889,17 +2952,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                       </div>
 
                       {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA */}
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
-                        <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaObraValor)}</strong></span>
-                        <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
-                      </div>
+                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
+                          <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaObraValor)}</strong></span>
+                          <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
 
               <div className="flex justify-between items-center px-2 pt-1 text-[11px] text-slate-500 font-medium border-t border-slate-100 mt-1">
-                <span>Total Fase Obra (c/ ITBI):</span>
-                <strong className="text-slate-900 font-bold">{formatCurrency(totalFaseObraComITBI)}</strong>
+                <span>{mostrarRateioItbi ? 'Total Fase Obra (c/ ITBI):' : 'Total Fase Obra (sem ITBI):'}</span>
+                <strong className="text-slate-900 font-bold">{formatCurrency(mostrarRateioItbi ? totalFaseObraComITBI : totalFaseObraSemITBI)}</strong>
               </div>
             </div>
           </div>
@@ -2993,17 +3058,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                       </div>
 
                       {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA */}
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
-                        <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaPosValor)}</strong></span>
-                        <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
-                      </div>
+                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
+                          <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaPosValor)}</strong></span>
+                          <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
 
               <div className="flex justify-between items-center px-2 pt-1 text-[11px] text-slate-500 font-medium border-t border-slate-100 mt-1">
-                <span>Total Fase Pós-Obra (c/ ITBI):</span>
-                <strong className="text-slate-900 font-bold">{formatCurrency(totalFasePosComITBI)}</strong>
+                <span>{mostrarRateioItbi ? 'Total Fase Pós-Obra (c/ ITBI):' : 'Total Fase Pós-Obra (sem ITBI):'}</span>
+                <strong className="text-slate-900 font-bold">{formatCurrency(mostrarRateioItbi ? totalFasePosComITBI : totalFasePosSemITBI)}</strong>
               </div>
             </div>
           </div>
@@ -3111,6 +3178,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
         </div>
 
+      </div>
+        </div>
       </div>
 
       {/* MODAL DE EXPORTAÇÃO PDF ESPECÍFICO MORAR */}

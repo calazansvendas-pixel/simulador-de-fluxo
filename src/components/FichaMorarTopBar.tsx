@@ -1,8 +1,9 @@
 import React from 'react';
-import { ArrowLeft, ChevronDown, KeyRound } from 'lucide-react';
+import { ArrowLeft, ChevronDown, HandCoins, KeyRound } from 'lucide-react';
 import { ActiveTab, CommercialCondition, Product } from '../types';
-import { getConditionKind } from '../utils/calculations';
+import { ConditionKind, getConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
+import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 
 interface FichaMorarTopBarProps {
   onBackToSimulator: () => void;
@@ -28,6 +29,9 @@ interface FichaMorarTopBarProps {
   // "Sinal c/ Morar**" (que compartilham a MESMA condição por trás), qual das
   // duas mostrar como selecionada no dropdown.
   isSimplificado?: boolean;
+  // Painel lateral: só os seletores (empreendimento, condição, chaves), empilhados em largura
+  // total e sem o botão Voltar (que passa para a FichaMorarActionBar).
+  vertical?: boolean;
 }
 
 // Barra superior de navegação da Ficha Morar — ÚNICO componente de cabeçalho
@@ -46,7 +50,8 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
   onConditionChange,
   deliveryText,
   condicoesLiberadas,
-  isSimplificado = false
+  isSimplificado = false,
+  vertical = false
 }) => {
   // Opções do dropdown de condição: cruza CONDICOES_APP (config/telasApp.ts)
   // com as condições reais deste produto, filtrando pelas liberadas para o
@@ -64,6 +69,7 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
       .map(c => ({
         value: `${c.id}__${item.key}`,
         label: item.tab === 'ficha-morar-simplificada' ? item.label : c.name,
+        variant: item.variant,
         condicaoId: c.id,
         targetTab: item.tab
       }))
@@ -81,6 +87,113 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
     const opt = opcoesCondicao.find(o => o.value === value);
     if (opt) onConditionChange(opt.condicaoId, opt.targetTab);
   };
+
+  // --- Modo vertical (painel lateral): as 3 condições base + botão "Apartar Comissão" ---
+  // As opções vêm direto das condições do empreendimento (não de CONDICOES_APP), com tela de
+  // destino fixa: Sinal c/ Morar -> 'ficha-morar' (nunca a simplificada "**"); as outras -> 'details'.
+  // Sempre aparecem as 3; a que o empreendimento não tem cadastrada (ou que o perfil não tem
+  // liberada) fica desabilitada em vez de sumir.
+  const kindAtual = getConditionKind(currentCond.name);
+  const baseAtual = condicaoBaseDe(kindAtual);
+  const condicaoLiberada = (kind: ConditionKind) =>
+    !condicoesLiberadas || CONDICOES_APP.some(i => i.variant === kind && condicoesLiberadas.includes(i.key));
+  // Tela de destino: na simplificada, Sinal c/ Morar (e a variante Comissão Apartada) continua na
+  // própria 'ficha-morar-simplificada'; na ficha completa nunca vai para a simplificada.
+  const telaDestino = (kind: ConditionKind): ActiveTab =>
+    isSimplificado && condicaoBaseDe(kind) === 'sinal-morar' ? 'ficha-morar-simplificada' : telaDaCondicao(kind);
+  const opcoesBase = CONDICOES_BASE.map(base => {
+    const cond = (currentProd.conditions || []).find(c => getConditionKind(c.name) === base);
+    const disponivel = !!cond && (base === baseAtual || condicaoLiberada(base));
+    return {
+      base,
+      value: cond ? cond.id : `indisponivel__${base}`,
+      condicaoId: cond?.id,
+      targetTab: telaDestino(base),
+      disabled: !disponivel,
+      label: ROTULO_CONDICAO_BASE[base] + (disponivel ? '' : ' (indisponível)')
+    };
+  });
+  const selectBaseValue = opcoesBase.find(o => o.base === baseAtual)?.value ?? '';
+  const handleBaseSelectChange = (value: string) => {
+    const opt = opcoesBase.find(o => o.value === value);
+    if (opt && opt.condicaoId && !opt.disabled) onConditionChange(opt.condicaoId, opt.targetTab);
+  };
+
+  const comissaoAtiva = isComissaoApartadaKind(kindAtual);
+  const kindAlvoComissao = condicaoAlternadaComissao(kindAtual);
+  const condAlvoComissao = kindAlvoComissao && condicaoLiberada(kindAlvoComissao)
+    ? (currentProd.conditions || []).find(c => getConditionKind(c.name) === kindAlvoComissao)
+    : undefined;
+  const podeApartarComissao = !!condAlvoComissao && !!onSelectCondition;
+  const handleApartarComissao = () => {
+    if (condAlvoComissao && kindAlvoComissao) onConditionChange(condAlvoComissao.id, telaDestino(kindAlvoComissao));
+  };
+
+  if (vertical) {
+    return (
+      <div className="flex flex-col gap-2 w-full">
+        {/* DROPDOWN DE EMPREENDIMENTO */}
+        {products && products.length > 1 && onSelectProduct ? (
+          <div className="relative block w-full">
+            <select
+              value={currentProd.id}
+              onChange={(e) => onProductChange(e.target.value)}
+              className="w-full appearance-none bg-morar-50 hover:bg-morar-100 text-morar-700 font-extrabold text-xs sm:text-sm pl-7 pr-7 py-1.5 text-center [text-align-last:center] rounded-lg border border-morar-200 uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-morar-500/20"
+            >
+              {products.map(p => (
+                <option key={p.id} value={p.id} className="text-slate-800 font-semibold bg-white">
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-morar-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        ) : (
+          <span className="block w-full text-center text-xs sm:text-sm font-extrabold text-morar-600 bg-morar-50 px-3 py-1.5 rounded-lg border border-morar-100 uppercase tracking-wide">
+            {currentProd.name}
+          </span>
+        )}
+
+        {/* DROPDOWN DE CONDIÇÃO COMERCIAL — só as 3 condições base; "Comissão Apartada" é o botão abaixo */}
+        {onSelectCondition ? (
+          <div className="relative block w-full">
+            <select
+              value={selectBaseValue}
+              onChange={(e) => handleBaseSelectChange(e.target.value)}
+              className="w-full appearance-none bg-indigo-50 hover:bg-indigo-100 text-indigo-700 uppercase tracking-wide font-medium text-xs sm:text-sm py-1.5 pl-7 pr-7 text-center [text-align-last:center] rounded-lg border border-indigo-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+            >
+              {opcoesBase.map(opt => (
+                <option key={opt.value} value={opt.value} disabled={opt.disabled} className="text-slate-800 font-medium bg-white">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-indigo-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        ) : (
+          <span className="block w-full text-center text-xs sm:text-sm font-medium uppercase tracking-wide text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
+            {ROTULO_CONDICAO_BASE[condicaoBaseDe(kindAtual)] ?? currentCond.name}
+          </span>
+        )}
+
+        {/* BOTÃO APARTAR COMISSÃO — alterna Sinal c/ Morar e Sinal c/ Banco Direto para a variante
+            "Comissão Apartada" (e volta), mantendo empreendimento, Torre e Unidade. */}
+        <button
+          type="button"
+          onClick={handleApartarComissao}
+          disabled={!podeApartarComissao}
+          aria-pressed={comissaoAtiva}
+          title={kindAtual === 'parcelamento-morar'
+            ? 'Não se aplica ao Parcelamento Morar'
+            : !podeApartarComissao ? 'Variante de Comissão Apartada indisponível para este empreendimento/perfil' : comissaoAtiva ? 'Desativar a Comissão Apartada' : 'Apartar a comissão do fluxo'}
+          className={`w-full flex items-center justify-center gap-1.5 text-xs py-1.5 px-3 rounded-lg border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${comissaoAtiva ? CLASSE_BOTAO_APARTAR_ATIVO : CLASSE_BOTAO_APARTAR_INATIVO}`}
+        >
+          <HandCoins className="w-3.5 h-3.5 shrink-0" />
+          <span>{comissaoAtiva ? 'Comissão Apartada: Ativa' : 'Apartar Comissão'}</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
   <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">

@@ -265,6 +265,9 @@ export interface TelaVisibilitySettings {
   mostrarBloco2: boolean;
   mostrarBloco3: boolean;
   mostrarBloco4: boolean;
+  // Rateio de "+ ITBI" e "Parcela Bruta" abaixo de cada série de Obra/Pós-Obra (FichaMorar).
+  // Padrão: true (visível) quando ausente/undefined.
+  mostrarRateioItbiParcelaBruta?: boolean;
 }
 
 export type TelaVisibilitySettingsByKind = Record<PdfConditionKind, TelaVisibilitySettings>;

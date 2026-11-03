@@ -8,6 +8,7 @@ import { MonthStepper } from './MonthStepper';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
 import { FichaMorarProdutoGrid } from './FichaMorarProdutoGrid';
+import { PainelFinanciamento } from './PainelFinanciamento';
 
 // Visão simplificada da Ficha Morar (tela "Sinal c/ Morar**" no menu lateral
 // — ver config/telasApp.ts e App.tsx). Mesmo "papel" (visual de folha A4) e
@@ -93,6 +94,13 @@ interface NovatoSimuladorViewProps {
   valorTotalITBI: number;
   isFirstHome: boolean;
   onToggleFirstHome: () => void;
+  // Painel lateral (PainelFinanciamento): mesmos seletores de % utilizado na aprovação e 1º imóvel
+  // do editor completo, ligados ao estado global da simulação.
+  finPercent: number;
+  onFinPercentChange: (finPercent: 0.8 | 0.9) => void;
+  onFirstHomeChange: (isFirstHome: boolean) => void;
+  // Mês/ano da entrega das chaves (ex.: "Fev/2026"), badge no topo do painel lateral.
+  entregaChaves?: string;
   onITBIChange: (novoValor: number) => void;
   comissaoApartadaValor?: number;
   comissaoApartadaParcelasQtd?: number;
@@ -213,6 +221,10 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   valAtoITBI,
   valorTotalITBI,
   isFirstHome,
+  finPercent,
+  onFinPercentChange,
+  onFirstHomeChange,
+  entregaChaves,
   onToggleFirstHome,
   onITBIChange,
   comissaoApartadaValor = 0,
@@ -358,53 +370,67 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   };
 
   return (
-    <div className="space-y-4 max-w-4xl mx-auto pb-12">
+    <div className="max-w-[1600px] mx-auto pb-12">
+      {/* LAYOUT: coluna lateral esquerda (mesma da FichaMorar) + folha de cálculo ao lado */}
+      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
 
-      {/* BARRA SUPERIOR DE NAVEGAÇÃO — mesmo componente do editor completo
-          (FichaMorarTopBar), estritamente idêntico entre as duas telas. */}
-      <FichaMorarTopBar
-        onBackToSimulator={onBackToSimulator}
-        products={products}
-        currentProd={product}
-        onSelectProduct={onSelectProduct}
-        onProductChange={onProductChange}
-        currentCond={condition}
-        onSelectCondition={onSelectCondition}
-        onConditionChange={onConditionChange}
-        deliveryText={deliveryText}
-        condicoesLiberadas={condicoesLiberadas}
-        isSimplificado={true}
-      />
+        {/* COLUNA LATERAL: card do imóvel/navegação + card de financiamento */}
+        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-24">
+          <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <FichaMorarActionBar
+              vertical
+              onBack={onBackToSimulator}
+              entregaChaves={entregaChaves}
+              clientName={simulationData.clientName}
+              agency={simulationData.agency}
+              onLimpar={onLimpar}
+              onSaveSimulation={onSaveSimulation}
+              isSavingSimulation={isSavingSimulation}
+              onOpenPdfExport={onOpenPdfExport}
+            />
 
-      {/* CARD DO IMÓVEL E CLIENTE — mesmos componentes do editor completo
-          (FichaMorarActionBar + FichaMorarProdutoGrid), estritamente
-          idêntico entre as duas telas. */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm space-y-2.5 w-full overflow-hidden">
-        <FichaMorarActionBar
-          clientName={simulationData.clientName}
-          agency={simulationData.agency}
-          onLimpar={onLimpar}
-          onSaveSimulation={onSaveSimulation}
-          isSavingSimulation={isSavingSimulation}
-          onOpenPdfExport={onOpenPdfExport}
-        />
+            <FichaMorarTopBar
+              vertical
+              onBackToSimulator={onBackToSimulator}
+              products={products}
+              currentProd={product}
+              onSelectProduct={onSelectProduct}
+              onProductChange={onProductChange}
+              currentCond={condition}
+              onSelectCondition={onSelectCondition}
+              onConditionChange={onConditionChange}
+              deliveryText={deliveryText}
+              condicoesLiberadas={condicoesLiberadas}
+              isSimplificado={true}
+            />
 
-        <FichaMorarProdutoGrid
-          selectedTorre={selectedTorre}
-          selectedUnidade={selectedUnidade}
-          availableTorres={availableTorres}
-          filteredUnits={filteredUnits}
-          onTorreChange={onTorreChange}
-          onUnidadeChange={onUnidadeChange}
-          fase={fase}
-          tipologia={tipologia}
-          areaPriv={areaPriv}
-          areaQuintal={areaQuintal}
-          precoTabelaOriginal={precoTabelaOriginal}
-          evaluation={evaluation}
-        />
-      </div>
+            <FichaMorarProdutoGrid
+              vertical
+              selectedTorre={selectedTorre}
+              selectedUnidade={selectedUnidade}
+              availableTorres={availableTorres}
+              filteredUnits={filteredUnits}
+              onTorreChange={onTorreChange}
+              onUnidadeChange={onUnidadeChange}
+              fase={fase}
+              tipologia={tipologia}
+              areaPriv={areaPriv}
+              areaQuintal={areaQuintal}
+              precoTabelaOriginal={precoTabelaOriginal}
+              evaluation={evaluation}
+            />
+          </aside>
 
+          <PainelFinanciamento
+            finPercent={finPercent}
+            isFirstHome={isFirstHome}
+            onFinPercentChange={onFinPercentChange}
+            onFirstHomeChange={onFirstHomeChange}
+          />
+        </div>
+
+        {/* ÁREA PRINCIPAL: folha de cálculo */}
+        <div className="flex-1 w-full min-w-0">
       {/* "FOLHA" — mesmo visual da Ficha de Exportação, com o restante do
           conteúdo (fora do escopo do cabeçalho unificado acima). */}
       <div className="bg-white p-6 sm:p-7 rounded-xl shadow-md border border-slate-200 w-full text-slate-900 space-y-3.5">
@@ -769,6 +795,8 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
         {/* RODAPÉ OFICIAL MORAR / CAIXA */}
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[10.5px] text-slate-600 leading-relaxed text-justify mt-3 shadow-2xs">
           <strong>Informações importantes:</strong> Os resultados obtidos representam apenas uma simulação e não valem como proposta, pois estão sujeitos a alterações de acordo com a apuração da capacidade de pagamento e a aprovação de crédito a ser efetuada pela CAIXA e MORAR. Poderão haver alterações das taxas e das demais condições, sem aviso prévio. A contratação está condicionada à disponibilidade de recursos para sua região e ao atendimento das exigências do PMCMV.
+        </div>
+      </div>
         </div>
       </div>
     </div>

@@ -8,6 +8,8 @@ interface HeaderProps {
   onResetAll: () => void;
   onToggleSidebar: () => void;
   onNavigateHome: () => void;
+  // Oculta o botão do menu lateral (telas de cálculo, onde a Sidebar não é exibida).
+  hideSidebarToggle?: boolean;
   // Nome/cargo de quem está logado e ação de sair — opcionais para não quebrar
   // nenhum uso existente do Header antes da tela de login estar ligada.
   usuarioNome?: string;
@@ -21,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   onResetAll,
   onToggleSidebar,
   onNavigateHome,
+  hideSidebarToggle = false,
   usuarioNome,
   usuarioCargo,
   onSair
@@ -31,14 +34,16 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* LOGO E BOTÃO TOGGLE SIDEBAR */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="p-2 sm:p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 transition-all focus:outline-none cursor-pointer shrink-0"
-            title="Alternar Menu Lateral"
-          >
-            <Menu className="w-5 h-5 text-morar-600" />
-          </button>
+          {!hideSidebarToggle && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="p-2 sm:p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 transition-all focus:outline-none cursor-pointer shrink-0"
+              title="Alternar Menu Lateral"
+            >
+              <Menu className="w-5 h-5 text-morar-600" />
+            </button>
+          )}
 
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group min-w-0"

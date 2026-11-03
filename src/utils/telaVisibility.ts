@@ -9,6 +9,7 @@ export const DEFAULT_TELA_VISIBILITY_SETTINGS: TelaVisibilitySettings = {
   mostrarBloco2: true,
   mostrarBloco3: true,
   mostrarBloco4: true,
+  mostrarRateioItbiParcelaBruta: true,
 };
 
 export const DEFAULT_TELA_VISIBILITY_SETTINGS_BY_KIND: TelaVisibilitySettingsByKind = {
@@ -71,13 +72,13 @@ export function aplicarHerancaHierarquicaDeVisibilidade(
   configsPorCargo: Partial<Record<Cargo, TelaVisibilitySettings>>,
   cadeia: Cargo[]
 ): TelaVisibilitySettings {
-  const blocos = ['mostrarBloco1', 'mostrarBloco2', 'mostrarBloco3', 'mostrarBloco4'] as const;
+  const blocos = ['mostrarBloco1', 'mostrarBloco2', 'mostrarBloco3', 'mostrarBloco4', 'mostrarRateioItbiParcelaBruta'] as const;
   const efetivo = { ...DEFAULT_TELA_VISIBILITY_SETTINGS };
   const [cargoAtual] = cadeia;
   for (const bloco of blocos) {
     efetivo[bloco] = cadeia.every(cargoDaCadeia => {
       const settings = configsPorCargo[cargoDaCadeia] ?? DEFAULT_TELA_VISIBILITY_SETTINGS;
-      return settings[bloco];
+      return settings[bloco] ?? true;
     });
 
     // Log de auditoria: só dispara quando a herança de fato MUDA o resultado
@@ -85,8 +86,8 @@ export function aplicarHerancaHierarquicaDeVisibilidade(
     // "visível", mas um superior da cadeia vetou) — é o caso que mais importa
     // rastrear em produção, já que altera o que a pessoa vê na tela.
     const configPropria = configsPorCargo[cargoAtual] ?? DEFAULT_TELA_VISIBILITY_SETTINGS;
-    if (configPropria[bloco] && !efetivo[bloco]) {
-      const cargoQueVetou = cadeia.find(c => !((configsPorCargo[c] ?? DEFAULT_TELA_VISIBILITY_SETTINGS)[bloco]));
+    if ((configPropria[bloco] ?? true) && !efetivo[bloco]) {
+      const cargoQueVetou = cadeia.find(c => !((configsPorCargo[c] ?? DEFAULT_TELA_VISIBILITY_SETTINGS)[bloco] ?? true));
       console.debug(
         `[visibilidade-hierarquica] ${bloco} de "${cargoAtual}" vetado pela Regra do NÃO — ` +
         `cargo superior "${cargoQueVetou}" tem este quadro oculto (cadeia: ${cadeia.join(' -> ')}).`

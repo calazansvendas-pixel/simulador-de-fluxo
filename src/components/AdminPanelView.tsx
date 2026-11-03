@@ -517,7 +517,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
           <div className="text-left">
             <div className="text-sm font-bold text-slate-800">Editar permissões por cargo</div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Define telas liberadas, ver equipe e edição de cadastro da equipe para todo mundo de um cargo de uma vez — dados pessoais continuam só na edição individual.
+              Configuração padrão de acessos: define em lote as telas e condições liberadas para todos os colaboradores deste cargo.
             </p>
           </div>
           {permCargoAberto ? <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />}
@@ -549,11 +549,15 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
             <div>
               <p className="text-[11px] font-bold text-slate-500 mb-2">Telas liberadas</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {TELAS_APP.map(t => (
-                  <label key={t.key} className="flex items-center gap-2 text-xs text-slate-700">
+                {TELAS_APP.map(t => {
+                  // Trava de segurança: o Administrador sempre mantém o Painel do Administrador.
+                  const travada = pmCargo === 'Administrador' && t.key === 'admin-panel';
+                  return (
+                  <label key={t.key} className="flex items-center gap-2 text-xs text-slate-700" title={travada ? 'Sempre liberado para o Administrador' : undefined}>
                     <input
                       type="checkbox"
-                      checked={pmTelas.has(t.key)}
+                      disabled={travada}
+                      checked={travada || pmTelas.has(t.key)}
                       onChange={e => {
                         setPmTelas(prev => {
                           const novo = new Set(prev);
@@ -565,7 +569,8 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                     />
                     {t.label}
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

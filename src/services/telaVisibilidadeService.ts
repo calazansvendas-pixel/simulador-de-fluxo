@@ -28,6 +28,8 @@ interface TelaVisibilityRow {
   mostrar_bloco2: boolean;
   mostrar_bloco3: boolean;
   mostrar_bloco4: boolean;
+  // Ausente em documentos gravados antes deste campo existir (lido como true).
+  mostrar_rateio_itbi_parcela_bruta?: boolean;
 }
 
 function rowParaSettings(row: TelaVisibilityRow): TelaVisibilitySettings {
@@ -35,7 +37,8 @@ function rowParaSettings(row: TelaVisibilityRow): TelaVisibilitySettings {
     mostrarBloco1: row.mostrar_bloco1,
     mostrarBloco2: row.mostrar_bloco2,
     mostrarBloco3: row.mostrar_bloco3,
-    mostrarBloco4: row.mostrar_bloco4
+    mostrarBloco4: row.mostrar_bloco4,
+    mostrarRateioItbiParcelaBruta: row.mostrar_rateio_itbi_parcela_bruta ?? true
   };
 }
 
@@ -104,6 +107,7 @@ export const telaVisibilidadeService = {
         mostrar_bloco2: settings.mostrarBloco2,
         mostrar_bloco3: settings.mostrarBloco3,
         mostrar_bloco4: settings.mostrarBloco4,
+        mostrar_rateio_itbi_parcela_bruta: settings.mostrarRateioItbiParcelaBruta ?? true,
         atualizado_em: new Date().toISOString()
       });
       return { success: true };

@@ -196,6 +196,13 @@ export const TelaVisibilitySettingsView: React.FC<TelaVisibilitySettingsViewProp
               onChange={() => updateSetting('mostrarBloco4', !activeSettings.mostrarBloco4)}
               disabled={!podeEditar}
             />
+            <SettingRow
+              title="Rateio de ITBI e Parcela Bruta nas Séries"
+              description="Exibe o acréscimo de '+ ITBI: R$ ...' e o valor total da 'Parcela Bruta: R$ .../mês' abaixo de cada linha de série nas fases de Obra e Pós-Obra."
+              checked={activeSettings.mostrarRateioItbiParcelaBruta ?? true}
+              onChange={() => updateSetting('mostrarRateioItbiParcelaBruta', !(activeSettings.mostrarRateioItbiParcelaBruta ?? true))}
+              disabled={!podeEditar}
+            />
           </div>
 
           {podeEditar && (

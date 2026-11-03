@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Calculator, ShieldCheck, Building, Coins, AlertTriangle, FileSpreadsheet, PieChart, TrendingUp, Printer, FileDown, ChevronDown, Save, Loader2 } from 'lucide-react';
+import { PainelFinanciamento } from './PainelFinanciamento';
+import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Calculator, ShieldCheck, Building, Coins, AlertTriangle, FileSpreadsheet, PieChart, TrendingUp, Printer, FileDown, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
-import { Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
+import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
+import { CONDICOES_APP } from '../config/telasApp';
+import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';
@@ -21,8 +24,12 @@ interface DetailsViewProps {
   products?: Product[];
   currentDate?: string;
   onSelectProduct?: (product: Product, conditionId: string) => void;
-  onSelectCondition?: (condition: CommercialCondition) => void;
+  onSelectCondition?: (condition: CommercialCondition, targetTab?: ActiveTab) => void;
+  // Condições liberadas para o usuário (chaves de CONDICOES_APP); undefined = sem restrição.
+  condicoesLiberadas?: string[];
   simulationData: SimulationData;
+  // Atualiza o estado global da simulação (App): usado pelos seletores de % financiado e 1º imóvel.
+  onSimulationDataChange?: (data: SimulationData) => void;
   selectedUnits: Record<string, SelectedUnit>;
   onUnitSelectChange: (productId: string, unit: SelectedUnit) => void;
   onBackToSimulator: () => void;
@@ -41,6 +48,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   currentDate,
   onSelectProduct,
   onSelectCondition,
+  condicoesLiberadas,
+  onSimulationDataChange,
   simulationData,
   selectedUnits,
   onUnitSelectChange,
@@ -230,14 +239,19 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   useEffect(() => {
     const key = currentProd ? `${currentProd.id}::${currentCond?.id || ''}` : null;
     const isRealSwitch = prevProdCondKeyRef.current !== null && prevProdCondKeyRef.current !== key;
+    // Mesmo empreendimento, só a condição comercial mudou: Torre/Unidade permanecem selecionadas
+    // (o resto do fluxo volta ao padrão da nova condição e é recalculado para a mesma unidade).
+    const soCondicaoMudou = isRealSwitch && !!currentProd && prevProdCondKeyRef.current!.split('::')[0] === currentProd.id;
     prevProdCondKeyRef.current = key;
     // No mount inicial (ex.: reabertura de uma simulação salva via "Editar"), a torre/unidade
     // já vêm restauradas em selectedUnits — não zera aqui, senão a seleção se perde assim que
     // a ficha monta. Só limpa quando o usuário de fato troca de produto/condição já dentro da ficha.
     if (!isRealSwitch) return;
 
-    setSelectedTorre('');
-    setSelectedUnidade('');
+    if (!soCondicaoMudou) {
+      setSelectedTorre('');
+      setSelectedUnidade('');
+    }
     setValAtoManual(null);
     setAtoInputText('');
     setIsEditingAto(false);
@@ -264,7 +278,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
     setComissaoParcelasManual(null);
-    if (currentProd) {
+    if (currentProd && !soCondicaoMudou) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
   }, [currentProd?.id, currentCond?.id, currentCond?.numParcelas, condNumParcelas]);
@@ -429,11 +443,37 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     }
   };
 
-  const handleConditionDropdownChange = (condId: string) => {
+  // Descarta os ajustes manuais do Ato / ITBI para o fluxo ser recalculado do zero.
+  const resetarAjustesManuais = () => {
+    setValAtoManual(null);
+    setAtoInputText('');
+    setIsEditingAto(false);
+    setValAtoITBI(0);
+    setItbiAtoManualFloor(null);
+    setItbiInputText('');
+    setIsEditingITBI(false);
+  };
+
+  // Seletor "1º imóvel": alterna ITBI com/sem desconto (matchingRow[8]/[9]) e recalcula rateio e totais.
+  const handleFirstHomeChange = (value: boolean) => {
+    if (value === isFirstHomeLocal) return;
+    setIsFirstHomeLocal(value);
+    resetarAjustesManuais();
+    onSimulationDataChange?.({ ...simulationData, isFirstHome: value });
+  };
+
+  // Seletor "% financiado" (80% / 90%): atualiza simulationData.finPercent, base do financiamento.
+  const handleFinancingPercentageChange = (finPercent: 0.8 | 0.9) => {
+    if (simulationData.finPercent === finPercent) return;
+    resetarAjustesManuais();
+    onSimulationDataChange?.({ ...simulationData, finPercent });
+  };
+
+  const handleConditionDropdownChange = (condId: string, targetTab?: ActiveTab) => {
     if (!currentProd) return;
     const targetCond = currentProd.conditions.find(c => c.id === condId);
     if (targetCond && onSelectCondition) {
-      onSelectCondition(targetCond);
+      onSelectCondition(targetCond, targetTab);
     }
   };
 
@@ -1541,6 +1581,40 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     );
   };
 
+  // Dropdown de condição do painel lateral: só as 3 condições base. As variantes "Comissão
+  // Apartada" saem do dropdown e são alternadas pelo botão "Apartar Comissão".
+  const kindAtual = getConditionKind(currentCond.name);
+  const baseAtual = condicaoBaseDe(kindAtual);
+  const condicaoLiberada = (kind: ConditionKind) =>
+    !condicoesLiberadas || CONDICOES_APP.some(i => i.variant === kind && condicoesLiberadas.includes(i.key));
+  // Sempre as 3 condições base; a que o empreendimento não tem (ou o perfil não tem liberada)
+  // fica desabilitada. Destino fixo: Sinal c/ Morar -> 'ficha-morar' (nunca a simplificada "**").
+  const opcoesCondicaoBase = CONDICOES_BASE.map(base => {
+    const cond = (currentProd.conditions || []).find(c => getConditionKind(c.name) === base);
+    const disponivel = !!cond && (base === baseAtual || condicaoLiberada(base));
+    return {
+      base,
+      id: cond ? cond.id : `indisponivel__${base}`,
+      condId: cond?.id,
+      disabled: !disponivel,
+      label: ROTULO_CONDICAO_BASE[base] + (disponivel ? '' : ' (indisponível)')
+    };
+  });
+  const comissaoAtiva = isComissaoApartadaKind(kindAtual);
+  const kindAlvoComissao = condicaoAlternadaComissao(kindAtual);
+  const condAlvoComissao = kindAlvoComissao && condicaoLiberada(kindAlvoComissao)
+    ? (currentProd.conditions || []).find(c => getConditionKind(c.name) === kindAlvoComissao)
+    : undefined;
+  const podeApartarComissao = !!condAlvoComissao && !!onSelectCondition;
+
+  // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
+  const entregaChaves = formatDateMonthYear(
+    (hasUnitSelected && matchingRow && String(fase).includes('2') && currentProd.deliveryDatePhase2 ? currentProd.deliveryDatePhase2 : undefined)
+      || currentProd.deliveryDatePhase1
+      || currentProd.deliveryDate
+      || currentProd.deliveryDatePhase2
+  );
+
   // Dynamic key delivery dates from product policy or selected unit phase
   let deliveryText = '';
   if (hasUnitSelected && matchingRow) {
@@ -1725,110 +1799,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   }
 
   return (
-    <div className="w-full space-y-4 animate-fade-in">
+    <div className="w-full max-w-[1600px] mx-auto space-y-4 animate-fade-in">
       
-      {/* BARRA SUPERIOR DE AÇÃO E NAVEGAÇÃO */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={onBackToSimulator}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Voltar</span>
-          </button>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            {/* DROPDOWN DE EMPREENDIMENTO */}
-            {products && products.length > 1 && onSelectProduct ? (
-              <div className="relative inline-block">
-                <select
-                  value={currentProd.id}
-                  onChange={(e) => handleProductDropdownChange(e.target.value)}
-                  className="appearance-none bg-morar-50 hover:bg-morar-100 text-morar-700 font-extrabold text-xs sm:text-sm pl-3 pr-7 py-1.5 rounded-lg border border-morar-200 uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-morar-500/20"
-                >
-                  {products.map(p => (
-                    <option key={p.id} value={p.id} className="text-slate-800 font-semibold bg-white">
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-morar-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            ) : (
-              <span className="text-xs sm:text-sm font-extrabold text-morar-600 bg-morar-50 px-3 py-1 rounded-lg border border-morar-100 uppercase tracking-wide">
-                {currentProd.name}
-              </span>
-            )}
-
-            {/* DROPDOWN DE CONDIÇÃO COMERCIAL */}
-            {currentProd.conditions && currentProd.conditions.length > 0 && onSelectCondition ? (
-              <div className="relative inline-block">
-                <select
-                  value={currentCond.id}
-                  onChange={(e) => handleConditionDropdownChange(e.target.value)}
-                  className="appearance-none bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs pl-2.5 pr-6 py-1.5 rounded-lg border border-slate-200/80 cursor-pointer focus:outline-none focus:ring-2 focus:ring-morar-500/20"
-                >
-                  {currentProd.conditions.map(c => (
-                    <option key={c.id} value={c.id} className="text-slate-800 font-medium bg-white">
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3 h-3 text-slate-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            ) : (
-              <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/80">
-                {currentCond.name}
-              </span>
-            )}
-
-            {deliveryText && (
-              <span
-                id="badge-data-entrega"
-                className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-lg border border-amber-200 flex items-center gap-1.5"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>Chaves ➔ {deliveryText}</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* BOTÕES DE AÇÃO: SALVAR SIMULAÇÃO & EXPORTAR PDF */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleSaveSimulation}
-            disabled={isSavingSimulation}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm shadow-emerald-500/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-            title="Salvar proposta/simulação no banco Firestore"
-          >
-            {isSavingSimulation ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Salvando...</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-3.5 h-3.5" />
-                <span>Salvar Simulação</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsPdfModalOpen(true)}
-            className="px-3.5 py-2 bg-morar-500/10 hover:bg-morar-500/20 text-morar-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
-            title="Exportar Ficha de Análise em PDF / Imprimir"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Exportar PDF</span>
-          </button>
-        </div>
-      </div>
-
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
       {!hasTable && (
         <div className={`${tabelaVencida ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'} border rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm`}>
@@ -1858,35 +1830,143 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
         </div>
       )}
 
-      {/* CARD DO IMÓVEL E CLIENTE CENTRALIZADOS */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-sm space-y-2.5 w-full overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-500 font-medium">
-              Cliente: <strong className="text-slate-900">{simulationData.clientName || 'Cliente Não Informado'}</strong>
-            </span>
-            <span className="text-slate-300">|</span>
-            <span className="text-slate-500 font-medium">
+      {/* LAYOUT: painel do imóvel à esquerda + quadros de cálculo ao lado (empilha no mobile/tablet) */}
+      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
+        {/* COLUNA LATERAL ESQUERDA: cliente/ações + dados do imóvel (no desktop ocupa o espaço do antigo menu) */}
+        {/* COLUNA LATERAL: card do imóvel/ações + card de financiamento */}
+        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-24">
+        <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        {/* IDENTIFICAÇÃO + AÇÕES */}
+        <div className="flex flex-col gap-2 border-b border-slate-100 pb-2 text-xs">
+          <div className="flex flex-col items-start gap-0.5 min-w-0 w-full">
+            <div className="flex items-center justify-between gap-2 w-full">
+              <span className="text-slate-500 font-medium min-w-0">
+                Cliente: <strong className="text-slate-900">{simulationData.clientName || 'Cliente Não Informado'}</strong>
+              </span>
+              {entregaChaves && (
+                <span
+                  id="badge-data-entrega"
+                  className="shrink-0 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 flex items-center gap-1"
+                  title="Entrega das chaves"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>{entregaChaves}</span>
+                </span>
+              )}
+            </div>
+            <span className="text-slate-500 font-medium mt-2.5">
               Imobiliária: <strong className="text-slate-900">{simulationData.agency?.trim() || 'Imobiliária Não Informada'}</strong>
             </span>
           </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={onBackToSimulator}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex-1 shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700"
+              title="Voltar ao Simulador"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              <span>Voltar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveSimulation}
+              disabled={isSavingSimulation}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex-1 shrink-0 bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+              title="Salvar proposta/simulação no banco Firestore"
+            >
+              {isSavingSimulation ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              <span>{isSavingSimulation ? 'Salvando...' : 'Salvar'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsPdfModalOpen(true)}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex-1 shrink-0 bg-morar-50 hover:bg-morar-100 text-morar-700"
+              title="Exportar Ficha de Análise em PDF / Imprimir"
+            >
+              <Printer className="w-3 h-3" />
+              <span>PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetFicha}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex-1 shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-600"
+              title="Limpar Ficha de Análise"
+            >
+              <RotateCcw className="w-3 h-3 text-morar-600" />
+              <span>Limpar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* SELETORES DE EMPREENDIMENTO E CONDIÇÃO */}
+        <div className="flex flex-col gap-2 w-full">
+          {products && products.length > 1 && onSelectProduct ? (
+            <div className="relative block w-full">
+              <select
+                value={currentProd.id}
+                onChange={(e) => handleProductDropdownChange(e.target.value)}
+                className="w-full appearance-none bg-morar-50 hover:bg-morar-100 text-morar-700 font-extrabold text-xs sm:text-sm pl-7 pr-7 py-1.5 text-center [text-align-last:center] rounded-lg border border-morar-200 uppercase tracking-wide cursor-pointer focus:outline-none focus:ring-2 focus:ring-morar-500/20"
+              >
+                {products.map(p => (
+                  <option key={p.id} value={p.id} className="text-slate-800 font-semibold bg-white">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-morar-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          ) : (
+            <span className="block w-full text-center text-xs sm:text-sm font-extrabold text-morar-600 bg-morar-50 px-3 py-1.5 rounded-lg border border-morar-100 uppercase tracking-wide">
+              {currentProd.name}
+            </span>
+          )}
+
+          {onSelectCondition ? (
+            <div className="relative block w-full">
+              <select
+                value={opcoesCondicaoBase.find(o => o.base === baseAtual)?.id ?? ''}
+                onChange={(e) => {
+                  const opt = opcoesCondicaoBase.find(o => o.id === e.target.value);
+                  if (opt && opt.condId && !opt.disabled) handleConditionDropdownChange(opt.condId, telaDaCondicao(opt.base));
+                }}
+                className="w-full appearance-none bg-indigo-50 hover:bg-indigo-100 text-indigo-700 uppercase tracking-wide font-medium text-xs sm:text-sm py-1.5 pl-7 pr-7 text-center [text-align-last:center] rounded-lg border border-indigo-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+              >
+                {opcoesCondicaoBase.map(o => (
+                  <option key={o.id} value={o.id} disabled={o.disabled} className="text-slate-800 font-medium bg-white">
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-indigo-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          ) : (
+            <span className="block w-full text-center text-xs sm:text-sm font-medium uppercase tracking-wide text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
+              {ROTULO_CONDICAO_BASE[baseAtual] ?? currentCond.name}
+            </span>
+          )}
+
+          {/* BOTÃO APARTAR COMISSÃO — alterna Sinal c/ Morar e Sinal c/ Banco Direto para a variante
+              "Comissão Apartada" (e volta), mantendo empreendimento, Torre e Unidade. */}
           <button
             type="button"
-            onClick={handleResetFicha}
-            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
-            title="Limpar Ficha de Análise"
+            onClick={() => condAlvoComissao && kindAlvoComissao && handleConditionDropdownChange(condAlvoComissao.id, telaDaCondicao(kindAlvoComissao))}
+            disabled={!podeApartarComissao}
+            aria-pressed={comissaoAtiva}
+            title={kindAtual === 'parcelamento-morar'
+              ? 'Não se aplica ao Parcelamento Morar'
+              : !podeApartarComissao ? 'Variante de Comissão Apartada indisponível para este empreendimento/perfil' : comissaoAtiva ? 'Desativar a Comissão Apartada' : 'Apartar a comissão do fluxo'}
+            className={`w-full flex items-center justify-center gap-1.5 text-xs py-1.5 px-3 rounded-lg border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${comissaoAtiva ? CLASSE_BOTAO_APARTAR_ATIVO : CLASSE_BOTAO_APARTAR_INATIVO}`}
           >
-            <RotateCcw className="w-3 h-3 text-morar-600" />
-            <span>Limpar</span>
+            <HandCoins className="w-3.5 h-3.5 shrink-0" />
+            <span>{comissaoAtiva ? 'Comissão Apartada: Ativa' : 'Apartar Comissão'}</span>
           </button>
         </div>
 
-        {/* LINHA 1: TORRE (col-span-2), UNIDADE (col-span-2), FASE (col-span-2), TIPOLOGIA (col-span-6) —
-            abaixo de sm (640px) vira grid de 2 colunas (Torre+Unidade / Fase+Tipologia empilhados em
-            pares), já que os 4 campos lado a lado no grid de 12 colunas do PDF ficam ilegíveis num
-            celular comum. */}
-        <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 text-xs w-full">
-          <div className="col-span-1 sm:col-span-2 bg-morar-50/60 p-2 rounded-lg border border-morar-100 flex flex-col items-center justify-center text-center min-w-0">
+        {/* PAINEL LATERAL: Torre/Unidade e, abaixo, 3 linhas x 2 colunas —
+            Valores (Preço de Tabela | Avaliação), Características (Tipologia | Fase), Metragens (Área Privativa | Quintal). */}
+        <div className="grid grid-cols-2 gap-2 text-xs w-full">
+          <div className="bg-morar-50/60 p-2 rounded-lg border border-morar-100 flex flex-col items-center justify-center text-center min-w-0">
             <label className="block text-[10px] text-morar-600 font-bold uppercase mb-0.5 text-center whitespace-nowrap">
               TORRE *
             </label>
@@ -1902,7 +1982,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             </select>
           </div>
 
-          <div className="col-span-1 sm:col-span-2 bg-morar-50/60 p-2 rounded-lg border border-morar-100 flex flex-col items-center justify-center text-center min-w-0">
+          <div className="bg-morar-50/60 p-2 rounded-lg border border-morar-100 flex flex-col items-center justify-center text-center min-w-0">
             <label className="block text-[10px] text-morar-600 font-bold uppercase mb-0.5 text-center whitespace-nowrap">
               UNIDADE *
             </label>
@@ -1918,8 +1998,41 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               ))}
             </select>
           </div>
+        </div>
 
-          <div className="col-span-1 sm:col-span-2 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+        <div className="grid grid-cols-2 gap-2 text-xs w-full">
+          {/* LINHA 1 — VALORES */}
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Preço de Tabela</span>
+            <input
+              type="text"
+              value={formatCurrency(precoTabelaOriginal)}
+              readOnly
+              className="w-full bg-transparent font-bold text-slate-900 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
+            />
+          </div>
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Avaliação Bancária</span>
+            <input
+              type="text"
+              value={formatCurrency(evaluation)}
+              readOnly
+              className="w-full bg-transparent font-bold text-emerald-600 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
+            />
+          </div>
+
+          {/* LINHA 2 — CARACTERÍSTICAS */}
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Tipologia</span>
+            <input
+              type="text"
+              value={tipologia}
+              readOnly
+              className="w-full bg-transparent font-bold text-slate-700 text-center focus:outline-none cursor-not-allowed truncate text-xs"
+              title={tipologia}
+            />
+          </div>
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
             <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Fase</span>
             <input
               id="campo-fase"
@@ -1930,22 +2043,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             />
           </div>
 
-          <div className="col-span-1 sm:col-span-6 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
-            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Tipologia</span>
-            <input
-              type="text"
-              value={tipologia}
-              readOnly
-              className="w-full bg-transparent font-bold text-slate-700 text-center focus:outline-none cursor-not-allowed truncate text-xs"
-              title={tipologia}
-            />
-          </div>
-        </div>
-
-        {/* LINHA 2: ÁREA PRIVATIVA (col-span-2), QUINTAL (col-span-2), PREÇO DE TABELA (col-span-4), AVALIAÇÃO BANCÁRIA (col-span-4) —
-            mesma adaptação da linha 1 acima. */}
-        <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 text-xs w-full">
-          <div className="col-span-1 sm:col-span-2 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+          {/* LINHA 3 — METRAGENS */}
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
             <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Área Privativa</span>
             <input
               type="text"
@@ -1954,8 +2053,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               className="w-full bg-transparent font-bold text-slate-700 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
             />
           </div>
-
-          <div className="col-span-1 sm:col-span-2 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
+          <div className="bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
             <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Quintal</span>
             <input
               type="text"
@@ -1964,31 +2062,21 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               className="w-full bg-transparent font-bold text-slate-700 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
             />
           </div>
-
-          <div className="col-span-1 sm:col-span-4 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
-            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Preço de Tabela</span>
-            <input
-              type="text"
-              value={formatCurrency(precoTabelaOriginal)}
-              readOnly
-              className="w-full bg-transparent font-bold text-slate-900 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
-            />
-          </div>
-
-          <div className="col-span-1 sm:col-span-4 bg-slate-50 p-2 rounded-lg border border-slate-200/60 flex flex-col items-center justify-center text-center min-w-0">
-            <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Avaliação Bancária</span>
-            <input
-              type="text"
-              value={formatCurrency(evaluation)}
-              readOnly
-              className="w-full bg-transparent font-bold text-emerald-600 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
-            />
-          </div>
         </div>
-      </div>
+        </aside>
 
+        <PainelFinanciamento
+          finPercent={simulationData.finPercent}
+          isFirstHome={isFirstHomeLocal}
+          onFinPercentChange={handleFinancingPercentageChange}
+          onFirstHomeChange={handleFirstHomeChange}
+        />
+        </div>
+
+        {/* ÁREA PRINCIPAL DOS QUADROS DE CÁLCULO */}
+        <div className="flex-1 w-full min-w-0">
       {/* CORPO DA PÁGINA: GRID DE 2 COLUNAS IDÊNTICO AO PDF */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
         
         {/* ================= COLUNA DA ESQUERDA ================= */}
         <div className="space-y-4">
@@ -2766,6 +2854,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
         </div>
 
+      </div>
+        </div>
       </div>
 
       {/* RODAPÉ: AVISO LEGAL FULL-WIDTH (ABAIXO DO GRID DE 2 COLUNAS) */}
