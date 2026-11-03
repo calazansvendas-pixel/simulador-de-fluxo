@@ -570,6 +570,15 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   // mas isComissaoApartada não marcado nesta chamada).
   const pctComissaoEfetiva = isComissaoApartadaAtiva ? pctComissaoApartada : 0;
 
+  // Piso do Ato (Imóvel) BRUTO. O Sinal Mínimo da política é o piso do Ato LÍQUIDO (o que
+  // efetivamente fica com a construtora). Com Comissão Apartada, o Ato bruto carrega também a
+  // comissão (Ato líquido = bruto − comissão), então o piso bruto é Sinal Mínimo + comissão.
+  // Quando o piso é que manda, o Ato líquido é < R$ 5.000 e não há desconto do Ato Premiado, logo
+  // a comissão é a cheia (preço × %). Sem isso, o Ato bruto parava em R$ 2.000 e a comissão era
+  // descontada só na exibição: o saldo distribuído nas séries ficava inflado pelo valor da comissão.
+  const comissaoNoPisoDoAto = isComissaoApartadaAtiva ? Math.max(0, Math.round(precoTabela * pctComissaoEfetiva * 100) / 100) : 0;
+  const pisoAtoBruto = (params.sinalMinimo && params.sinalMinimo > 0 ? params.sinalMinimo : 0) + comissaoNoPisoDoAto;
+
   // Dado um Ato (Imóvel) BRUTO já fixo (o total efetivamente cobrado do
   // cliente no momento do Ato — usado, por exemplo, quando o Ato é digitado
   // manualmente), resolve o desconto do Ato Premiado e a comissão apartada de
@@ -697,7 +706,7 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
       const proSolutoMax = Math.round(baseCalc * pctMaxProSoluto * 100) / 100;
       const comissaoCalc = isComissaoApartadaAtiva ? Math.max(0, Math.round(precoTabela * pctComissaoEfetiva * 100) / 100) : 0;
       const atoCalc = (sinalSemITBI + itbiRestante) - proSolutoMax;
-      const sinalMinimoFloorSemPremio = params.sinalMinimo && params.sinalMinimo > 0 ? params.sinalMinimo : 0;
+      const sinalMinimoFloorSemPremio = pisoAtoBruto;
       const atoCalcFinal = Math.max(sinalMinimoFloorSemPremio, Math.round(atoCalc * 100) / 100);
       return { atoResidual: atoCalcFinal, descontoAto: descontoAtoCalc, baseCalculoComITBI: baseCalc, totalProSolutoMaximo: proSolutoMax, comissaoApartadaValor: comissaoCalc };
     }
@@ -723,7 +732,7 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
     const comissaoCom5k = isComissaoApartadaAtiva ? Math.max(0, Math.round((precoTabela - descontoAtoFlat50k) * pctComissaoEfetiva * 100) / 100) : 0;
     const atoGrossCom5k = (sinalSemITBI + itbiRestante) - proSoluto5k - descontoAtoFlat50k;
     const atoLiquidoCom5k = atoGrossCom5k - comissaoCom5k;
-    const sinalMinimoFloor = params.sinalMinimo && params.sinalMinimo > 0 ? params.sinalMinimo : 0;
+    const sinalMinimoFloor = pisoAtoBruto;
 
     if (atoLiquidoCom5k >= 50000) {
       return {
@@ -820,7 +829,7 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
     // o desconto de cada volta é calculado sobre o Ato já líquido da comissão
     // (nunca sobre `atoAjustado` bruto) — mesma regra da Hipótese 2.
     const base = sinalSemITBI + itbiRestante;
-    const sinalMinimoFloorRenda = params.sinalMinimo && params.sinalMinimo > 0 ? params.sinalMinimo : 0;
+    const sinalMinimoFloorRenda = pisoAtoBruto;
     let atoAjustado = porPreco.atoResidual + (porPreco.totalProSolutoMaximo - capacidadeRendaInicial);
     let descontoAjustado = porPreco.descontoAto;
     let comissaoAjustada = porPreco.comissaoApartadaValor;

@@ -947,6 +947,12 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const totalNegocEfetivo = hasUnitSelected ? Math.round((maxFinancEfetivo + subsidyEfetivo + fgtsEfetivo) * 100) / 100 : 0;
   const sinalTotalSemITBIEfetivo = hasUnitSelected ? Math.max(0, Math.round((price - totalNegocEfetivo) * 100) / 100) : 0;
   const sinalLiquidoTotalEfetivo = hasUnitSelected ? Math.max(0, Math.round((sinalTotalSemITBIEfetivo - descontoAto) * 100) / 100) : 0;
+  // Quadro 1 — Sinal Líquido da construtora. Com Comissão Apartada, a comissão sai do preço contratual
+  // da construtora: Sinal Líquido = (Preço − Comissão) − recursos bancários − desconto do Ato Premiado.
+  // sinalLiquidoTotalEfetivo (acima) segue sendo o valor de controle usado pelos efeitos de recálculo.
+  const sinalLiquidoExibido = isComissaoApartada
+    ? Math.max(0, Math.round((sinalLiquidoTotalEfetivo - comissaoApartadaValor) * 100) / 100)
+    : sinalLiquidoTotalEfetivo;
   // Usa sempre despCartoriasEfetivas (o total nominal, o mesmo número editável
   // no card "Correção IGPM+1%") em vez da soma das parcelas de ITBI já
   // arredondadas mês a mês — somar parcelas arredondadas pode fechar alguns
@@ -2430,7 +2436,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   </div>
                   <div className="flex justify-between items-center py-1 mt-1">
                     <span className="text-slate-600">Sinal Líquido:</span>
-                    <strong className="text-amber-800 font-black">{formatCurrency(sinalLiquidoTotalEfetivo)}</strong>
+                    <strong className="text-amber-800 font-black">{formatCurrency(sinalLiquidoExibido)}</strong>
                   </div>
                 </div>
               </div>
