@@ -702,7 +702,7 @@ export default function App({ perfil, onSair }: AppProps) {
         )}
 
         {/* MAIN VIEW AREA */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
+        <main className="flex-1 px-4 pt-4 pb-4 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 min-w-0">
           {activeTab === 'simulator' && (
             <SimulatorView
               simulationData={simulationData}

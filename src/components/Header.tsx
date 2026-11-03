@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs w-full">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2">
 
         {/* LOGO E BOTÃO TOGGLE SIDEBAR */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -38,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onToggleSidebar}
-              className="p-2 sm:p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 transition-all focus:outline-none cursor-pointer shrink-0"
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-800 transition-all focus:outline-none cursor-pointer shrink-0"
               title="Alternar Menu Lateral"
             >
               <Menu className="w-5 h-5 text-morar-600" />
@@ -49,11 +49,11 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group min-w-0"
             onClick={onNavigateHome}
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-morar-50 border border-morar-200 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
-              <img src={logoMorar} alt="Morar" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
+            <div className="w-8 h-8 rounded-lg bg-morar-50 border border-morar-200 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+              <img src={logoMorar} alt="Morar" className="w-4 h-4 sm:w-5 sm:h-5 object-contain" />
             </div>
             <div className="min-w-0">
-              <span className="text-base sm:text-xl text-slate-900 font-bold tracking-tight truncate block">Simulador de Fluxo</span>
+              <span className="text-base sm:text-lg text-slate-900 font-bold tracking-tight truncate block">Simulador de Fluxo</span>
             </div>
           </div>
         </div>
@@ -63,14 +63,14 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onResetAll}
-            className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-slate-600 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-slate-600 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
             title="Limpar formulário e iniciar nova simulação"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Nova Simulação</span>
           </button>
 
-          <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600">
+          <div className="hidden md:flex items-center gap-2 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200 text-xs text-slate-600">
             <Calendar className="w-3.5 h-3.5 text-morar-600" />
             <span className="font-medium">Hoje é:</span>
             <input
@@ -92,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onSair}
-                className="p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-slate-500 transition-all cursor-pointer"
+                className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-slate-500 transition-all cursor-pointer"
                 title="Sair"
               >
                 <LogOut className="w-4 h-4" />

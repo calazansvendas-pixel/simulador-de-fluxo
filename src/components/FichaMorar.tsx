@@ -2302,7 +2302,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
         {/* COLUNA LATERAL ESQUERDA: cliente/ações + dados do imóvel (no desktop ocupa o espaço do antigo menu) */}
         {/* COLUNA LATERAL: card do imóvel/ações + card de financiamento */}
-        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-24">
+        <div className="w-full lg:w-[24.7%] shrink-0 space-y-4 lg:sticky lg:top-20">
         <aside className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
         <FichaMorarActionBar
           vertical
