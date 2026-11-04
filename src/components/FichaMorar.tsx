@@ -124,6 +124,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Precisa estar disponível cedo (usado no carregamento de configurações de
   // visibilidade/PDF por cargo, antes do restante da lógica de comissão abaixo).
   const isComissaoApartada = getConditionKind(condDaFase?.name) === 'sinal-morar-comissao-apartada';
+  // Parcela mínima da política (Sinal c/ Morar e Comissão Apartada): séries abaixo disso ganham
+  // uma borda avermelhada discreta (sem alerta/pop-up).
+  const PARCELA_MINIMA_POLITICA = 200;
 
   // Quantidade de meses de cada balde (1 a 6), configurável na política de crédito.
   // Padrão 12 meses cada quando não definido (compatibilidade retroativa).
@@ -2949,8 +2952,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
                         <div className="col-span-1 sm:col-span-5">
                           <div
-                            className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-100 font-bold text-slate-700 text-right text-xs cursor-not-allowed"
-                            title="Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas."
+                            className={`w-full px-2 py-1 rounded border font-bold text-right text-xs cursor-not-allowed ${
+                              valorLiquido < PARCELA_MINIMA_POLITICA
+                                ? 'border-rose-400 bg-rose-50/40 ring-1 ring-red-200 text-rose-700'
+                                : 'border-slate-200 bg-slate-100 text-slate-700'
+                            }`}
+                            title={valorLiquido < PARCELA_MINIMA_POLITICA
+                              ? 'Parcela abaixo do mínimo de R$ 200,00'
+                              : 'Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas.'}
                           >
                             {valorLiquido > 0 ? formatCurrency(valorLiquido) : 'R$ 0,00'}
                           </div>
@@ -3055,8 +3064,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
                         <div className="col-span-1 sm:col-span-5">
                           <div
-                            className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-100 font-bold text-slate-700 text-right text-xs cursor-not-allowed"
-                            title="Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas."
+                            className={`w-full px-2 py-1 rounded border font-bold text-right text-xs cursor-not-allowed ${
+                              valorLiquido < PARCELA_MINIMA_POLITICA
+                                ? 'border-rose-400 bg-rose-50/40 ring-1 ring-red-200 text-rose-700'
+                                : 'border-slate-200 bg-slate-100 text-slate-700'
+                            }`}
+                            title={valorLiquido < PARCELA_MINIMA_POLITICA
+                              ? 'Parcela abaixo do mínimo de R$ 200,00'
+                              : 'Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas.'}
                           >
                             {valorLiquido > 0 ? formatCurrency(valorLiquido) : 'R$ 0,00'}
                           </div>
