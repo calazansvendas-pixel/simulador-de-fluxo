@@ -86,6 +86,20 @@ export interface CommercialCondition {
   torresFase2?: string[]; // Lista de torres desta política que estão na 2ª Fase
   fase2Params?: Partial<CommercialCondition>; // Overrides de parâmetros para a 2ª Fase
 
+  // Regra "Apenas Fase Obra": lista de chaves `Torre||Tipologia` (ver chaveTorreTipologia) cujo
+  // fluxo NÃO tem Pós-Obra. Para essas combinações o simulador zera meses e teto de risco da
+  // Pós-Obra (o saldo concentra na Obra até o teto de risco; o excedente vai para o Ato).
+  // Combinação ausente da lista = "Obra + Pós-Obra" (padrão).
+  apenasFaseObra?: string[];
+
+  // Tetos da 1ª e 2ª Mensal (30 e 60 dias) do Banco Direto: % máximo da renda e/ou do valor do
+  // imóvel. Campo ausente = sem teto por aquele critério (não há mais limite fixo de 35%).
+  // Liga/desliga, de forma independente, a 1ª (30 dias) e a 2ª (60 dias) Mensal. Ausente = habilitada.
+  habilitar1aMensal?: boolean;
+  habilitar2aMensal?: boolean;
+  limite1aMensal?: { maxPercentualRenda?: number; maxPercentualImovel?: number };
+  limite2aMensal?: { maxPercentualRenda?: number; maxPercentualImovel?: number };
+
   // Campos específicos para a condição "Parcelamento Morar" (riscoRendaPct já
   // existente é reaproveitado como o teto de renda de 40% desta condição). Esta
   // condição não usa financiamento bancário/subsídio/FGTS/ITBI — apenas Sinal +

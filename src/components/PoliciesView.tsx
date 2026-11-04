@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { CommercialCondition, Product, SelectedUnit, SimulationData } from '../types';
 import { formatCurrency, parseCurrency } from '../utils/formatters';
-import { calculatePresentValue, ensureProductConditions, calculatePolicyRiskValues, decomposeMorarMonths, getConditionKind, ConditionKind } from '../utils/calculations';
+import { calculatePresentValue, ensureProductConditions, calculatePolicyRiskValues, decomposeMorarMonths, getConditionKind, ConditionKind, chaveTorreTipologia } from '../utils/calculations';
 
 // Par "condição base -> condição com Comissão Apartada" dentro do mesmo
 // empreendimento (ver blocosMeta.ts e o comentário de comissaoApartadaPct em
@@ -137,6 +137,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   // Máximo Apurado que sugere o Ato (Imóvel) e o "Pró-Soluto Total c/ ITBI"
   // exibido em tela; a parcela (Tabela Price) usa o valor antes do desconto.
   const [taxaAssinaturaContratoStr, setTaxaAssinaturaContratoStr] = useState<string>('0,0000');
+  // Tetos da 1ª/2ª Mensal (texto; vazio = sem teto por esse critério)
+  const [habilitar1Mensal, setHabilitar1Mensal] = useState<boolean>(true);
+  const [habilitar2Mensal, setHabilitar2Mensal] = useState<boolean>(true);
+  const [m1RendaStr, setM1RendaStr] = useState<string>('');
+  const [m1ImovelStr, setM1ImovelStr] = useState<string>('');
+  const [m2RendaStr, setM2RendaStr] = useState<string>('');
+  const [m2ImovelStr, setM2ImovelStr] = useState<string>('');
   // % do Ato Premiado — desconto comercial aplicado em cima do Ato Efetivo. Antes
   // era fixo em 10% em todos os cálculos; agora vem por condição comercial e
   // pode ficar zerado (0%). Padrão histórico continua sendo 10%.
@@ -195,6 +202,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [editingFase, setEditingFase] = useState<'1' | '2'>('1');
   const [torresFase2, setTorresFase2] = useState<string[]>([]);
 
+  // Regra "Apenas Fase Obra": chaves Torre||Tipologia (chaveTorreTipologia) sem Pós-Obra.
+  const [regrasApenasObra, setRegrasApenasObra] = useState<string[]>([]);
+
   // Extração de todas as torres e contagem de unidades do empreendimento ativo
   const allTorres = React.useMemo(() => {
     const rows = prodWithConds?.tableInfo?.rows || [];
@@ -212,6 +222,50 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     });
     return counts;
   }, [prodWithConds?.tableInfo?.rows]);
+
+  // Tipologias existentes em cada torre, lidas da tabela importada (coluna 5 = Tipologia).
+  const tipologiasPorTorre = React.useMemo(() => {
+    const rows = prodWithConds?.tableInfo?.rows || [];
+    const mapa: Record<string, string[]> = {};
+    rows.forEach(r => {
+      const t = String(r[1] || '').trim();
+      const tip = String(r[5] || '').trim() || '2 Quartos';
+      if (!t) return;
+      if (!mapa[t]) mapa[t] = [];
+      if (!mapa[t].some(x => x.toLowerCase() === tip.toLowerCase())) mapa[t].push(tip);
+    });
+    Object.values(mapa).forEach(l => l.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
+    return mapa;
+  }, [prodWithConds?.tableInfo?.rows]);
+
+  // Grava a lista na condição ativa e nas demais condições "Sinal c/ Morar" e variantes
+  // (Comissão Apartada) do mesmo empreendimento — a regra vale para todas elas.
+  const syncApenasObraToProduct = (novas: string[]) => {
+    if (!prodWithConds) return;
+    const updatedConditions = (prodWithConds.conditions || []).map(c => {
+      const kind = getConditionKind(c.name);
+      if (c.id === activeConditionId || kind === 'sinal-morar' || kind === 'sinal-morar-comissao-apartada') {
+        return { ...c, apenasFaseObra: novas };
+      }
+      return c;
+    });
+    onSaveProductPolicy({
+      ...prodWithConds,
+      name: productName.trim() || prodWithConds.name,
+      deliveryDate: deliveryDatePhase1 || deliveryDatePhase2 || '',
+      deliveryDatePhase1,
+      deliveryDatePhase2,
+      isFeatured,
+      conditions: updatedConditions
+    });
+  };
+
+  const handleToggleApenasObra = (torre: string, tipologia: string) => {
+    const k = chaveTorreTipologia(torre, tipologia);
+    const next = regrasApenasObra.includes(k) ? regrasApenasObra.filter(x => x !== k) : [...regrasApenasObra, k];
+    setRegrasApenasObra(next);
+    syncApenasObraToProduct(next);
+  };
 
   const syncTorresToProduct = (newTorres: string[]) => {
     if (!prodWithConds) return;
@@ -396,6 +450,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       setTorresHabilitadas(prodsTorres);
     }
     setTorresFase2(Array.isArray(cond.torresFase2) ? cond.torresFase2 : []);
+    setRegrasApenasObra(Array.isArray(cond.apenasFaseObra) ? cond.apenasFaseObra : []);
     setEditingFase(fase);
 
     setNumParcelasStr(String(numP));
@@ -409,6 +464,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setMesesTabela2Str(String(m2));
     setTaxaJuros2Str(formatDecimalBR(t2, 2, 2));
     setTaxaAssinaturaContratoStr(formatDecimalBR(ta, 4, 4));
+    const fmtLim = (v: number | undefined) => (v !== undefined && v > 0 ? formatDecimalBR(v, 2, 2) : '');
+    setHabilitar1Mensal(cond.habilitar1aMensal !== false);
+    setHabilitar2Mensal(cond.habilitar2aMensal !== false);
+    setM1RendaStr(fmtLim(source.limite1aMensal?.maxPercentualRenda));
+    setM1ImovelStr(fmtLim(source.limite1aMensal?.maxPercentualImovel));
+    setM2RendaStr(fmtLim(source.limite2aMensal?.maxPercentualRenda));
+    setM2ImovelStr(fmtLim(source.limite2aMensal?.maxPercentualImovel));
     setAtoPremiadoPctStr(formatDecimalBR(apPct, 2, 2));
     setComissaoApartadaPctStr(formatDecimalBR(caPct, 2, 2));
     setComissaoApartadaParcelasStr(String(caParcelas));
@@ -458,6 +520,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const mesesTabela2 = parseIntFlexible(mesesTabela2Str, 1);
   const taxaJuros2 = parseDecimal(taxaJuros2Str, 1);
   const taxaAssinaturaContratoPct = parseDecimal(taxaAssinaturaContratoStr, 0);
+  const optPct = (s: string): number | undefined => {
+    if (!s || !s.trim()) return undefined;
+    const v = parseDecimal(s, 0);
+    return v > 0 ? v : undefined;
+  };
+  const limite1aMensal = { maxPercentualRenda: optPct(m1RendaStr), maxPercentualImovel: optPct(m1ImovelStr) };
+  const limite2aMensal = { maxPercentualRenda: optPct(m2RendaStr), maxPercentualImovel: optPct(m2ImovelStr) };
   // Ato Premiado: input está em % humano (ex.: 10,00 = 10%); campo do tipo é em
   // decimal (0.10), então precisa dividir por 100 ao salvar e multiplicar ao ler.
   const atoPremiadoPctInput = parseDecimal(atoPremiadoPctStr, 10);
@@ -533,6 +602,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       mesesTabela2,
       taxaJuros2,
       taxaAssinaturaContratoPct,
+      limite1aMensal,
+      limite2aMensal,
+      habilitar1aMensal: habilitar1Mensal,
+      habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: atoPremiadoPctSalvar,
       comissaoApartadaPct: comissaoApartadaPctSalvar,
       comissaoApartadaParcelas: comissaoApartadaParcelasClamped,
@@ -581,6 +654,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
           ...c,
           torresHabilitadas,
           torresFase2,
+          apenasFaseObra: regrasApenasObra,
           fase2Params: { ...(c.fase2Params || {}), ...params }
         };
       }
@@ -588,7 +662,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
         ...c,
         ...params,
         torresHabilitadas,
-        torresFase2
+        torresFase2,
+        apenasFaseObra: regrasApenasObra
       };
     });
   };
@@ -888,6 +963,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       mesesTabela2: parsedMeses2,
       taxaJuros2: parsedTaxa2,
       taxaAssinaturaContratoPct: parsedTaxaAssinaturaContrato,
+      limite1aMensal,
+      limite2aMensal,
+      habilitar1aMensal: habilitar1Mensal,
+      habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: parsedAtoPremiadoPct,
       comissaoApartadaPct: parsedComissaoApartadaPct,
       comissaoApartadaParcelas: parsedComissaoApartadaParcelas,
@@ -1290,6 +1369,70 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* SEÇÃO: REGRA DE FASES POR TORRE × TIPOLOGIA (somente Sinal c/ Morar e variantes) */}
+          {(getConditionKind(activeCondObj?.name) === 'sinal-morar' || getConditionKind(activeCondObj?.name) === 'sinal-morar-comissao-apartada') && (
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+                <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                    Fases de Pagamento por Torre × Tipologia
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Marque <strong className="text-amber-700">Apenas Fase Obra</strong> nas combinações sem Pós-Obra: o simulador oculta as séries Pós, concentra o saldo na Obra até o teto de risco e leva o excedente para o Ato. Desmarcado = Obra + Pós-Obra.
+                  </p>
+                </div>
+              </div>
+
+              {allTorres.length === 0 ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Nenhuma torre identificada na tabela deste empreendimento.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                        <th className="py-1.5 pr-3 font-bold">Torre</th>
+                        <th className="py-1.5 pr-3 font-bold">Tipologia</th>
+                        <th className="py-1.5 font-bold">Fases</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allTorres.flatMap(torreName =>
+                        (tipologiasPorTorre[torreName] || []).map(tip => {
+                          const apenasObra = regrasApenasObra.includes(chaveTorreTipologia(torreName, tip));
+                          return (
+                            <tr key={torreName + '||' + tip} className="border-b border-slate-50 last:border-0">
+                              <td className="py-1.5 pr-3 font-bold text-slate-800">{torreName}</td>
+                              <td className="py-1.5 pr-3 text-slate-700">{tip}</td>
+                              <td className="py-1.5">
+                                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={apenasObra}
+                                    onChange={() => handleToggleApenasObra(torreName, tip)}
+                                    className="w-4 h-4 accent-amber-600"
+                                  />
+                                  <span className={apenasObra ? 'font-bold text-amber-700' : 'text-slate-500'}>
+                                    {apenasObra ? 'Apenas Fase Obra' : 'Obra + Pós-Obra'}
+                                  </span>
+                                </label>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* SEÇÃO: FASE DO EMPREENDIMENTO POR TORRE */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
@@ -2344,6 +2487,118 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                         className="w-full pl-2 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-amber-700 text-center focus:outline-none focus:border-morar-600 text-xs"
                       />
                       <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TETOS DA 1ª E 2ª MENSAL (30 E 60 DIAS) */}
+                <div className="pt-3 border-t border-morar-100/80">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200/80 max-w-xl space-y-3">
+                    <div>
+                      <p className="font-semibold text-slate-700 text-[11px]">Limites da 1ª e 2ª Mensal (30 e 60 dias)</p>
+                      <p className="text-[10px] text-slate-500 leading-tight">Deixe em branco para não aplicar teto por aquele critério. Se ambos forem preenchidos, vale o menor valor.</p>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">1ª Mensal (30 dias)</p>
+                        <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
+                          <span className="text-[10px] font-bold text-slate-600">Habilitar 1ª Mensal</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={habilitar1Mensal}
+                            onClick={() => setHabilitar1Mensal(v => !v)}
+                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar1Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar1Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
+                        </label>
+                      </div>
+                      <div className={`grid grid-cols-2 gap-3 ${habilitar1Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
+                    <div>
+                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          disabled={!habilitar1Mensal}
+                          placeholder="sem teto"
+                          value={m1RendaStr}
+                          onChange={(e) => setM1RendaStr(e.target.value)}
+                          onBlur={() => { const v = optPct(m1RendaStr); setM1RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+                        />
+                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          disabled={!habilitar1Mensal}
+                          placeholder="sem teto"
+                          value={m1ImovelStr}
+                          onChange={(e) => setM1ImovelStr(e.target.value)}
+                          onBlur={() => { const v = optPct(m1ImovelStr); setM1ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+                        />
+                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+                      </div>
+                    </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">2ª Mensal (60 dias)</p>
+                        <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
+                          <span className="text-[10px] font-bold text-slate-600">Habilitar 2ª Mensal</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={habilitar2Mensal}
+                            onClick={() => setHabilitar2Mensal(v => !v)}
+                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar2Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar2Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
+                        </label>
+                      </div>
+                      <div className={`grid grid-cols-2 gap-3 ${habilitar2Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
+                    <div>
+                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          disabled={!habilitar2Mensal}
+                          placeholder="sem teto"
+                          value={m2RendaStr}
+                          onChange={(e) => setM2RendaStr(e.target.value)}
+                          onBlur={() => { const v = optPct(m2RendaStr); setM2RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+                        />
+                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          disabled={!habilitar2Mensal}
+                          placeholder="sem teto"
+                          value={m2ImovelStr}
+                          onChange={(e) => setM2ImovelStr(e.target.value)}
+                          onBlur={() => { const v = optPct(m2ImovelStr); setM2ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+                        />
+                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+                      </div>
+                    </div>
+                      </div>
                     </div>
                   </div>
                 </div>

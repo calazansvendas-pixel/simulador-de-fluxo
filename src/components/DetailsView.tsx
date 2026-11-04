@@ -133,6 +133,14 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const [isEditingParc2, setIsEditingParc2] = useState<boolean>(false);
 
   const [valParc3, setValParc3] = useState<number>(0);
+  // 1ª/2ª Mensal (30 e 60 dias) ligadas na Política? Desligadas, os cards somem e os valores
+  // ficam em R$ 0,00 (as fórmulas do fluxo continuam iguais, só com mensais zeradas).
+  const mensal1Ativa = currentCond?.habilitar1aMensal !== false;
+  const mensal2Ativa = currentCond?.habilitar2aMensal !== false;
+  useEffect(() => {
+    if (!mensal1Ativa) { setValParc2(0); setParc2InputText(''); setIsEditingParc2(false); }
+    if (!mensal2Ativa) { setValParc3(0); setParc3InputText(''); setIsEditingParc3(false); }
+  }, [mensal1Ativa, mensal2Ativa]);
   const [parc3InputText, setParc3InputText] = useState<string>('');
   const [isEditingParc3, setIsEditingParc3] = useState<boolean>(false);
 
@@ -690,7 +698,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // quando ativo, ele também zera os demais blocos (ver chamada abaixo) —
   // no motor novo eles não são mais "o que sobra do Ato", são calculados de
   // forma independente, então só reduzir o Ato não bastaria para esvaziá-los.
-  const pmMensaisAntecipadas = (valParc2 || 0) + (valParc3 || 0);
+  const pmMensaisAntecipadas = (mensal1Ativa ? (valParc2 || 0) : 0) + (mensal2Ativa ? (valParc3 || 0) : 0);
   const pmBaseAVista = hasUnitSelected
     ? Math.max(0, price - maxFinanc - pmMensaisAntecipadas)
     : 0;
@@ -1006,8 +1014,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const sinalTotalOriginal = gapInicial;
 
   // 1. LEITURA DO APORTE DAS MENSAIS (1ª MENSAL 30D / 2ª MENSAL 60D)
-  const mens30d = valParc2 || 0;
-  const mens60d = valParc3 || 0;
+  const mens30d = mensal1Ativa ? (valParc2 || 0) : 0;
+  const mens60d = mensal2Ativa ? (valParc3 || 0) : 0;
   const somaMensais = mens30d + mens60d;
 
   // Valor de "Ato (Imóvel)" (opção "À Vista") que zera exatamente o Pró-Soluto (Sinal
@@ -1334,6 +1342,14 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       if (onShowToast) {
         onShowToast('O valor mínimo para parcelas mensais é R$ 200,00.');
       }
+    } else if (tetoMensal1.teto > 0 && parsed > tetoMensal1.teto) {
+      // Autocorreção: trava no teto da Política (menor entre renda e imóvel, se ambos).
+      const tetoCentavos = Math.floor(tetoMensal1.teto * 100) / 100;
+      setValParc2(tetoCentavos);
+      setParc2InputText(formatCurrency(tetoCentavos));
+      if (onShowToast) {
+        onShowToast(`Ajustado para o teto de ${formatCurrency(tetoCentavos)} (${tetoMensal1.texto}).`);
+      }
     } else {
       setValParc2(parsed);
       setParc2InputText(formatCurrency(parsed));
@@ -1356,6 +1372,14 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       setParc3InputText(formatCurrency(200));
       if (onShowToast) {
         onShowToast('O valor mínimo para parcelas mensais é R$ 200,00.');
+      }
+    } else if (tetoMensal2.teto > 0 && parsed > tetoMensal2.teto) {
+      // Autocorreção: trava no teto da Política (menor entre renda e imóvel, se ambos).
+      const tetoCentavos = Math.floor(tetoMensal2.teto * 100) / 100;
+      setValParc3(tetoCentavos);
+      setParc3InputText(formatCurrency(tetoCentavos));
+      if (onShowToast) {
+        onShowToast(`Ajustado para o teto de ${formatCurrency(tetoCentavos)} (${tetoMensal2.texto}).`);
       }
     } else {
       setValParc3(parsed);
@@ -1416,9 +1440,25 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     ? calcularParcelaPrice(appliedRatePct, qtdMensais, baseCalculoParcela)
     : 0;
 
-  const limiteRenda = (income && income > 0) ? income * 0.35 : 0;
-  const isExceededParc2 = limiteRenda > 0 && mens30d > limiteRenda;
-  const isExceededParc3 = limiteRenda > 0 && mens60d > limiteRenda;
+  // Tetos da 1ª/2ª Mensal vêm da Política de Crédito (% da renda e/ou % do imóvel). Sem
+  // configuração não há teto. Com ambos, vale o menor.
+  const resolverTetoMensal = (lim?: { maxPercentualRenda?: number; maxPercentualImovel?: number }) => {
+    const porRenda = lim?.maxPercentualRenda && lim.maxPercentualRenda > 0 && income && income > 0
+      ? income * lim.maxPercentualRenda / 100 : 0;
+    const porImovel = lim?.maxPercentualImovel && lim.maxPercentualImovel > 0 && price > 0
+      ? price * lim.maxPercentualImovel / 100 : 0;
+    const candidatos = [porRenda, porImovel].filter(v => v > 0);
+    if (candidatos.length === 0) return { teto: 0, texto: '' };
+    const teto = Math.min(...candidatos);
+    const texto = porRenda > 0 && porImovel > 0
+      ? (porRenda <= porImovel ? `${lim!.maxPercentualRenda}% da renda` : `${lim!.maxPercentualImovel}% do valor do imóvel`)
+      : (porRenda > 0 ? `${lim!.maxPercentualRenda}% da renda` : `${lim!.maxPercentualImovel}% do valor do imóvel`);
+    return { teto, texto };
+  };
+  const tetoMensal1 = resolverTetoMensal(currentCond?.limite1aMensal);
+  const tetoMensal2 = resolverTetoMensal(currentCond?.limite2aMensal);
+  const isExceededParc2 = tetoMensal1.teto > 0 && mens30d > tetoMensal1.teto;
+  const isExceededParc3 = tetoMensal2.teto > 0 && mens60d > tetoMensal2.teto;
 
   const totalEntradaMorar = atoAposMensais + atoITBIValidado + mens30d + mens60d + descontoAto;
 
@@ -2377,8 +2417,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             }}
           >
             {/* 2ª LINHA: 2 COLUNAS IGUAIS (1ª MENSAL 30 DIAS E 2ª MENSAL 60 DIAS) — MESMO LAYOUT EM TODAS AS CONDIÇÕES */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            {(mensal1Ativa || mensal2Ativa) && (
+            <div className={`grid grid-cols-1 ${mensal1Ativa && mensal2Ativa ? 'sm:grid-cols-2' : ''} gap-2.5 pt-1`}>
               {/* 1ª MENSAL (30 DIAS) */}
+              {mensal1Ativa && (
               <div className={`p-2.5 rounded-lg border transition-all ${
                 isExceededParc2 ? 'bg-red-50/90 border-red-500' : 'bg-slate-50 border-slate-200/80'
               }`}>
@@ -2424,12 +2466,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                 {isExceededParc2 && (
                   <div className="mt-1.5 flex items-center gap-1 text-[9.5px] font-bold text-rose-700 bg-rose-50 p-1 rounded border border-rose-400">
                     <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                    <span>Atenção: parcela excede 35% da renda (máx: {formatCurrency(income * 0.35)})!</span>
+                    <span>Atenção: parcela excede {tetoMensal1.texto} (máx: {formatCurrency(tetoMensal1.teto)})!</span>
                   </div>
                 )}
               </div>
 
+              )}
+
               {/* 2ª MENSAL (60 DIAS) */}
+              {mensal2Ativa && (
               <div className={`p-2.5 rounded-lg border transition-all ${
                 isExceededParc3 ? 'bg-red-50/90 border-red-500' : 'bg-slate-50 border-slate-200/80'
               }`}>
@@ -2475,11 +2520,13 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                 {isExceededParc3 && (
                   <div className="mt-1.5 flex items-center gap-1 text-[9.5px] font-bold text-rose-700 bg-rose-50 p-1 rounded border border-rose-400">
                     <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                    <span>Atenção: parcela excede 35% da renda (máx: {formatCurrency(income * 0.35)})!</span>
+                    <span>Atenção: parcela excede {tetoMensal2.texto} (máx: {formatCurrency(tetoMensal2.teto)})!</span>
                   </div>
                 )}
               </div>
+              )}
             </div>
+            )}
 
           </FluxoEntradaConstrutora>
           )}
@@ -2892,8 +2939,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           despCartoriasEfetivas={despCartoriasEfetivas}
           atoAposMensais={isParcelamentoMorar ? pm.atoEfetivo : atoAposMensais}
           atoITBIValidado={atoITBIValidado}
-          valParc2={valParc2}
-          valParc3={valParc3}
+          mostrarMensal1={mensal1Ativa}
+          mostrarMensal2={mensal2Ativa}
+          valParc2={mensal1Ativa ? valParc2 : 0}
+          valParc3={mensal2Ativa ? valParc3 : 0}
           qtdMensais={qtdMensais}
           appliedRatePct={appliedRatePct}
           parcela={parcela}

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, getConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';
@@ -115,26 +115,26 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // Condição efetiva já resolvida para a torre selecionada: se a torre estiver
   // marcada como 2ª Fase na política, os parâmetros de fase2Params sobrescrevem
-  // os da condição base. Todos os pontos de leitura de currentCond?.X abaixo
+  // os da condição base. Todos os pontos de leitura de condDaFase?.X abaixo
   // ficam automaticamente corretos por fase, sem precisar de edição individual.
-  const currentCond = useMemo(() => (
+  const condDaFase = useMemo(() => (
     resolveConditionForTorre(baseCond, selectedTorre)
   ), [baseCond, selectedTorre]);
 
   // Precisa estar disponível cedo (usado no carregamento de configurações de
   // visibilidade/PDF por cargo, antes do restante da lógica de comissão abaixo).
-  const isComissaoApartada = getConditionKind(currentCond?.name) === 'sinal-morar-comissao-apartada';
+  const isComissaoApartada = getConditionKind(condDaFase?.name) === 'sinal-morar-comissao-apartada';
 
   // Quantidade de meses de cada balde (1 a 6), configurável na política de crédito.
   // Padrão 12 meses cada quando não definido (compatibilidade retroativa).
   const serieMesesCapacidades = useMemo<[number, number, number, number, number, number]>(() => [
-    currentCond?.serie1Meses ?? 12,
-    currentCond?.serie2Meses ?? 12,
-    currentCond?.serie3Meses ?? 12,
-    currentCond?.serie4Meses ?? 12,
-    currentCond?.serie5Meses ?? 12,
-    currentCond?.serie6Meses ?? 12
-  ], [currentCond]);
+    condDaFase?.serie1Meses ?? 12,
+    condDaFase?.serie2Meses ?? 12,
+    condDaFase?.serie3Meses ?? 12,
+    condDaFase?.serie4Meses ?? 12,
+    condDaFase?.serie5Meses ?? 12,
+    condDaFase?.serie6Meses ?? 12
+  ], [condDaFase]);
   const [selectedUnidade, setSelectedUnidade] = useState<string>('');
 
   // Chave de configuração (PdfConditionKind) usada para buscar tanto o PDF
@@ -193,7 +193,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Comissão Apartada — só tem efeito na condição "Sinal c/ Morar (Comissão
   // Apartada)" (ver getConditionKind). Controle manual da quantidade de
   // parcelas da comissão, editável na própria ficha (sugestão inicial vem da
-  // política em currentCond.comissaoApartadaParcelas).
+  // política em condDaFase.comissaoApartadaParcelas).
   const [comissaoParcelasManual, setComissaoParcelasManual] = useState<number | null>(null);
   // Pagamento à vista: aplica o % de Desconto à Vista da política sobre o
   // Preço de Tabela (antes de qualquer outro cálculo), zera o ITBI (que passa
@@ -304,7 +304,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Limpeza completa ao trocar de produto ou condição comercial
   const prevProdCondKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    const key = currentProd ? `${currentProd.id}::${currentCond?.id || ''}` : null;
+    const key = currentProd ? `${currentProd.id}::${condDaFase?.id || ''}` : null;
     const isRealSwitch = prevProdCondKeyRef.current !== null && prevProdCondKeyRef.current !== key;
     // Mesmo empreendimento, só a condição comercial mudou: Torre/Unidade permanecem selecionadas
     // (o resto do fluxo volta ao padrão da nova condição e é recalculado para a mesma unidade).
@@ -351,7 +351,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (currentProd && !soCondicaoMudou) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
-  }, [currentProd?.id, currentCond?.id]);
+  }, [currentProd?.id, condDaFase?.id]);
 
   const [dbUnits, setDbUnits] = useState<any[]>([]);
   const [dbUnitsLoaded, setDbUnitsLoaded] = useState<boolean>(false);
@@ -426,7 +426,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         }
       }
     }
-  }, [availableTorres, currentProd?.id, currentCond?.id, dbUnitsEfetivos, dbUnitsLoaded]);
+  }, [availableTorres, currentProd?.id, condDaFase?.id, dbUnitsEfetivos, dbUnitsLoaded]);
 
   const filteredUnits = selectedTorre
     ? (Array.from(new Set(
@@ -449,6 +449,13 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Mapeamento dos atributos vindos do Firestore / Mocks
   const fase = matchingRow ? String(matchingRow.status || '1ª') : '-';
   const tipologia = matchingRow ? String(matchingRow.tipologia || '2 Quartos') : '-';
+
+  // Condição efetiva da UNIDADE selecionada: além da 2ª Fase da torre, aplica a regra
+  // "Apenas Fase Obra" (Torre + Tipologia) configurada na Política de Crédito — sem Pós-Obra.
+  const currentCond = useMemo(() => (
+    resolveConditionForUnit(baseCond, selectedTorre, tipologia)
+  ), [baseCond, selectedTorre, tipologia]);
+  const apenasFaseObra = !!currentCond && (currentCond.mesesPos ?? 27) === 0 && isApenasFaseObra(baseCond, selectedTorre, tipologia);
   const areaPriv = matchingRow ? formatArea(matchingRow.area_privativa) : '0,00 m²';
   const areaQuintal = matchingRow ? formatArea(matchingRow.quintal) : '0,00 m²';
 
@@ -759,7 +766,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (!hasUnitSelected || price <= 0) return null;
     const mesesObraPadrao = currentCond?.mesesObra ?? 33;
     const mesesObraParam = totalParcObra > 0 ? totalParcObra : mesesObraPadrao;
-    const mesesPosParam = totalParcObra < mesesObraPadrao ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
+    const mesesPosParam = (apenasFaseObra || totalParcObra < mesesObraPadrao) ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
 
     const globalPct: [number, number, number, number, number, number] = [
       currentCond?.globalSerie1Pct ?? 30.0,
@@ -1113,7 +1120,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
     const mesesObraPadrao = currentCond?.mesesObra ?? 33;
     const mesesObraParam = totalParcObra > 0 ? totalParcObra : mesesObraPadrao;
-    const mesesPosParam = totalParcObra < mesesObraPadrao ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
+    const mesesPosParam = (apenasFaseObra || totalParcObra < mesesObraPadrao) ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
 
     const globalPct: [number, number, number, number, number, number] = [
       currentCond?.globalSerie1Pct ?? 30.0,
@@ -1199,7 +1206,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
     const mesesObraPadrao = currentCond?.mesesObra ?? 33;
     const mesesObraParam = totalParcObra > 0 ? totalParcObra : mesesObraPadrao;
-    const mesesPosParam = totalParcObra < mesesObraPadrao ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
+    const mesesPosParam = (apenasFaseObra || totalParcObra < mesesObraPadrao) ? 0 : (totalParcPos > 0 ? totalParcPos : (currentCond?.mesesPos ?? 27));
 
     const globalPct: [number, number, number, number, number, number] = [
       currentCond?.globalSerie1Pct ?? 30.0,
@@ -1723,7 +1730,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
     // Recalcular o rateio de ITBI e séries
     const mesesObraParam = totalParcObra < mesesObraPadraoPolitica ? totalParcObra : mesesObraPadraoPolitica;
-    const mesesPosParam = totalParcObra < mesesObraPadraoPolitica ? 0 : (totalParcPos >= 0 ? totalParcPos : mesesPosPadraoPolitica);
+    const mesesPosParam = (apenasFaseObra || totalParcObra < mesesObraPadraoPolitica) ? 0 : (totalParcPos >= 0 ? totalParcPos : mesesPosPadraoPolitica);
     const globalPct: [number, number, number, number, number, number] = [
       currentCond?.globalSerie1Pct ?? 30.0,
       currentCond?.globalSerie2Pct ?? 25.0,

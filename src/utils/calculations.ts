@@ -174,6 +174,40 @@ export function ensureProductConditions(prod: Product): Product {
   return prod;
 }
 
+/** Chave da regra "Apenas Fase Obra": Torre + Tipologia, sem diferenciar maiúsculas/espaços. */
+export function chaveTorreTipologia(torre: string | null | undefined, tipologia: string | null | undefined): string {
+  return `${String(torre || '').trim().toLowerCase()}||${String(tipologia || '').trim().toLowerCase()}`;
+}
+
+/** Indica se a combinação Torre + Tipologia está marcada como "Apenas Fase Obra" na condição. */
+export function isApenasFaseObra(
+  cond: CommercialCondition | null | undefined,
+  torre: string | null | undefined,
+  tipologia: string | null | undefined
+): boolean {
+  if (!cond || !Array.isArray(cond.apenasFaseObra) || cond.apenasFaseObra.length === 0) return false;
+  if (!torre || !tipologia || tipologia === '-') return false;
+  const k = chaveTorreTipologia(torre, tipologia);
+  return cond.apenasFaseObra.some(x => String(x).trim().toLowerCase() === k);
+}
+
+/**
+ * Condição efetiva para a UNIDADE: aplica a 2ª Fase da torre e, só no Sinal c/ Morar e variantes,
+ * a regra "Apenas Fase Obra" (Torre + Tipologia) — zera meses e teto de risco da Pós-Obra, de modo
+ * que o motor concentra o saldo na Obra até o teto de risco e leva o excedente para o Ato.
+ */
+export function resolveConditionForUnit(
+  cond: CommercialCondition | null | undefined,
+  torre: string | null | undefined,
+  tipologia: string | null | undefined
+): CommercialCondition | null {
+  const base = resolveConditionForTorre(cond, torre);
+  if (!base) return null;
+  if (getConditionKind(base.name) !== 'sinal-morar' && getConditionKind(base.name) !== 'sinal-morar-comissao-apartada') return base;
+  if (!isApenasFaseObra(cond, torre, tipologia)) return base;
+  return { ...base, mesesPos: 0, percMaxPosObra: 0, riscoPosPct: 0 };
+}
+
 /**
  * Resolve a condição comercial efetiva para uma torre específica, aplicando os
  * overrides de fase2Params quando a torre estiver marcada como 2ª Fase

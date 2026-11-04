@@ -70,6 +70,9 @@ interface PdfExportModalProps {
   // próprio quando isParcelamentoMorar é true; nas demais condições esses
   // campos são ignorados.
   isParcelamentoMorar?: boolean;
+  // false = 1ª/2ª Mensal desabilitadas na Política: o PDF omite esses dois quadros.
+  mostrarMensal1?: boolean;
+  mostrarMensal2?: boolean;
   pmValorMensalObra?: number;
   pmNMensaisObra?: number;
   pmValorMensalObraTotal?: number;
@@ -130,6 +133,8 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   pctRiscoProSoluto,
   valorRiscoProSoluto,
   isParcelamentoMorar = false,
+  mostrarMensal1 = true,
+  mostrarMensal2 = true,
   pmValorMensalObra = 0,
   pmNMensaisObra = 0,
   pmValorMensalObraTotal = 0,
@@ -824,7 +829,9 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                   </div>
 
                   {/* LINHA INFERIOR COM 2 COLUNAS IGUAIS (50% CADA): 1ª MENSAL (30 DIAS) E 2ª MENSAL (60 DIAS) */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  {(mostrarMensal1 || mostrarMensal2) && (
+                  <div className={`grid ${mostrarMensal1 && mostrarMensal2 ? 'grid-cols-2' : 'grid-cols-1'} gap-2 text-xs`}>
+                    {mostrarMensal1 && (
                     <div className="bg-slate-50 p-2 rounded-lg border border-[rgba(226,232,240,0.8)] text-center">
                       <span className="block text-[9px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
                         1ª Mensal (30 Dias)
@@ -833,7 +840,9 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         {fmt(valParc2)}
                       </strong>
                     </div>
+                    )}
 
+                    {mostrarMensal2 && (
                     <div className="bg-slate-50 p-2 rounded-lg border border-[rgba(226,232,240,0.8)] text-center">
                       <span className="block text-[9px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
                         2ª Mensal (60 Dias)
@@ -842,7 +851,9 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         {fmt(valParc3)}
                       </strong>
                     </div>
+                    )}
                   </div>
+                  )}
                 </div>
                 )}
 
