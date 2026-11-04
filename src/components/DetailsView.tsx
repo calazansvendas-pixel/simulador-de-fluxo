@@ -1221,7 +1221,22 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const excessoRiscoParcela = (hasUnitSelected && riscoMaximoApuradoBruto > 0)
     ? Math.max(0, proSolutoTotalParceladoSemTravaParcela - riscoMaximoApuradoBruto)
     : 0;
-  const extraAtoPorTravaParcela = Math.round(excessoRiscoParcela * 100) / 100;
+  const extraAtoPorTravaParcelaRisco = Math.round(excessoRiscoParcela * 100) / 100;
+
+  // SEGUNDA TRAVA (teto de comprometimento da RENDA sobre a PARCELA FINAL): a parcela Price é
+  // calculada sobre a base BRUTA (pró-soluto líquido da taxa ÷ (1 − taxa)). A trava acima compara
+  // o pró-soluto ainda líquido com o teto BRUTO, então a taxa bancária reinflava a base e a
+  // parcela passava do teto (ex.: 35% → 35,1%). Aqui o excesso é medido na base bruta contra o
+  // valor presente do teto de renda (vpValRiscoRenda = PMT máx. da política trazido a valor
+  // presente na mesma taxa/prazo) e a diferença migra para o Ato (Imóvel).
+  const fatorLiquidoTaxa = taxaAssinaturaContratoPct < 100 ? (1 - taxaAssinaturaContratoPct / 100) : 1;
+  const proSolutoAposTravaRisco = Math.max(0, proSolutoTotalParceladoSemTravaParcela - extraAtoPorTravaParcelaRisco);
+  const baseBrutaAposTravaRisco = fatorLiquidoTaxa > 0 ? proSolutoAposTravaRisco / fatorLiquidoTaxa : proSolutoAposTravaRisco;
+  const excessoBaseRenda = (hasUnitSelected && income > 0)
+    ? Math.max(0, baseBrutaAposTravaRisco - Math.max(0, vpValRiscoRenda))
+    : 0;
+  const extraAtoPorTravaRenda = Math.ceil(excessoBaseRenda * fatorLiquidoTaxa * 100) / 100;
+  const extraAtoPorTravaParcela = Math.round((extraAtoPorTravaParcelaRisco + extraAtoPorTravaRenda) * 100) / 100;
 
   atoAposMensais += extraAtoPorTravaParcela;
   const proSolutoSinalRestante = Math.max(0, proSolutoSinalRestanteSemTravaParcela - extraAtoPorTravaParcela);
