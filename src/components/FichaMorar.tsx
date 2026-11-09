@@ -2621,9 +2621,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                       title={descontoConstrutoraRegra <= 0
                         ? 'Nenhuma regra de Desconto Construtora para esta unidade'
                         : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
-                      className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
-                      <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
                     </button>
                     <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(descontoConstrutora)}
