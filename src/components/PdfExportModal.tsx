@@ -38,6 +38,8 @@ interface PdfExportModalProps {
   // display "Preço de Tabela" do PDF, que nunca deve refletir o desconto à
   // vista (aplicado sobre `price`, usado no restante dos cálculos).
   precoTabelaOriginal: number;
+  // Desconto Construtora (política por Produto/Torre/Tipologia) já abatido do preço antes do Sinal.
+  descontoConstrutora?: number;
   evaluation: number;
   deliveryText: string;
   income: number;
@@ -105,6 +107,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   areaQuintal,
   price,
   precoTabelaOriginal,
+  descontoConstrutora = 0,
   evaluation,
   deliveryText,
   income,
@@ -667,6 +670,12 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         <span className="text-slate-600">FGTS:</span>
                         <strong className="text-morar-600 font-semibold">{fmt(fgtsEfetivo)}</strong>
                       </div>
+                      {descontoConstrutora > 0 && (
+                        <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
+                          <span className="text-slate-600">Desconto Construtora:</span>
+                          <strong className="text-amber-700 font-semibold">{fmt(descontoConstrutora)}</strong>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center py-0.5">
                         <span className="text-slate-600">Desc. Ato:</span>
                         <strong className="text-emerald-600 font-semibold">{fmt(descontoAto)}</strong>

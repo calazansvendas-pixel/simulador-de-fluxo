@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, getConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';
@@ -21,6 +21,7 @@ import { telaVisibilidadeService } from '../services/telaVisibilidadeService';
 import { PdfExportModalMorar, MorarFaixa } from './PdfExportModalMorar';
 import { NovatoSimuladorView } from './NovatoSimuladorView';
 import { MonthStepper } from './MonthStepper';
+import { MiniSwitch } from './MiniSwitch';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
 import { FichaMorarProdutoGrid } from './FichaMorarProdutoGrid';
@@ -121,6 +122,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     resolveConditionForTorre(baseCond, selectedTorre)
   ), [baseCond, selectedTorre]);
 
+  // Estado padrão dos 3 interruptores de desconto (Política de Crédito do produto; desligados por padrão).
+  const padraoConstrutoraLigado = condDaFase?.descontoConstrutoraPadraoLigado === true;
+  const padraoVistaLigado = condDaFase?.descontoVistaPadraoLigado === true;
+  const padraoAtoLigado = condDaFase?.descontoAtoPadraoLigado === true;
+
   // Precisa estar disponível cedo (usado no carregamento de configurações de
   // visibilidade/PDF por cargo, antes do restante da lógica de comissão abaixo).
   const isComissaoApartada = getConditionKind(condDaFase?.name) === 'sinal-morar-comissao-apartada';
@@ -192,7 +198,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // livremente conforme a Qtd. Meses muda, nunca abaixo do que o corretor
   // digitou de propósito.
   const [itbiAtoManualFloor, setItbiAtoManualFloor] = useState<number | null>(null);
-  const [isAtoPremiadoEnabled, setIsAtoPremiadoEnabled] = useState<boolean>(true);
+  const [isAtoPremiadoEnabled, setIsAtoPremiadoEnabled] = useState<boolean>(padraoAtoLigado);
   // Comissão Apartada — só tem efeito na condição "Sinal c/ Morar (Comissão
   // Apartada)" (ver getConditionKind). Controle manual da quantidade de
   // parcelas da comissão, editável na própria ficha (sugestão inicial vem da
@@ -203,6 +209,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // a ser responsabilidade do cliente após o Habite-se) e traz o Sinal
   // necessário inteiro para o Ato (Imóvel), zerando o Pró-Soluto.
   const [isPagamentoAVistaEnabled, setIsPagamentoAVistaEnabled] = useState<boolean>(false);
+  // Interruptor do Desconto à Vista: só vale com o "Pgtº à vista" ativo (nasce com o padrão do produto).
+  const [descontoVistaAtivo, setDescontoVistaAtivo] = useState<boolean>(false);
 
   // Faixas de Obra (INCC) - Padrão Morar: 12x, 12x, 9x, 0x (Total 33 meses)
   const [dataObra, setDataObra] = useState<string>('setembro, 2026');
@@ -249,6 +257,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // setters, ficam sempre `null`.
   const [itbiObraValorManual, setItbiObraValorManual] = useState<number | null>(null);
   const [itbiPosValorManual, setItbiPosValorManual] = useState<number | null>(null);
+  // Prazo do ITBI/Registro, independente de Obra/Pós. null = padrão (todos os meses do fluxo,
+  // limitado ao teto maxParcelasITBI da política).
+  const [parcelasITBIManual, setParcelasITBIManual] = useState<number | null>(null);
+  // Liga/desliga o Desconto Construtora da regra da política (sempre inicia desligado).
+  const [descontoConstrutoraAtivo, setDescontoConstrutoraAtivo] = useState<boolean>(padraoConstrutoraLigado);
 
 
 
@@ -285,6 +298,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiTotalManual(null);
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
+    setParcelasITBIManual(null);
     // Nova torre/unidade herda a quantidade de parcelas padrão da política —
     // não carrega um ajuste manual feito para a unidade anterior.
     setComissaoParcelasManual(null);
@@ -329,13 +343,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiAtoManualFloor(null);
     setItbiAtoInputText('');
     setIsEditingAtoITBI(false);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
+    setDescontoVistaAtivo(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
+    setParcelasITBIManual(null);
     // Nova condição comercial herda a quantidade de parcelas padrão dela
     // (comissaoApartadaParcelas) — não carrega um ajuste manual da anterior.
     setComissaoParcelasManual(null);
@@ -459,10 +475,25 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     resolveConditionForUnit(baseCond, selectedTorre, tipologia)
   ), [baseCond, selectedTorre, tipologia]);
   const apenasFaseObra = !!currentCond && (currentCond.mesesPos ?? 27) === 0 && isApenasFaseObra(baseCond, selectedTorre, tipologia);
+  // Teto de parcelas do ITBI = soma máxima do fluxo da política (meses de Obra + Pós-Obra) da
+  // condição desta unidade. Com "Apenas Fase Obra" a Pós é 0, então o teto é só a Obra.
+  const maxParcelasITBIPolitica = Math.max(1, (currentCond?.mesesObra ?? 33) + (currentCond?.mesesPos ?? 27));
   const areaPriv = matchingRow ? formatArea(matchingRow.area_privativa) : '0,00 m²';
   const areaQuintal = matchingRow ? formatArea(matchingRow.quintal) : '0,00 m²';
 
-  const precoTabelaOriginal = hasUnitSelected && matchingRow ? Number(matchingRow.preco_tabela || 0) : 0;
+  // Preço de lista da unidade (exibição). O "Desconto Construtora" cadastrado na política para
+  // Produto/Torre/Tipologia é abatido aqui, ANTES de qualquer outro cálculo: precoTabelaOriginal
+  // (base do fluxo) já sai líquido dele e alimenta em cascata Sinal Total, comissão apartada,
+  // Pró-Soluto, parcelas, Ato e indicadores de risco.
+  const precoTabelaLista = hasUnitSelected && matchingRow ? Number(matchingRow.preco_tabela || 0) : 0;
+  // O desconto encontrado na regra fica registrado (descontoConstrutoraRegra), mas só entra nas
+  // contas quando o corretor o ativa (inicia sempre desligado a cada unidade selecionada).
+  const descontoConstrutoraRegra = hasUnitSelected
+    ? resolverDescontoConstrutora(currentCond?.descontosConstrutora, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
+    : 0;
+  const descontoConstrutora = descontoConstrutoraAtivo ? descontoConstrutoraRegra : 0;
+  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); }, [selectedTorre, selectedUnidade, currentProd?.id]);
+  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora) * 100) / 100);
   const evaluation = hasUnitSelected && matchingRow ? Number(matchingRow.avaliacao_bancaria || 0) : 0;
 
   // Desconto à Vista: aplicado sobre o Preço de Tabela ANTES de qualquer outro
@@ -470,7 +501,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // componente (motor de cálculo, sinal necessário, teto do Ato etc.) — já sai
   // com o desconto embutido quando o pagamento à vista está ativo.
   const descontoAVistaPctPolitica = currentCond?.descontoAVistaPct ?? 0;
-  const valorDescontoAVista = isPagamentoAVistaEnabled && precoTabelaOriginal > 0
+  const valorDescontoAVista = isPagamentoAVistaEnabled && descontoVistaAtivo && precoTabelaOriginal > 0
     ? Math.round(precoTabelaOriginal * (descontoAVistaPctPolitica / 100) * 100) / 100
     : 0;
   const price = Math.max(0, Math.round((precoTabelaOriginal - valorDescontoAVista) * 100) / 100);
@@ -530,11 +561,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiTotalManual(null);
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
+    setParcelasITBIManual(null);
   };
 
   const handleTorreChange = (torre: string) => {
     setSelectedTorre(torre);
     setSelectedUnidade('');
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
+    setIsPagamentoAVistaEnabled(false);
+    setDescontoVistaAtivo(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
@@ -547,6 +583,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   const handleUnidadeChange = (unidade: string) => {
     setSelectedUnidade(unidade);
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
+    setIsPagamentoAVistaEnabled(false);
+    setDescontoVistaAtivo(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
@@ -583,13 +623,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiAtoManualFloor(null);
     setItbiAtoInputText('');
     setIsEditingAtoITBI(false);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
+    setDescontoVistaAtivo(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
+    setParcelasITBIManual(null);
     // Nova condição comercial herda a quantidade de parcelas padrão dela
     // (comissaoApartadaParcelas) — não carrega um ajuste manual da anterior.
     setComissaoParcelasManual(null);
@@ -608,6 +650,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (currentProd) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
     onShowToast('Ficha Morar limpa com sucesso. Selecione a Torre e Unidade para calcular.');
   };
 
@@ -631,19 +674,24 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiAtoManualFloor(null);
     setItbiAtoInputText('');
     setIsEditingAtoITBI(false);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
+    setDescontoVistaAtivo(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    // Prazo do ITBI volta a acompanhar o fluxo (Obra + Pós ativos): desfaz o prazo estendido ou
+    // encurtado à mão. O efeito de inicialização automática recalcula parcela do ITBI e séries.
+    setParcelasITBIManual(null);
     // Volta a Qtd. Parcelas da Comissão Apartada para a sugestão padrão da
     // política (comissaoApartadaParcelas) em vez de manter um ajuste manual.
     setComissaoParcelasManual(null);
 
     if (onShowToast) {
-      onShowToast('Fluxo de pagamento redefinido: Ato (Imóvel), ITBI no Ato e Ato Premiado restaurados.');
+      onShowToast('Fluxo de pagamento redefinido: Ato (Imóvel), ITBI no Ato, prazo do ITBI e Ato Premiado restaurados.');
     }
   };
 
@@ -795,6 +843,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: posObraGlobalParam,
       mesesObra: mesesObraParam,
       mesesPos: mesesPosParam,
+      parcelasITBI: parcelasITBIManual ?? undefined,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
@@ -804,7 +855,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       isComissaoApartada,
       pctComissaoApartada: pctComissaoApartadaCond
     });
-  }, [hasUnitSelected, price, evaluation, despCartoriasEfetivas, income, maxFinanc, subsidy, fgts, currentCond, sinalMinimoVal, isAtoPremiadoEnabled, itbiAtoManualFloor, totalParcObra, totalParcPos, serieMesesCapacidades, isComissaoApartada, pctComissaoApartadaCond]);
+  }, [hasUnitSelected, price, evaluation, despCartoriasEfetivas, income, maxFinanc, subsidy, fgts, currentCond, sinalMinimoVal, isAtoPremiadoEnabled, itbiAtoManualFloor, totalParcObra, totalParcPos, serieMesesCapacidades, isComissaoApartada, pctComissaoApartadaCond, parcelasITBIManual]);
 
   // Piso do Ato Sugerido Inicial e Saldo de Pró-Soluto padrão
   const atoSugeridoResidual = hasUnitSelected ? (morarEngineBase?.atoResidual ?? 0) : 0;
@@ -896,9 +947,24 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // RATEIO DO ITBI/REGISTRO — a quantidade de meses sempre acompanha a
   // quantidade real de parcelas de Obra/Pós-Obra, sem controle próprio.
-  const itbiObraTotalMeses = totalParcObra > 0 ? totalParcObra : 33;
-  const itbiPosTotalMeses = totalParcPos;
-  const itbiTotalMeses = itbiObraTotalMeses + itbiPosTotalMeses;
+  // Prazo do ITBI DESACOPLADO de Obra/Pós: padrão = todos os meses do fluxo; o corretor pode
+  // encurtar/alongar de 1x até o teto da política (maxParcelasITBI). As parcelas correm em
+  // paralelo ao fluxo desde o 1º mês: as primeiras caem na Obra e o que passar vai para a Pós.
+  const parcelasITBIPadrao = (totalParcObra + totalParcPos) > 0 ? (totalParcObra + totalParcPos) : 33;
+  const parcelasITBIEfetivas = Math.min(
+    maxParcelasITBIPolitica,
+    Math.max(1, Math.round(parcelasITBIManual ?? parcelasITBIPadrao))
+  );
+  const itbiObraTotalMeses = totalParcObra > 0 ? Math.min(parcelasITBIEfetivas, totalParcObra) : parcelasITBIEfetivas;
+  const itbiPosTotalMeses = parcelasITBIEfetivas - itbiObraTotalMeses;
+  const itbiTotalMeses = parcelasITBIEfetivas;
+  // Quantos meses de uma série coincidem com meses de ITBI (as parcelas do ITBI ocupam os
+  // primeiros meses da fase: totalMesesFase de ITBI a partir do início dela).
+  const itbiMesesNaSerie = (faixas: MorarFaixa[], indice: number, itbiMesesDaFase: number): number => {
+    const antes = faixas.slice(0, indice).reduce((acc, x) => acc + (Number(x.qtd) || 0), 0);
+    const qtd = Number(faixas[indice]?.qtd) || 0;
+    return Math.max(0, Math.min(qtd, itbiMesesDaFase - antes));
+  };
 
   const itbiCalculadoMes = (hasUnitSelected && itbiTotalMeses > 0 && saldoITBI > 0)
     ? Math.round((saldoITBI / itbiTotalMeses) * 100) / 100
@@ -907,8 +973,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const itbiParcelaObraValor = itbiObraTotalMeses > 0 
     ? (itbiObraValorManual !== null ? itbiObraValorManual : (itbiPosTotalMeses === 0 ? Math.round((saldoITBI / itbiObraTotalMeses) * 100) / 100 : itbiCalculadoMes))
     : 0;
+  // A parcela do ITBI é a mesma em todos os meses (saldo a parcelar ÷ qtd. de parcelas).
   const itbiParcelaPosValor = itbiPosTotalMeses > 0
-    ? (itbiPosValorManual !== null ? itbiPosValorManual : itbiCalculadoMes)
+    ? (itbiObraValorManual !== null ? itbiObraValorManual : itbiCalculadoMes)
     : 0;
 
   // SOMA DAS PARCELAS DE CADA FASE (LÍQUIDO MORAR)
@@ -1024,7 +1091,22 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // 1ª Parcela sobre a Base da Renda
   const primeiraParcelaObraLiquida = faixasObra.length > 0 ? (Number(faixasObra[0].valor) || 0) : 0;
-  const valorRiscoParcela = hasUnitSelected ? (primeiraParcelaObraLiquida + (itbiObraTotalMeses > 0 ? itbiParcelaObraValor : 0)) : 0;
+  // Pico mensal concorrente (m = 1 até max(fluxo, ITBI)): maior (parcela da série + parcela do ITBI).
+  let picoMensalConcorrente = 0;
+  {
+    const parcelaITBIMes = itbiParcelaObraValor || itbiParcelaPosValor || 0;
+    let cursor = 0;
+    for (const fx of [...faixasObra, ...faixasPos]) {
+      const q = Number(fx.qtd) || 0;
+      if (q <= 0) continue;
+      const comITBI = Math.max(0, Math.min(cursor + q, parcelasITBIEfetivas) - cursor) > 0 ? parcelaITBIMes : 0;
+      const valSerie = saldoProSolutoRestante <= 0 ? 0 : (Number(fx.valor) || 0);
+      picoMensalConcorrente = Math.max(picoMensalConcorrente, valSerie + comITBI);
+      cursor += q;
+    }
+    if (parcelasITBIEfetivas > cursor) picoMensalConcorrente = Math.max(picoMensalConcorrente, parcelaITBIMes);
+  }
+  const valorRiscoParcela = hasUnitSelected ? picoMensalConcorrente : 0;
   const pctRiscoParcelaRenda = (baseRendaInformada > 0 && valorRiscoParcela > 0) ? Math.min(100, Math.max(0, (valorRiscoParcela / baseRendaInformada) * 100)) : 0;
 
   // Pró-Soluto Total c/ ITBI s/ Base Líquida
@@ -1149,6 +1231,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: posObraGlobalParam,
       mesesObra: mesesObraParam,
       mesesPos: mesesPosParam,
+      parcelasITBI: parcelasITBIManual ?? undefined,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
@@ -1235,6 +1320,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: posObraGlobalParam,
       mesesObra: mesesObraParam,
       mesesPos: mesesPosParam,
+      parcelasITBI: parcelasITBIManual ?? undefined,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
@@ -1359,15 +1447,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // `recalcularSeriesParaAtoManual`, em vez de depender de
   // `price`/`despCartoriasEfetivas`/`isAtoPremiadoEnabled`/`maxFinanc`/
   // `subsidy`/`fgts` (que só refletem o novo estado no próximo render).
-  const handleTogglePagamentoAVista = (ativo: boolean) => {
+  const handleTogglePagamentoAVista = (ativo: boolean, descontoLigado: boolean = padraoVistaLigado) => {
     setIsPagamentoAVistaEnabled(ativo);
+    setDescontoVistaAtivo(ativo && descontoLigado);
 
     if (!ativo) {
       // Volta ao fluxo parcelado normal: preço, ITBI e financiamento/subsídio/
       // FGTS retornam ao normal no próximo render; o Ato Premiado é religado
       // (mesmo padrão usado ao selecionar uma unidade ou limpar o fluxo) e o
       // Ato volta a ser sugerido automaticamente.
-      setIsAtoPremiadoEnabled(true);
+      setIsAtoPremiadoEnabled(padraoAtoLigado);
       setValAtoManual(null);
       setAtoInputText('');
       setIsManualObra(false);
@@ -1380,7 +1469,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
     if (!hasUnitSelected || precoTabelaOriginal <= 0) return;
 
-    const descontoPct = currentCond?.descontoAVistaPct ?? 0;
+    const descontoPct = descontoLigado ? (currentCond?.descontoAVistaPct ?? 0) : 0;
     const precoComDesconto = Math.max(0, Math.round(precoTabelaOriginal * (1 - descontoPct / 100) * 100) / 100);
     const valorDesconto = Math.round((precoTabelaOriginal - precoComDesconto) * 100) / 100;
 
@@ -1402,7 +1491,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (onShowToast) {
       const mensagemDesconto = descontoPct > 0
         ? `Desconto à vista de ${formatCurrency(valorDesconto)} (${descontoPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%) aplicado sobre o Preço de Tabela.`
-        : 'Nenhum % de Desconto à Vista configurado na política desta condição.';
+        : (descontoLigado ? 'Nenhum % de Desconto à Vista configurado na política desta condição.' : 'Pagamento à vista ativado sem o Desconto à Vista (interruptor desligado).');
       onShowToast(`${mensagemDesconto} O ITBI foi zerado — é de responsabilidade do cliente a partir da obtenção do Habite-se pelo empreendimento. Financiamento, Subsídio e FGTS não são considerados: o Ato (Imóvel) absorve o valor integral.`);
     }
   };
@@ -1437,6 +1526,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         percentualRiscoPos: posObraGlobalParam,
         mesesObra: mesesObraParam,
         mesesPos: mesesPosParam,
+        parcelasITBI: parcelasITBIManual ?? undefined,
+        maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
         globalSeriesPct: globalPct,
         serieMesesCapacidades: serieMesesCapacidades,
         sinalMinimo: sinalMinimoVal,
@@ -1459,6 +1551,13 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     }
   }, [sinalLiquidoTotalEfetivo, hasUnitSelected, isManualObra, isManualPos, valAtoManual, sinalMinimoVal, currentCond, income, despCartoriasEfetivas, itbiAtoManualFloor, price, evaluation, maxFinanc, subsidy, fgts, isAtoPremiadoEnabled, isComissaoApartada, pctComissaoApartadaCond]);
+
+  // Interruptor "Desconto à Vista" (só habilitado com o Pgtº à vista ativo): refaz a quitação com ou
+  // sem o desconto da política.
+  const handleToggleDescontoVista = (ligado: boolean) => {
+    if (!isPagamentoAVistaEnabled) return;
+    handleTogglePagamentoAVista(true, ligado);
+  };
 
   const mesesObraPadraoPolitica = currentCond?.mesesObra ?? 33;
   const mesesPosPadraoPolitica = currentCond?.mesesPos ?? 27;
@@ -1531,6 +1630,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         percentualRiscoPos: posObraGlobalParam,
         mesesObra: novoTotalObra,
         mesesPos: 0,
+        parcelasITBI: parcelasITBIManual ?? undefined,
+        maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
         globalSeriesPct: globalPct,
         serieMesesCapacidades: serieMesesCapacidades,
         sinalMinimo: sinalMinimoVal,
@@ -1587,6 +1689,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         percentualRiscoPos: posObraGlobalParam,
         mesesObra: novoTotalObra,
         mesesPos: novoPos,
+        parcelasITBI: parcelasITBIManual ?? undefined,
+        maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
         globalSeriesPct: globalPct,
         serieMesesCapacidades: serieMesesCapacidades,
         sinalMinimo: sinalMinimoVal,
@@ -1655,6 +1760,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: posObraGlobalParam,
       mesesObra: mesesObraAtual,
       mesesPos: novoTotalPos,
+      parcelasITBI: parcelasITBIManual ?? undefined,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
@@ -1697,6 +1805,74 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       onShowToast(itbiSubiu
         ? `Pós-Obra ajustado para ${novoTotalPos} meses (${mesesObraAtual + novoTotalPos} meses totais). ITBI/mês (${formatCurrency(engineResult.parcelaMensalITBI)}) respeitando o teto de renda, com ${formatCurrency(engineResult.itbiAtoSugerido)} movido para o ITBI no Ato.`
         : `Pós-Obra ajustado para ${novoTotalPos} meses (${mesesObraAtual + novoTotalPos} meses totais). ITBI rediluído para ${formatCurrency(engineResult.parcelaMensalITBI)}/mês.`);
+    }
+  };
+
+  // Altera o prazo do ITBI (1x até maxParcelasITBI). Recalcula o fluxo com a trava mês a mês: se
+  // parcela do fluxo + ITBI estourar o teto de renda de algum mês, o excedente do ITBI migra para
+  // o ITBI no Ato (nunca consolida fluxo fora do risco da política).
+  const handleParcelasITBIChange = (novoN: number) => {
+    const n = Math.min(maxParcelasITBIPolitica, Math.max(1, Math.round(novoN)));
+    setParcelasITBIManual(n);
+    if (!hasUnitSelected) return;
+
+    const globalPct: [number, number, number, number, number, number] = [
+      currentCond?.globalSerie1Pct ?? 30.0,
+      currentCond?.globalSerie2Pct ?? 25.0,
+      currentCond?.globalSerie3Pct ?? 20.0,
+      currentCond?.globalSerie4Pct ?? 15.0,
+      currentCond?.globalSerie5Pct ?? 10.0,
+      currentCond?.globalSerie6Pct ?? 5.0
+    ];
+    const atoFoiDigitadoPeloUsuario = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01;
+    const engineResult = calculateMorarFlowEngine({
+      precoTabela: price,
+      avaliacaoBanco: evaluation,
+      itbiRegistro: despCartoriasEfetivas,
+      renda: income,
+      financiamento: maxFinanc,
+      subsidio: subsidy,
+      fgts: fgts,
+      percentualRiscoGeral: currentCond?.percMaxProSolutoGlobal ?? currentCond?.riscoImovelPct ?? 17.0,
+      percentualRiscoPos: currentCond?.percMaxPosObra ?? currentCond?.riscoPosPct ?? 8.0,
+      mesesObra: totalParcObra > 0 ? totalParcObra : mesesObraPadraoPolitica,
+      mesesPos: totalParcPos,
+      parcelasITBI: n,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
+      globalSeriesPct: globalPct,
+      serieMesesCapacidades: serieMesesCapacidades,
+      sinalMinimo: sinalMinimoVal,
+      atoITBI: itbiAtoManualFloor ?? 0,
+      isAtoPremiadoEnabled,
+      atoPremiadoPct: pctAtoPremiadoCond,
+      atoManual: atoFoiDigitadoPeloUsuario ? (valAtoManual as number) : undefined,
+      isComissaoApartada,
+      pctComissaoApartada: pctComissaoApartadaCond
+    });
+
+    setFaixasObra(engineResult.obraSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex })));
+    setFaixasPos(totalParcPos === 0
+      ? [{ qtd: 0, valor: 0, serieIndex: 0 }, { qtd: 0, valor: 0, serieIndex: 1 }, { qtd: 0, valor: 0, serieIndex: 2 }, { qtd: 0, valor: 0, serieIndex: 3 }]
+      : engineResult.posSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex })));
+    if (!atoFoiDigitadoPeloUsuario) {
+      setValAtoManual(engineResult.atoResidual);
+      setAtoInputText(formatCurrency(engineResult.atoResidual));
+    } else if (engineResult.atoResidual > (valAtoManual as number) + 0.005) {
+      setValAtoManual(engineResult.atoResidual);
+      setAtoInputText(formatCurrency(engineResult.atoResidual));
+    }
+    setItbiObraValorManual(engineResult.parcelaMensalITBI);
+    setItbiPosValorManual(engineResult.parcelaMensalITBI);
+    const itbiSubiu = engineResult.itbiAtoSugerido > valAtoITBI + 0.005;
+    setValAtoITBI(engineResult.itbiAtoSugerido);
+    setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
+    setIsManualObra(false);
+    setIsManualPos(false);
+    if (onShowToast) {
+      onShowToast(itbiSubiu
+        ? `ITBI em ${n}x de ${formatCurrency(engineResult.parcelaMensalITBI)}: para não passar do teto de renda em nenhum mês, ${formatCurrency(engineResult.itbiAtoSugerido)} foram movidos para o ITBI no Ato.`
+        : `ITBI parcelado em ${n}x de ${formatCurrency(engineResult.parcelaMensalITBI)}.`);
     }
   };
 
@@ -1755,6 +1931,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: currentCond?.percMaxPosObra ?? currentCond?.riscoPosPct ?? 8.0,
       mesesObra: mesesObraParam,
       mesesPos: mesesPosParam,
+      parcelasITBI: parcelasITBIManual ?? undefined,
+      maxParcelasITBI: maxParcelasITBIPolitica,
+      tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
@@ -2121,7 +2300,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           areaPriv={areaPriv}
           areaQuintal={areaQuintal}
           price={price}
-          precoTabelaOriginal={precoTabelaOriginal}
+          precoTabelaOriginal={precoTabelaLista}
           evaluation={evaluation}
           deliveryText={deliveryText}
           entregaChaves={entregaChaves}
@@ -2235,7 +2414,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             areaPriv={areaPriv}
             areaQuintal={areaQuintal}
             price={price}
-            precoTabelaOriginal={precoTabelaOriginal}
+            precoTabelaOriginal={precoTabelaLista}
+            descontoConstrutora={descontoConstrutora}
+            descontoAVista={isPagamentoAVistaEnabled ? valorDescontoAVista : 0}
             evaluation={evaluation}
             deliveryText={deliveryText}
             income={income}
@@ -2359,7 +2540,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           tipologia={tipologia}
           areaPriv={areaPriv}
           areaQuintal={areaQuintal}
-          precoTabelaOriginal={precoTabelaOriginal}
+          precoTabelaOriginal={precoTabelaLista}
           evaluation={evaluation}
         />
         </aside>
@@ -2417,12 +2598,60 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <strong className="text-morar-600 font-semibold">{formatCurrency(fgtsEfetivo)}</strong>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto Construtora:</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={descontoConstrutoraAtivo}
+                      disabled={descontoConstrutoraRegra <= 0}
+                      onClick={() => {
+                        // O Ato (Imóvel), o Ato Premiado e as séries ficam "congelados" no último valor
+                        // calculado; ao ligar/desligar o desconto o preço-base muda, então descarta o
+                        // fluxo calculado para o motor refazer tudo com o preço novo (mesmo caminho da
+                        // inicialização automática ao escolher a unidade).
+                        setDescontoConstrutoraAtivo(v => !v);
+                        setValAtoManual(null);
+                        setAtoInputText('');
+                        setIsEditingAto(false);
+                        setIsManualObra(false);
+                        setIsManualPos(false);
+                        setItbiObraValorManual(null);
+                        setItbiPosValorManual(null);
+                      }}
+                      title={descontoConstrutoraRegra <= 0
+                        ? 'Nenhuma regra de Desconto Construtora para esta unidade'
+                        : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
+                      className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                    </button>
+                    <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(descontoConstrutora)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
                     <span className="text-slate-600">Desconto à Vista:</span>
-                    <strong className="text-amber-700 font-semibold">{formatCurrency(valorDescontoAVista)}</strong>
+                    <MiniSwitch
+                      ativo={isPagamentoAVistaEnabled && descontoVistaAtivo}
+                      disabled={!hasUnitSelected || !isPagamentoAVistaEnabled}
+                      onToggle={() => handleToggleDescontoVista(!descontoVistaAtivo)}
+                      title={!isPagamentoAVistaEnabled ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
+                    />
+                    <strong className={isPagamentoAVistaEnabled && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isPagamentoAVistaEnabled && descontoVistaAtivo ? valorDescontoAVista : 0)}
+                    </strong>
                   </div>
                   <div className="flex justify-between items-center py-1 mt-1">
                     <span className="text-slate-600">Desconto Ato:</span>
-                    <strong className="text-emerald-600 font-semibold">{formatCurrency(descontoAto)}</strong>
+                    <MiniSwitch
+                      ativo={isAtoPremiadoEnabled}
+                      disabled={!hasUnitSelected || isPagamentoAVistaEnabled}
+                      onToggle={() => handleToggleAtoPremiado(!isAtoPremiadoEnabled)}
+                      title={isPagamentoAVistaEnabled ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                    />
+                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isAtoPremiadoEnabled ? descontoAto : 0)}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -2455,27 +2684,27 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             {/* TOTAIS COM ITBI E DISTRIBUIÇÃO */}
             <div className="space-y-1.5 pt-1 text-xs">
               <div className="flex justify-between items-center px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200/80">
-                <span className="text-slate-600 font-medium">ITBI / Registro Total:</span>
-                <strong className="text-emerald-700 font-bold">{formatCurrency(despCartoriasEfetivas)}</strong>
+                <span className="text-slate-700 font-medium">ITBI / Registro Total:</span>
+                <strong className="text-slate-700 font-medium">{formatCurrency(despCartoriasEfetivas)}</strong>
               </div>
               <div className="flex justify-between items-center px-3 py-1.5 bg-emerald-50/60 rounded-lg border border-emerald-100">
-                <span className="text-emerald-900 font-bold">Total com ITBI:</span>
-                <strong className="text-emerald-800 font-black text-xs sm:text-sm">{formatCurrency(sinalTotalComITBIEfetivo)}</strong>
+                <span className="text-emerald-900 font-semibold">Total com ITBI:</span>
+                <strong className="text-emerald-800 font-semibold">{formatCurrency(sinalTotalComITBIEfetivo)}</strong>
               </div>
             </div>
 
             {/* VALIDAÇÃO AUTOMÁTICA EM TEMPO REAL: TOTAL DISTRIBUÍDO */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2.5 bg-morar-50 px-3.5 rounded-lg border border-morar-100 mt-3 gap-2 transition-colors">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-slate-800">Distribuído:</span>
+                <span className="text-xs font-semibold text-slate-800">Distribuído:</span>
                 {hasUnitSelected && (
-                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                     <Check className="w-3 h-3 text-emerald-600" />
                     100% Validado
                   </span>
                 )}
               </div>
-              <strong className="text-xs sm:text-sm font-black text-morar-700">
+              <strong className="text-xs font-semibold text-morar-700">
                 {formatCurrency(totalDistribuido)}
               </strong>
             </div>
@@ -2523,7 +2752,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               {/* ITBI / REGISTRO TOTAL */}
               <div className="flex justify-between items-center bg-emerald-50/60 hover:bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100 transition-colors">
                 <div>
-                  <span className="text-xs font-bold text-emerald-900 block">ITBI / Registro Total:</span>
+                  <span className="text-xs font-semibold text-emerald-900 block">ITBI / Registro Total:</span>
                   <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-medium mt-0.5">
                     <span>A partir de:</span>
                     <input
@@ -2537,7 +2766,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 </div>
                 <div className="w-36 text-right">
                   <div
-                    className="w-full bg-emerald-50 px-2 py-1 rounded border border-emerald-100 font-black text-emerald-800 text-right text-xs sm:text-sm cursor-not-allowed"
+                    className="w-full bg-emerald-50 px-2 py-1 rounded border border-emerald-100 font-semibold text-emerald-800 text-right text-xs cursor-not-allowed"
                     title="Valor calculado automaticamente a partir do preço/tabela — não editável."
                   >
                     {despCartoriasEfetivas > 0 ? formatCurrency(despCartoriasEfetivas) : 'R$ 0,00'}
@@ -2558,6 +2787,26 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <strong className="text-xs font-bold text-slate-900">
                     {saldoITBI > 0 ? formatCurrency(saldoITBI) : 'R$ 0,00'}
                   </strong>
+                </div>
+              </div>
+
+              {/* PRAZO DO ITBI (independente de Obra/Pós) */}
+              <div className="flex items-center justify-between gap-2 bg-slate-50/90 px-3 py-2 rounded-lg border border-slate-200/80">
+                <span className="text-[11px] font-medium text-slate-600">
+                  Parcelas do ITBI (máx. {maxParcelasITBIPolitica}x):
+                </span>
+                <div className="flex items-center gap-2">
+                  <MonthStepper
+                    total={parcelasITBIEfetivas}
+                    onChange={handleParcelasITBIChange}
+                    min={1}
+                    max={maxParcelasITBIPolitica}
+                    unitLabel="parcela"
+                    colorClass="bg-emerald-50 border-emerald-100 text-emerald-700"
+                  />
+                  <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
+                    {(itbiParcelaObraValor || itbiParcelaPosValor) > 0 ? formatCurrency(itbiParcelaObraValor || itbiParcelaPosValor) + '/mês' : ''}
+                  </span>
                 </div>
               </div>
 
@@ -2973,13 +3222,17 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         </div>
                       </div>
 
-                      {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA */}
-                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
-                          <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaObraValor)}</strong></span>
-                          <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
-                        </div>
-                      )}
+                      {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA (qtd. de parcelas de ITBI desta série) */}
+                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (() => {
+                        const nx = itbiMesesNaSerie(faixasObra, originalIndex, itbiObraTotalMeses);
+                        if (nx <= 0) return null;
+                        return (
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
+                            <span>+ {nx}x ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaObraValor)}</strong></span>
+                            <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -3027,7 +3280,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
             {/* LISTA / GRID DE LINHAS DINÂMICAS DE PÓS-OBRA */}
             <div className="space-y-2 text-xs">
-              {totalParcPos === 0 && (
+              {totalParcPos === 0 && itbiPosTotalMeses === 0 && (
                 <div className="py-3 px-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-center">
                   <p className="text-[11px] text-slate-500 font-medium">
                     Período Pós-Obra inativo (0 meses). Fluxo de parcelas e ITBI 100% concentrados na Obra.
@@ -3085,16 +3338,61 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         </div>
                       </div>
 
-                      {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA */}
-                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
-                          <span>+ ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaPosValor)}</strong></span>
-                          <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
-                        </div>
-                      )}
+                      {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA (qtd. de parcelas de ITBI desta série) */}
+                      {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (() => {
+                        const nx = itbiMesesNaSerie(faixasPos, originalIndex, itbiPosTotalMeses);
+                        if (nx <= 0) return null;
+                        return (
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
+                            <span>+ {nx}x ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaPosValor)}</strong></span>
+                            <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(parcelaBrutaComITBI)}/mês</strong></span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
+
+              {/* MESES DE PÓS-OBRA COM ITBI E SEM PARCELA DA MORAR: mesma linha de série padrão (S1: [0] X de
+                  R$ 0,00) com o rodapé de ITBI — quando a Morar não tem Pós, a quantidade é 0. */}
+              {(() => {
+                const mesesSoITBI = Math.max(0, itbiPosTotalMeses - totalParcPos);
+                if (mesesSoITBI <= 0 || itbiParcelaPosValor <= 0) return null;
+                const ultimaSerie = faixasPos.reduce((m, x, i) => ((Number(x.qtd) || 0) > 0 ? ((x as any).serieIndex ?? i) : m), -1);
+                const rotulo = ultimaSerie + 2;
+                const qtdLinha = totalParcPos === 0 ? 0 : mesesSoITBI;
+                return (
+                  <div className="bg-slate-50/70 hover:bg-slate-50 p-2.5 rounded-lg border border-slate-200/70 space-y-1.5 transition-colors">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <div className="col-span-1 sm:col-span-4 flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-slate-400">S{rotulo}:</span>
+                        <div
+                          className="w-11 bg-slate-100 px-1 py-1 rounded border border-slate-200 font-bold text-slate-700 text-center text-xs cursor-not-allowed"
+                          title="Meses de Pós-Obra sem parcela da Morar — só corre o ITBI."
+                        >
+                          {qtdLinha}
+                        </div>
+                        <span className="font-bold text-slate-600 text-xs">X de</span>
+                      </div>
+                      <div className="col-span-1 sm:col-span-5">
+                        <div className="w-full px-2 py-1 rounded border font-bold text-right text-xs cursor-not-allowed border-slate-200 bg-slate-100 text-slate-700">
+                          {formatCurrency(0)}
+                        </div>
+                      </div>
+                      <div className="col-span-1 sm:col-span-3 text-right">
+                        <span className="text-[9px] text-slate-400 block font-medium">Subtotal</span>
+                        <strong className="text-[11px] text-slate-800 font-bold">{formatCurrency(0)}</strong>
+                      </div>
+                    </div>
+                    {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
+                        <span>+ {mesesSoITBI}x ITBI: <strong className="text-emerald-700">{formatCurrency(itbiParcelaPosValor)}</strong></span>
+                        <span>Parcela Bruta: <strong className="text-slate-900 font-bold">{formatCurrency(itbiParcelaPosValor)}/mês</strong></span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-between items-center px-2 pt-1 text-[11px] text-slate-500 font-medium border-t border-slate-100 mt-1">
                 <span>{mostrarRateioItbi ? 'Total Fase Pós-Obra (c/ ITBI):' : 'Total Fase Pós-Obra (sem ITBI):'}</span>
@@ -3226,7 +3524,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           areaPriv={areaPriv}
           areaQuintal={areaQuintal}
           price={price}
-          precoTabelaOriginal={precoTabelaOriginal}
+          precoTabelaOriginal={precoTabelaLista}
+          descontoConstrutora={descontoConstrutora}
+          descontoAVista={isPagamentoAVistaEnabled ? valorDescontoAVista : 0}
           evaluation={evaluation}
           deliveryText={deliveryText}
           income={income}

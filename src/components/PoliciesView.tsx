@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   Percent
 } from 'lucide-react';
-import { CommercialCondition, Product, SelectedUnit, SimulationData } from '../types';
+import { MiniSwitch } from './MiniSwitch';
+import { CommercialCondition, DescontoConstrutoraRegra, Product, SelectedUnit, SimulationData } from '../types';
 import { formatCurrency, parseCurrency } from '../utils/formatters';
 import { calculatePresentValue, ensureProductConditions, calculatePolicyRiskValues, decomposeMorarMonths, getConditionKind, ConditionKind, chaveTorreTipologia } from '../utils/calculations';
 
@@ -138,6 +139,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   // exibido em tela; a parcela (Tabela Price) usa o valor antes do desconto.
   const [taxaAssinaturaContratoStr, setTaxaAssinaturaContratoStr] = useState<string>('0,0000');
   // Tetos da 1ª/2ª Mensal (texto; vazio = sem teto por esse critério)
+  // Regras de Desconto Construtora (Produto × Torre × Tipologia) do produto ativo.
+  const [regrasDesconto, setRegrasDesconto] = useState<DescontoConstrutoraRegra[]>([]);
+  // Estado inicial (padrão) dos 3 interruptores de desconto ao abrir a simulação do produto.
+  const [padraoDescontos, setPadraoDescontos] = useState({ construtora: false, vista: false, ato: false });
   const [habilitar1Mensal, setHabilitar1Mensal] = useState<boolean>(true);
   const [habilitar2Mensal, setHabilitar2Mensal] = useState<boolean>(true);
   const [m1RendaStr, setM1RendaStr] = useState<string>('');
@@ -259,6 +264,57 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       conditions: updatedConditions
     });
   };
+
+  // Grava a matriz de descontos em TODAS as condições do produto (o desconto vale para qualquer
+  // condição comercial) e na tela.
+  const persistirRegrasDesconto = (novas: DescontoConstrutoraRegra[]) => {
+    setRegrasDesconto(novas);
+    if (!prodWithConds) return;
+    onSaveProductPolicy({
+      ...prodWithConds,
+      name: productName.trim() || prodWithConds.name,
+      deliveryDate: deliveryDatePhase1 || deliveryDatePhase2 || '',
+      deliveryDatePhase1,
+      deliveryDatePhase2,
+      isFeatured,
+      conditions: (prodWithConds.conditions || []).map(c => ({ ...c, descontosConstrutora: novas }))
+    });
+  };
+  // Grava o estado padrão dos 3 interruptores em TODAS as condições do produto.
+  const persistirPadraoDescontos = (novo: { construtora: boolean; vista: boolean; ato: boolean }) => {
+    setPadraoDescontos(novo);
+    if (!prodWithConds) return;
+    onSaveProductPolicy({
+      ...prodWithConds,
+      name: productName.trim() || prodWithConds.name,
+      deliveryDate: deliveryDatePhase1 || deliveryDatePhase2 || '',
+      deliveryDatePhase1,
+      deliveryDatePhase2,
+      isFeatured,
+      conditions: (prodWithConds.conditions || []).map(c => ({
+        ...c,
+        descontoConstrutoraPadraoLigado: novo.construtora,
+        descontoVistaPadraoLigado: novo.vista,
+        descontoAtoPadraoLigado: novo.ato
+      }))
+    });
+  };
+  const adicionarRegraDesconto = () => {
+    if (!prodWithConds) return;
+    persistirRegrasDesconto([
+      ...regrasDesconto,
+      { id: `dc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, produtoId: prodWithConds.id, torre: 'todas', tipologia: 'todas', tipoDesconto: 'fixo', valor: 0 }
+    ]);
+  };
+  const atualizarRegraDesconto = (id: string, parcial: Partial<DescontoConstrutoraRegra>) =>
+    persistirRegrasDesconto(regrasDesconto.map(r => (r.id === id ? { ...r, ...parcial } : r)));
+  const removerRegraDesconto = (id: string) =>
+    persistirRegrasDesconto(regrasDesconto.filter(r => r.id !== id));
+  const tipologiasDoProduto = React.useMemo(() => {
+    const set = new Set<string>();
+    (Object.values(tipologiasPorTorre) as string[][]).forEach(l => l.forEach(t => set.add(t)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [tipologiasPorTorre]);
 
   const handleToggleApenasObra = (torre: string, tipologia: string) => {
     const k = chaveTorreTipologia(torre, tipologia);
@@ -465,6 +521,12 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setTaxaJuros2Str(formatDecimalBR(t2, 2, 2));
     setTaxaAssinaturaContratoStr(formatDecimalBR(ta, 4, 4));
     const fmtLim = (v: number | undefined) => (v !== undefined && v > 0 ? formatDecimalBR(v, 2, 2) : '');
+    setRegrasDesconto(Array.isArray(cond.descontosConstrutora) ? cond.descontosConstrutora : []);
+    setPadraoDescontos({
+      construtora: cond.descontoConstrutoraPadraoLigado === true,
+      vista: cond.descontoVistaPadraoLigado === true,
+      ato: cond.descontoAtoPadraoLigado === true
+    });
     setHabilitar1Mensal(cond.habilitar1aMensal !== false);
     setHabilitar2Mensal(cond.habilitar2aMensal !== false);
     setM1RendaStr(fmtLim(source.limite1aMensal?.maxPercentualRenda));
@@ -605,6 +667,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       limite1aMensal,
       limite2aMensal,
       habilitar1aMensal: habilitar1Mensal,
+      descontosConstrutora: regrasDesconto,
+      descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
+      descontoVistaPadraoLigado: padraoDescontos.vista,
+      descontoAtoPadraoLigado: padraoDescontos.ato,
       habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: atoPremiadoPctSalvar,
       comissaoApartadaPct: comissaoApartadaPctSalvar,
@@ -966,6 +1032,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       limite1aMensal,
       limite2aMensal,
       habilitar1aMensal: habilitar1Mensal,
+      descontosConstrutora: regrasDesconto,
+      descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
+      descontoVistaPadraoLigado: padraoDescontos.vista,
+      descontoAtoPadraoLigado: padraoDescontos.ato,
       habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: parsedAtoPremiadoPct,
       comissaoApartadaPct: parsedComissaoApartadaPct,
@@ -1490,6 +1560,143 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* SEÇÃO: ESTADO INICIAL DOS DESCONTOS NA SIMULAÇÃO */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="border-b border-slate-100 pb-2.5">
+              <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Descontos — Estado Inicial na Simulação</h4>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Define se cada interruptor do quadro "Dados da Aprovação de Crédito" abre já ligado ao selecionar a unidade deste empreendimento (e ao clicar em Limpar). Padrão: desligado.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {([
+                ['construtora', 'Desconto Construtora'],
+                ['vista', 'Desconto à Vista (ao ativar Pgtº à vista)'],
+                ['ato', 'Desconto Ato (Ato Premiado)']
+              ] as const).map(([chave, rotulo]) => (
+                <label key={chave} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer select-none">
+                  <span className="text-xs font-bold text-slate-700">{rotulo}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold ${padraoDescontos[chave] ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      {padraoDescontos[chave] ? 'Ligado' : 'Desligado'}
+                    </span>
+                    <MiniSwitch ativo={padraoDescontos[chave]} onToggle={() => persistirPadraoDescontos({ ...padraoDescontos, [chave]: !padraoDescontos[chave] })} />
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* SEÇÃO: DESCONTO CONSTRUTORA POR PRODUTO × TORRE × TIPOLOGIA */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div>
+                <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Desconto Construtora</h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Abatido do preço de tabela da unidade antes de todo o fluxo. Vale a regra mais específica (Torre + Tipologia, depois Torre, depois Tipologia, depois geral). Percentual incide sobre o preço de tabela.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={adicionarRegraDesconto}
+                className="shrink-0 px-2.5 py-1.5 rounded-lg bg-morar-600 hover:bg-morar-700 text-white text-[11px] font-bold cursor-pointer"
+              >
+                + Adicionar regra
+              </button>
+            </div>
+            {regrasDesconto.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic">Nenhuma regra cadastrada — as unidades seguem sem Desconto Construtora.</p>
+            ) : (
+              <div className="space-y-2">
+                {regrasDesconto.map(r => (
+                  <div key={r.id} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+                  <div className="grid grid-cols-2 md:grid-cols-[1fr_110px_120px_32px] gap-2 items-end">
+                    <label className="text-[10px] font-bold text-slate-500">Torre
+                      <select
+                        value={r.torre || 'todas'}
+                        onChange={(e) => atualizarRegraDesconto(r.id, { torre: e.target.value })}
+                        className="mt-0.5 w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                      >
+                        <option value="todas">Todas</option>
+                        {allTorres.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-[10px] font-bold text-slate-500">Tipo
+                      <select
+                        value={r.tipoDesconto}
+                        onChange={(e) => atualizarRegraDesconto(r.id, { tipoDesconto: e.target.value as 'fixo' | 'percentual' })}
+                        className="mt-0.5 w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                      >
+                        <option value="fixo">Fixo (R$)</option>
+                        <option value="percentual">Percentual (%)</option>
+                      </select>
+                    </label>
+                    <label className="text-[10px] font-bold text-slate-500">Valor
+                      <input
+                        key={r.id + r.tipoDesconto}
+                        type="text"
+                        inputMode="decimal"
+                        defaultValue={formatDecimalBR(r.valor || 0, 2, 2)}
+                        onBlur={(e) => {
+                          const v = Math.max(0, parseDecimal(e.target.value, 0));
+                          e.target.value = formatDecimalBR(v, 2, 2);
+                          if (v !== r.valor) atualizarRegraDesconto(r.id, { valor: v });
+                        }}
+                        className="mt-0.5 w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-amber-700 text-right"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removerRegraDesconto(r.id)}
+                      className="h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-300 cursor-pointer"
+                      title="Remover regra"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {/* TIPOLOGIAS (seleção múltipla em tags) */}
+                  {(() => {
+                    const selecionadas = (r.tipologias && r.tipologias.length > 0 ? r.tipologias : (r.tipologia && r.tipologia.toLowerCase() !== 'todas' ? [r.tipologia] : []))
+                      .filter(x => x.toLowerCase() !== 'todas');
+                    const todas = selecionadas.length === 0;
+                    const alternar = (tip: string) => {
+                      const novas = selecionadas.some(x => x.toLowerCase() === tip.toLowerCase())
+                        ? selecionadas.filter(x => x.toLowerCase() !== tip.toLowerCase())
+                        : [...selecionadas, tip];
+                      atualizarRegraDesconto(r.id, { tipologias: novas, tipologia: undefined });
+                    };
+                    const pill = (ativo: boolean) => `px-2 py-0.5 rounded-full border text-[11px] font-bold cursor-pointer transition-colors ${
+                      ativo ? 'bg-morar-600 border-morar-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-morar-400'
+                    }`;
+                    return (
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                          Tipologias — {todas ? 'todas' : `${selecionadas.length} selecionada${selecionadas.length > 1 ? 's' : ''}`}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button type="button" className={pill(todas)} onClick={() => atualizarRegraDesconto(r.id, { tipologias: [], tipologia: undefined })}>
+                            Todas
+                          </button>
+                          {tipologiasDoProduto.map(tip => (
+                            <button
+                              key={tip}
+                              type="button"
+                              className={pill(selecionadas.some(x => x.toLowerCase() === tip.toLowerCase()))}
+                              onClick={() => alternar(tip)}
+                            >
+                              {tip}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  </div>
+                ))}
               </div>
             )}
           </div>

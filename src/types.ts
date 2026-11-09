@@ -95,6 +95,13 @@ export interface CommercialCondition {
   // Tetos da 1ª e 2ª Mensal (30 e 60 dias) do Banco Direto: % máximo da renda e/ou do valor do
   // imóvel. Campo ausente = sem teto por aquele critério (não há mais limite fixo de 35%).
   // Liga/desliga, de forma independente, a 1ª (30 dias) e a 2ª (60 dias) Mensal. Ausente = habilitada.
+  // Estado inicial dos descontos na simulação deste empreendimento (mesmo valor em todas as
+  // condições do produto). Ausente = desligado.
+  descontoConstrutoraPadraoLigado?: boolean;
+  descontoVistaPadraoLigado?: boolean;
+  descontoAtoPadraoLigado?: boolean;
+  // Regras de Desconto Construtora do produto (mesma lista gravada em todas as condições dele).
+  descontosConstrutora?: DescontoConstrutoraRegra[];
   habilitar1aMensal?: boolean;
   habilitar2aMensal?: boolean;
   limite1aMensal?: { maxPercentualRenda?: number; maxPercentualImovel?: number };
@@ -139,6 +146,22 @@ export interface TableInfo {
   headers: string[];
   rows: (string | number)[][];
   active: boolean;
+}
+
+/**
+ * Regra de "Desconto Construtora" por Produto / Torre / Tipologia (cadastrada na Política de
+ * Crédito). Torre/tipologia ausentes ou 'todas' valem para qualquer uma; a regra mais específica
+ * (torre + tipologia > torre > tipologia > geral) é a que vale para a unidade simulada.
+ */
+export interface DescontoConstrutoraRegra {
+  id: string;
+  produtoId: string;
+  torre?: string;        // Torre específica ou 'todas'
+  tipologia?: string;    // (legado) Tipologia única ou 'todas' — use `tipologias`
+  // Tipologias da regra. Vazio/ausente ou contendo 'todas' = todas as tipologias.
+  tipologias?: string[];
+  tipoDesconto: 'fixo' | 'percentual';
+  valor: number;         // Valor em R$ (fixo) ou percentual sobre o preço de tabela
 }
 
 export interface Product {

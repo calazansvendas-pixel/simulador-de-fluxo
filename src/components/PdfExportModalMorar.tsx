@@ -44,6 +44,10 @@ interface PdfExportModalMorarProps {
   // display "Preço de Tabela" do PDF, que nunca deve refletir o desconto à
   // vista (aplicado sobre `price`, usado no restante dos cálculos).
   precoTabelaOriginal: number;
+  // Desconto Construtora (política por Produto/Torre/Tipologia) já abatido do preço antes do Sinal.
+  descontoConstrutora?: number;
+  // Desconto à Vista aplicado (0 quando o interruptor está desligado).
+  descontoAVista?: number;
   evaluation: number;
   deliveryText: string;
   income: number;
@@ -102,6 +106,8 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   areaQuintal,
   price,
   precoTabelaOriginal,
+  descontoConstrutora = 0,
+  descontoAVista = 0,
   evaluation,
   deliveryText,
   income,
@@ -148,6 +154,11 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
 
   if (!isOpen) return null;
 
+  // Meses de uma série que coincidem com meses de ITBI (ITBI ocupa os primeiros meses da fase).
+  const itbiMesesNaSerie = (faixas: MorarFaixa[], indice: number, itbiMesesDaFase: number): number => {
+    const antes = faixas.slice(0, indice).reduce((acc, x) => acc + (Number(x.qtd) || 0), 0);
+    return Math.max(0, Math.min(Number(faixas[indice]?.qtd) || 0, itbiMesesDaFase - antes));
+  };
   const fmt = (val: number) => (pdfSettings.mostrarValores ? formatCurrency(val) : '—');
 
   const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, payload }: any) => {
@@ -490,12 +501,28 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                       <strong className="text-morar-600 font-semibold">{fmt(fgts)}</strong>
                     </div>
 
+                    {descontoConstrutora > 0 && (
+                      <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
+                        <span className="text-slate-600 font-medium">Desconto Construtora:</span>
+                        <strong className="text-amber-700 font-semibold">{fmt(descontoConstrutora)}</strong>
+                      </div>
+                    )}
+
+                    {descontoAVista > 0 && (
+                      <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
+                        <span className="text-slate-600 font-medium">Desconto à Vista:</span>
+                        <strong className="text-amber-700 font-semibold">{fmt(descontoAVista)}</strong>
+                      </div>
+                    )}
+
+                    {isAtoPremiadoEnabled && (
                     <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
                       <span className="text-slate-600 font-medium">
                         Ato Premiado: <strong className={isAtoPremiadoEnabled ? 'text-emerald-700' : 'text-slate-500'}>{isAtoPremiadoEnabled ? 'Ativo' : 'Não Utilizado'}</strong>
                       </span>
                       <strong className="text-emerald-600 font-semibold">{fmt(desconto)}</strong>
                     </div>
+                    )}
 
                     <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
                       <span className="text-slate-600 font-medium">Max Financ:</span>
@@ -564,6 +591,9 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                         </div>
                       )}
                     </div>
+                    <p className="text-[10px] text-slate-500 text-center">
+                      ITBI/Registro parcelado em {itbiObraQtd + itbiPosQtd}X, a partir de {dataITBI}, em paralelo às parcelas de Obra/Pós-Obra.
+                    </p>
                   </div>
                 </div>
                 )}
@@ -642,17 +672,31 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   </div>
 
                   <div className="space-y-1.5 text-xs">
-                    {faixasObra.filter(f => (f.qtd > 0 && ((f.valor || 0) > 0 || (itbiObraValor || 0) > 0))).map((f, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100">
-                        <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
-                        <strong className="text-slate-900 font-bold text-xs">{fmt(f.valor)}</strong>
-                      </div>
-                    ))}
+                    {faixasObra.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f }) => (f.qtd > 0 && ((f.valor || 0) > 0 || (itbiObraValor || 0) > 0))).map(({ f, originalIdx }, idx) => {
+                      const nx = itbiMesesNaSerie(faixasObra, originalIdx, itbiObraQtd);
+                      return (
+                        <div key={idx} className="bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100 space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
+                            <div className="flex items-center gap-3">
+                              <strong className="text-slate-900 font-bold text-xs">{fmt(f.valor)}</strong>
+                              <span className="text-[10px] text-slate-500">Subtotal: <strong className="text-slate-800">{fmt(f.qtd * (f.valor || 0))}</strong></span>
+                            </div>
+                          </div>
+                          {nx > 0 && (
+                            <div className="flex items-center justify-between text-[10px] text-slate-500">
+                              <span>+ {nx}x ITBI: <strong className="text-emerald-700">{fmt(itbiObraValor)}</strong></span>
+                              <span>Parcela Bruta: <strong className="text-slate-900">{fmt((f.valor || 0) + itbiObraValor)}/mês</strong></span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* CARD 3: CORREÇÃO IPCA+1% - PÓS */}
-                {totalParcPos > 0 && (
+                {(totalParcPos > 0 || itbiPosQtd > 0) && (
                   <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                       <div className="flex items-center gap-1.5">
@@ -660,7 +704,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                           Correção IPCA+1% - Pós
                         </h3>
                         <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-extrabold border border-indigo-100">
-                          {totalParcPos}X
+                          {totalParcPos > 0 ? totalParcPos : itbiPosQtd}X
                         </span>
                       </div>
                       <span className="text-[10px] font-semibold text-slate-500">
@@ -669,12 +713,41 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                     </div>
 
                     <div className="space-y-1.5 text-xs">
-                      {faixasPos.filter(f => (f.qtd > 0 && ((f.valor || 0) > 0 || (itbiPosValor || 0) > 0))).map((f, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100">
-                          <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
-                          <strong className="text-slate-900 font-bold text-xs">{fmt(f.valor)}</strong>
+                      {faixasPos.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f }) => (f.qtd > 0 && ((f.valor || 0) > 0 || (itbiPosValor || 0) > 0))).map(({ f, originalIdx }, idx) => {
+                        const nx = itbiMesesNaSerie(faixasPos, originalIdx, itbiPosQtd);
+                        return (
+                          <div key={idx} className="bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
+                              <div className="flex items-center gap-3">
+                                <strong className="text-slate-900 font-bold text-xs">{fmt(f.valor)}</strong>
+                                <span className="text-[10px] text-slate-500">Subtotal: <strong className="text-slate-800">{fmt(f.qtd * (f.valor || 0))}</strong></span>
+                              </div>
+                            </div>
+                            {nx > 0 && (
+                              <div className="flex items-center justify-between text-[10px] text-slate-500">
+                                <span>+ {nx}x ITBI: <strong className="text-emerald-700">{fmt(itbiPosValor)}</strong></span>
+                                <span>Parcela Bruta: <strong className="text-slate-900">{fmt((f.valor || 0) + itbiPosValor)}/mês</strong></span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {Math.max(0, itbiPosQtd - totalParcPos) > 0 && (itbiPosValor || 0) > 0 && (
+                        <div className="bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100 space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-600 font-semibold text-[11px]">{totalParcPos === 0 ? 0 : Math.max(0, itbiPosQtd - totalParcPos)}X de:</span>
+                            <div className="flex items-center gap-3">
+                              <strong className="text-slate-900 font-bold text-xs">{fmt(0)}</strong>
+                              <span className="text-[10px] text-slate-500">Subtotal: <strong className="text-slate-800">{fmt(0)}</strong></span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>+ {Math.max(0, itbiPosQtd - totalParcPos)}x ITBI: <strong className="text-emerald-700">{fmt(itbiPosValor)}</strong></span>
+                            <span>Parcela Bruta: <strong className="text-slate-900">{fmt(itbiPosValor)}/mês</strong></span>
+                          </div>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 )}

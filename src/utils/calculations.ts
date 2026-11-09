@@ -1,4 +1,4 @@
-import { CommercialCondition, Product, SimulationData } from '../types';
+import { CommercialCondition, DescontoConstrutoraRegra, Product, SimulationData } from '../types';
 import { parseCurrency } from './formatters';
 
 export interface FinancialParams {
@@ -172,6 +172,40 @@ export function ensureProductConditions(prod: Product): Product {
     comissaoApartadaParcelasMax: c.comissaoApartadaParcelasMax ?? 6
   }));
   return prod;
+}
+
+/**
+ * "Desconto Construtora" da unidade: procura, na matriz da política, a regra mais específica para
+ * Produto + Torre + Tipologia (torre+tipologia > torre > tipologia > geral). Percentual incide
+ * sobre o preço de tabela da unidade; fixo é aplicado direto. Nunca passa do preço.
+ */
+export function resolverDescontoConstrutora(
+  regras: DescontoConstrutoraRegra[] | undefined,
+  produtoId: string | null | undefined,
+  torre: string | null | undefined,
+  tipologia: string | null | undefined,
+  precoTabela: number
+): number {
+  if (!regras || regras.length === 0 || !(precoTabela > 0)) return 0;
+  const norm = (v?: string | null) => String(v ?? '').trim().toLowerCase();
+  const ehTodas = (v?: string | null) => norm(v) === '' || norm(v) === 'todas';
+  let melhor: { regra: DescontoConstrutoraRegra; pontos: number } | null = null;
+  for (const r of regras) {
+    if (r.produtoId && produtoId && r.produtoId !== produtoId) continue;
+    const casaTorre = ehTodas(r.torre) || norm(r.torre) === norm(torre);
+    // Lista de tipologias (`tipologias`); regras antigas usam o campo único `tipologia`.
+    const listaTip = (r.tipologias && r.tipologias.length > 0 ? r.tipologias : (r.tipologia ? [r.tipologia] : []))
+      .filter(x => !ehTodas(x));
+    const tipTodas = listaTip.length === 0;
+    const casaTip = tipTodas || listaTip.some(x => norm(x) === norm(tipologia));
+    if (!casaTorre || !casaTip) continue;
+    const pontos = (ehTodas(r.torre) ? 0 : 2) + (tipTodas ? 0 : 1);
+    if (!melhor || pontos > melhor.pontos) melhor = { regra: r, pontos };
+  }
+  if (!melhor) return 0;
+  const { tipoDesconto, valor } = melhor.regra;
+  const bruto = tipoDesconto === 'percentual' ? precoTabela * ((valor || 0) / 100) : (valor || 0);
+  return Math.min(precoTabela, Math.max(0, Math.round(bruto * 100) / 100));
 }
 
 /** Chave da regra "Apenas Fase Obra": Torre + Tipologia, sem diferenciar maiúsculas/espaços. */
@@ -518,9 +552,20 @@ export interface MorarEngineParams {
   // `calcularAtoMinimoPorPreco`/`calcularAtoMinimoDaPolitica` mais abaixo.
   isComissaoApartada?: boolean;
   pctComissaoApartada?: number;
+  // ITBI/Registro desacoplado: quantidade de parcelas do ITBI, independente de Obra/Pós. As
+  // parcelas correm concorrentes ao fluxo desde o 1º mês (ITBI/mês = saldo a parcelar ÷ qtd).
+  // Ausente = comportamento anterior (ITBI diluído em todos os meses do fluxo). Sempre limitado
+  // a maxParcelasITBI (teto da política), quando informado.
+  parcelasITBI?: number;
+  maxParcelasITBI?: number;
+  // Teto de comprometimento da renda por mês (política, ex.: 35). No ITBI desacoplado, a soma
+  // parcela do fluxo + parcela do ITBI de qualquer mês também não passa deste teto.
+  tetoRendaMensalPct?: number;
 }
 
 export interface MorarSerieResult {
+  // Quantos meses desta série coincidem com meses em que há parcela de ITBI (concorrência).
+  itbiMeses?: number;
   serieIndex: number;
   qtd: number;
   pctMae: number;
@@ -534,6 +579,14 @@ export interface MorarSerieResult {
 }
 
 export interface MorarEngineResult {
+  // Qtd. efetiva de parcelas do ITBI e sua distribuição (Obra / Pós / além do fluxo).
+  parcelasITBI: number;
+  itbiMesesObra: number;
+  itbiMesesPos: number;
+  itbiMesesExtra: number;
+  // Pico mensal apurado mês a mês: maior (parcela do fluxo + parcela do ITBI) e % da renda.
+  picoComprometimentoValor: number;
+  picoComprometimentoPct: number;
   baseCalculo: number;
   baseCalculoComITBI: number;
   maxRiscoObra: number;
@@ -669,27 +722,63 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const atoITBIInformado = Math.max(0, params.atoITBI || 0);
   let itbiAtoEfetivo = atoITBIInformado;
   let itbiRestante = Math.max(0, itbiRegistro - itbiAtoEfetivo);
-  let parcelaMensalITBIExato = (mesesTotaisGeral > 0 && itbiRestante > 0)
-    ? (itbiRestante / mesesTotaisGeral)
+  // Prazo do ITBI (desacoplado): parcelasITBI informado, ou — no modo anterior — todos os meses do
+  // fluxo. Sempre dentro do teto da política (maxParcelasITBI). Sem meses e sem prazo informado,
+  // o ITBI inteiro vai para o Ato (como antes).
+  const maxParcelasITBIParam = params.maxParcelasITBI !== undefined && params.maxParcelasITBI > 0
+    ? Math.floor(params.maxParcelasITBI) : undefined;
+  let nITBI = params.parcelasITBI !== undefined
+    ? Math.max(1, Math.floor(params.parcelasITBI || 1))
+    : mesesTotaisGeral;
+  if (nITBI > 0 && maxParcelasITBIParam !== undefined) nITBI = Math.min(nITBI, maxParcelasITBIParam);
+
+  // Linha do tempo do fluxo: séries de Obra e depois de Pós, cada uma com mês inicial e duração.
+  // O ITBI ocupa os meses 1..nITBI, concorrente a essas séries (Parcela[m] = fluxo[m] + ITBI[m]).
+  const segmentosFluxo: { fase: 'obra' | 'pos'; idx: number; meses: number; inicio: number }[] = [];
+  {
+    let cursor = 0;
+    mObra.forEach((q, idx) => { if ((q || 0) > 0) { segmentosFluxo.push({ fase: 'obra', idx, meses: q, inicio: cursor }); cursor += q; } });
+    mPos.forEach((q, idx) => { if ((q || 0) > 0) { segmentosFluxo.push({ fase: 'pos', idx, meses: q, inicio: cursor }); cursor += q; } });
+  }
+  const mesesComITBI = (seg: { meses: number; inicio: number }, n: number) =>
+    Math.max(0, Math.min(seg.inicio + seg.meses, n) - seg.inicio);
+  const extraMesesITBI = Math.max(0, nITBI - mesesTotaisGeral);
+  const tetoRendaMensalAbs = (params.parcelasITBI !== undefined && (params.tetoRendaMensalPct || 0) > 0 && renda > 0)
+    ? renda * (params.tetoRendaMensalPct as number) / 100
+    : Infinity;
+  const capITBI = (idx: number) => Math.min(capacidadeRendaPorBalde(idx), tetoRendaMensalAbs);
+  const capMaxBaldeITBI = [0, 1, 2, 3, 4, 5].reduce((m, i) => Math.max(m, capacidadeRendaPorBalde(i)), 0);
+
+  let parcelaMensalITBIExato = (nITBI > 0 && itbiRestante > 0)
+    ? (itbiRestante / nITBI)
     : 0;
 
-  if (mesesTotaisGeral <= 0) {
+  if (nITBI <= 0) {
     itbiAtoEfetivo = itbiRegistro;
     itbiRestante = 0;
     parcelaMensalITBIExato = 0;
   } else {
+    // Trava ativa: em qualquer mês a parcela do fluxo + a do ITBI não pode passar do teto de
+    // renda do balde daquele mês. O que não couber (ex.: prazo do ITBI curto demais) migra para
+    // o ITBI no Ato — nunca consolida um fluxo fora do risco da política.
     for (let iter = 0; iter < 20; iter++) {
       let excedente = 0;
-      for (let idx = 0; idx < 6; idx++) {
-        const cap = capacidadeRendaPorBalde(idx);
+      for (const seg of segmentosFluxo) {
+        const ov = mesesComITBI(seg, nITBI);
+        if (ov <= 0) continue;
+        const cap = capITBI(seg.idx);
         if (cap === Infinity || parcelaMensalITBIExato <= cap) continue;
-        if ((mObra[idx] || 0) > 0) excedente += (parcelaMensalITBIExato - cap) * mObra[idx];
-        if ((mPos[idx] || 0) > 0) excedente += (parcelaMensalITBIExato - cap) * mPos[idx];
+        excedente += (parcelaMensalITBIExato - cap) * ov;
+      }
+      // Meses além do fluxo (só corre o ITBI): vale o teto de renda da política.
+      const capExtraITBI = tetoRendaMensalAbs !== Infinity ? tetoRendaMensalAbs : capMaxBaldeITBI;
+      if (extraMesesITBI > 0 && capExtraITBI !== Infinity && parcelaMensalITBIExato > capExtraITBI) {
+        excedente += (parcelaMensalITBIExato - capExtraITBI) * extraMesesITBI;
       }
       if (excedente < 0.01) break;
       itbiAtoEfetivo = Math.min(itbiRegistro, itbiAtoEfetivo + excedente);
       itbiRestante = Math.max(0, itbiRegistro - itbiAtoEfetivo);
-      parcelaMensalITBIExato = itbiRestante > 0 ? (itbiRestante / mesesTotaisGeral) : 0;
+      parcelaMensalITBIExato = itbiRestante > 0 ? (itbiRestante / nITBI) : 0;
     }
   }
 
@@ -847,7 +936,7 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
     const capacidadeRendaTotalCom = (desconto: number): number => {
       const baseCom = Math.max(0, Math.round(((precoTabela - desconto) + itbiRestante) * 100) / 100);
       const maxRiscoPosCom = Math.round(baseCom * pctMaxPos * 100) / 100;
-      return Math.min(maxRiscoPosCom, capacidadeRendaPos) + capacidadeRendaObra;
+      return Math.min(maxRiscoPosCom, capacidadeRendaPos) + capacidadeRendaObra + parcelaMensalITBIExato * extraMesesITBI;
     };
 
     const capacidadeRendaInicial = capacidadeRendaTotalCom(porPreco.descontoAto);
@@ -979,8 +1068,24 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const naturalPosMoney = combinedWeightedTotal > 0
     ? (posWeightedTotal / combinedWeightedTotal) * fluxoProSolutoComITBI
     : 0;
-  const totalPosMoney = Math.max(0, Math.min(naturalPosMoney, maxRiscoPos));
-  const totalObraMoney = Math.max(0, fluxoProSolutoComITBI - totalPosMoney);
+  // ITBI desacoplado (parcelasITBI informado): o ITBI é pago em paralelo ao fluxo, então o
+  // montante das séries é LÍQUIDO dele — distribui-se (fluxo − ITBI parcelado), e cada série só
+  // precisa caber ao lado do ITBI dentro do teto de renda do mês. Sem parcelasITBI, vale o
+  // modelo anterior (ITBI diluído em todos os meses; distribuição sobre o valor bruto).
+  const modoITBIDesacoplado = params.parcelasITBI !== undefined;
+  const mesesPosComITBIGeral = segmentosFluxo
+    .filter(s => s.fase === 'pos')
+    .reduce((acc, s) => acc + mesesComITBI(s, nITBI), 0);
+  const poolLiquidoSeries = Math.max(0, fluxoProSolutoComITBI - parcelaMensalITBIExato * nITBI);
+  const totalPosMoney = modoITBIDesacoplado
+    ? Math.max(0, Math.min(
+        combinedWeightedTotal > 0 ? (posWeightedTotal / combinedWeightedTotal) * poolLiquidoSeries : 0,
+        maxRiscoPos - parcelaMensalITBIExato * mesesPosComITBIGeral
+      ))
+    : Math.max(0, Math.min(naturalPosMoney, maxRiscoPos));
+  const totalObraMoney = modoITBIDesacoplado
+    ? Math.max(0, poolLiquidoSeries - totalPosMoney)
+    : Math.max(0, fluxoProSolutoComITBI - totalPosMoney);
 
   // Dentro de cada fase, reparte o total entre os baldes proporcional a peso×meses,
   // mas travando cada balde no seu próprio teto de renda (parcela + ITBI ≤ pctAno% da
@@ -988,8 +1093,24 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   // demais baldes da mesma fase, mantendo a proporção original entre eles.
   const obraPesos = seriesWeights.map((w, idx) => w * (mObra[idx] || 0));
   const posPesos = seriesWeights.map((w, idx) => w * (mPos[idx] || 0));
-  const obraTetosMoney = capRendaMesPorBalde.map((cap, idx) => cap * (mObra[idx] || 0));
-  const posTetosMoney = capRendaMesPorBalde.map((cap, idx) => cap * (mPos[idx] || 0));
+  // Teto (bruto = série + ITBI) de cada série. Série sem mês de ITBI: cap × meses. Série com ITBI
+  // em parte dos meses: a parcela da série tem que caber ao lado do ITBI (cap − ITBI) e os meses
+  // com ITBI entram pelo valor cheio do ITBI — assim parcela + ITBI nunca passa do teto do mês.
+  const ovPorSerie = (fase: 'obra' | 'pos', idx: number) => {
+    const seg = segmentosFluxo.find(s => s.fase === fase && s.idx === idx);
+    return seg ? mesesComITBI(seg, nITBI) : 0;
+  };
+  const tetoSerieMoney = (fase: 'obra' | 'pos', idx: number, meses: number) => {
+    if (!(meses > 0)) return 0;
+    const cap = modoITBIDesacoplado ? Math.min(capRendaMesPorBalde[idx], tetoRendaMensalAbs) : capRendaMesPorBalde[idx];
+    if (cap === Infinity) return Infinity;
+    const ov = ovPorSerie(fase, idx);
+    if (modoITBIDesacoplado) return Math.max(0, cap - (ov > 0 ? parcelaMensalITBIExato : 0)) * meses;
+    if (ov <= 0) return cap * meses;
+    return Math.max(0, cap - parcelaMensalITBIExato) * meses + parcelaMensalITBIExato * ov;
+  };
+  const obraTetosMoney = capRendaMesPorBalde.map((_, idx) => tetoSerieMoney('obra', idx, mObra[idx] || 0));
+  const posTetosMoney = capRendaMesPorBalde.map((_, idx) => tetoSerieMoney('pos', idx, mPos[idx] || 0));
 
   const obraMoneyPorBalde = distribuirComTetos(obraPesos, obraTetosMoney, totalObraMoney);
   const posMoneyPorBalde = distribuirComTetos(posPesos, posTetosMoney, totalPosMoney);
@@ -997,13 +1118,16 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const obraRatesBrutas = obraMoneyPorBalde.map((money, idx) => (mObra[idx] || 0) > 0 ? money / mObra[idx] : 0);
   const posRatesBrutas = posMoneyPorBalde.map((money, idx) => (mPos[idx] || 0) > 0 ? money / mPos[idx] : 0);
 
-  const toLiquida = (brutaExata: number) => {
-    if (brutaExata <= 0) return 0;
-    const liquidaExata = brutaExata - parcelaMensalITBIExato;
+  // Parcela líquida da série = (dinheiro da série − ITBI pago nos meses dela) ÷ meses da série.
+  const toLiquida = (fase: 'obra' | 'pos', idx: number, meses: number, moneySerie: number) => {
+    if (!(moneySerie > 0) || !(meses > 0)) return 0;
+    const liquidaExata = modoITBIDesacoplado
+      ? moneySerie / meses
+      : (moneySerie - parcelaMensalITBIExato * ovPorSerie(fase, idx)) / meses;
     return Math.max(0, Math.round(liquidaExata * 100) / 100);
   };
-  const obraRatesLiquidas = obraRatesBrutas.map(toLiquida);
-  const posRatesLiquidas = posRatesBrutas.map(toLiquida);
+  const obraRatesLiquidas = obraMoneyPorBalde.map((m, idx) => toLiquida('obra', idx, mObra[idx] || 0, m));
+  const posRatesLiquidas = posMoneyPorBalde.map((m, idx) => toLiquida('pos', idx, mPos[idx] || 0, m));
 
   // Obra:
   const obraSeries: MorarSerieResult[] = mObra.map((qtd, idx) => {
@@ -1033,7 +1157,8 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
       rateioFluxoGlobal: parcelaBrutaFinal,
       parcelaBrutaFinal,
       parcelaLiquida,
-      subtotalLiquido
+      subtotalLiquido,
+      itbiMeses: ovPorSerie('obra', idx)
     };
   });
 
@@ -1065,7 +1190,8 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
       rateioFluxoGlobal: parcelaBrutaFinal,
       parcelaBrutaFinal,
       parcelaLiquida,
-      subtotalLiquido
+      subtotalLiquido,
+      itbiMeses: ovPorSerie('pos', idx)
     };
   });
 
@@ -1073,15 +1199,28 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const subtotalPosLiquido = Math.round(posSeries.reduce((acc, s) => acc + s.subtotalLiquido, 0) * 100) / 100;
   const totalProSolutoGerado = Math.round((subtotalObraLiquido + subtotalPosLiquido) * 100) / 100;
 
-  const itbiObraTotal = Math.round(obraSeries.reduce((acc, s) => acc + s.qtd, 0) * parcelaMensalITBI * 100) / 100;
-  const itbiPosTotal = Math.round(posSeries.reduce((acc, s) => acc + s.qtd, 0) * parcelaMensalITBI * 100) / 100;
+  const itbiMesesObra = obraSeries.reduce((acc, s) => acc + (s.itbiMeses || 0), 0);
+  const itbiMesesPos = posSeries.reduce((acc, s) => acc + (s.itbiMeses || 0), 0);
+  const itbiObraTotal = Math.round(itbiMesesObra * parcelaMensalITBI * 100) / 100;
+  const itbiPosTotal = Math.round(itbiMesesPos * parcelaMensalITBI * 100) / 100;
+
+  // Pico mensal (mês a mês, m = 1..max(fluxo, ITBI)): maior parcela do fluxo + parcela do ITBI.
+  let picoComprometimentoValor = 0;
+  for (const seg of segmentosFluxo) {
+    const serie = (seg.fase === 'obra' ? obraSeries : posSeries)[seg.idx];
+    const comITBI = mesesComITBI(seg, nITBI) > 0 ? parcelaMensalITBI : 0;
+    picoComprometimentoValor = Math.max(picoComprometimentoValor, (serie?.parcelaLiquida || 0) + comITBI);
+  }
+  if (extraMesesITBI > 0) picoComprometimentoValor = Math.max(picoComprometimentoValor, parcelaMensalITBI);
+  picoComprometimentoValor = Math.round(picoComprometimentoValor * 100) / 100;
+  const picoComprometimentoPct = renda > 0 ? (picoComprometimentoValor / renda) * 100 : 0;
 
   // totalObraMoney/totalPosMoney (seção 4) já respeitam o teto de % Max Pós-Obra em
   // qualquer cenário — não é mais preciso um atalho separado para o caso "fluxo no máximo".
   const totalObraComITBI = Math.round((subtotalObraLiquido + itbiObraTotal) * 100) / 100;
   const totalPosComITBI = Math.round((subtotalPosLiquido + itbiPosTotal) * 100) / 100;
 
-  const itbiParceladoTotal = Math.round(mesesTotaisGeral * parcelaMensalITBI * 100) / 100;
+  const itbiParceladoTotal = Math.round(nITBI * parcelaMensalITBI * 100) / 100;
   const atoPremiado = descontoAto;
   const atoBruto = Math.round((atoResidual + atoPremiado) * 100) / 100;
 
@@ -1091,6 +1230,12 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const totalComITBI = sinalComITBI;
 
   return {
+    parcelasITBI: nITBI,
+    itbiMesesObra,
+    itbiMesesPos,
+    itbiMesesExtra: extraMesesITBI,
+    picoComprometimentoValor,
+    picoComprometimentoPct,
     baseCalculo,
     baseCalculoComITBI,
     maxRiscoObra,

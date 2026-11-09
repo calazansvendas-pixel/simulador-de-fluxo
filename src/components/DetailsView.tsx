@@ -4,7 +4,7 @@ import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Calculator, ShieldCheck, Bu
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
 import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
@@ -15,6 +15,7 @@ import { PdfExportModal } from './PdfExportModal';
 import { EmptySimulationNotice } from './EmptySimulationNotice';
 import { FluxoEntradaConstrutora } from './FluxoEntradaConstrutora';
 import { PmCampoEditavel } from './PmCampoEditavel';
+import { MiniSwitch } from './MiniSwitch';
 import { MonthStepper } from './MonthStepper';
 import { imoveisService } from '../services/imoveisService';
 
@@ -85,6 +86,11 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     resolveConditionForTorre(baseCond, selectedTorre) || baseCond
   ), [baseCond, selectedTorre]);
 
+  // Estado padrão dos 3 interruptores de desconto (Política de Crédito do produto; desligados por padrão).
+  const padraoConstrutoraLigado = currentCond?.descontoConstrutoraPadraoLigado === true;
+  const padraoVistaLigado = currentCond?.descontoVistaPadraoLigado === true;
+  const padraoAtoLigado = currentCond?.descontoAtoPadraoLigado === true;
+
   // LÓGICA DE DEFINIÇÃO DO PRAZO PADRÃO (HERDADO DINAMICAMENTE DA POLÍTICA DE CRÉDITO)
   const condNumParcelas = currentCond?.numParcelas !== undefined
     ? Number(currentCond.numParcelas)
@@ -114,6 +120,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // (isAVistaActive mais abaixo), que continua só quitando o Pró-Soluto sem
   // mexer em preço/ITBI. Estado explícito, mesmo padrão do FichaMorar.tsx.
   const [isPagamentoAVistaAtivoManual, setIsPagamentoAVistaAtivoManual] = useState<boolean>(false);
+  // Interruptor do Desconto à Vista: só vale com o "Pgtº à vista" ativo (nasce com o padrão do produto).
+  const [descontoVistaAtivo, setDescontoVistaAtivo] = useState<boolean>(false);
 
   const [valAtoITBI, setValAtoITBI] = useState<number>(0);
   const [itbiInputText, setItbiInputText] = useState<string>('');
@@ -126,13 +134,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // nunca descer quando a Qtd. Mensais aumenta de novo.
   const [itbiAtoManualFloor, setItbiAtoManualFloor] = useState<number | null>(null);
 
-  const [isAtoPremiadoEnabled, setIsAtoPremiadoEnabled] = useState<boolean>(true);
+  const [isAtoPremiadoEnabled, setIsAtoPremiadoEnabled] = useState<boolean>(padraoAtoLigado);
 
   const [valParc2, setValParc2] = useState<number>(0);
   const [parc2InputText, setParc2InputText] = useState<string>('');
   const [isEditingParc2, setIsEditingParc2] = useState<boolean>(false);
 
   const [valParc3, setValParc3] = useState<number>(0);
+  // Liga/desliga o Desconto Construtora da regra da política (sempre inicia desligado).
+  const [descontoConstrutoraAtivo, setDescontoConstrutoraAtivo] = useState<boolean>(padraoConstrutoraLigado);
   // 1ª/2ª Mensal (30 e 60 dias) ligadas na Política? Desligadas, os cards somem e os valores
   // ficam em R$ 0,00 (as fórmulas do fluxo continuam iguais, só com mensais zeradas).
   const mensal1Ativa = currentCond?.habilitar1aMensal !== false;
@@ -264,6 +274,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setAtoInputText('');
     setIsEditingAto(false);
     setIsPagamentoAVistaAtivoManual(false);
+    setDescontoVistaAtivo(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
     setItbiInputText('');
@@ -275,7 +286,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setParc3InputText('');
     setIsEditingParc3(false);
     setQtdMensais(condNumParcelas);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setPmMensalObraValorManual(null);
     setPmMesesObraManual(null);
     setPmChavesEnabled(true);
@@ -368,7 +379,17 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const areaPriv = matchingRow ? formatArea(matchingRow[3]) : '0,00 m²';
   const areaQuintal = matchingRow ? formatArea(matchingRow[4]) : '0,00 m²';
 
-  const precoTabelaOriginal = hasUnitSelected && matchingRow ? parseCurrency(matchingRow[7]) : 0;
+  // Preço de lista (exibição) e Desconto Construtora (matriz da política por Produto/Torre/
+  // Tipologia): precoTabelaOriginal — base de todo o fluxo — já sai líquido do desconto.
+  const precoTabelaLista = hasUnitSelected && matchingRow ? parseCurrency(matchingRow[7]) : 0;
+  // O desconto encontrado na regra fica registrado (descontoConstrutoraRegra), mas só entra nas
+  // contas quando o corretor o ativa (inicia sempre desligado a cada unidade selecionada).
+  const descontoConstrutoraRegra = hasUnitSelected
+    ? resolverDescontoConstrutora(currentCond?.descontosConstrutora, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
+    : 0;
+  const descontoConstrutora = descontoConstrutoraAtivo ? descontoConstrutoraRegra : 0;
+  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); }, [selectedTorre, selectedUnidade, currentProd?.id]);
+  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora) * 100) / 100);
   const evaluation = hasUnitSelected && matchingRow ? parseCurrency(matchingRow[6]) : 0;
 
   // Desconto à Vista: aplicado sobre o Preço de Tabela ANTES de qualquer outro
@@ -379,7 +400,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // preço com desconto — sempre lê precoTabelaOriginal diretamente, pra ficar
   // imune a este toggle.
   const descontoAVistaPctPolitica = currentCond?.descontoAVistaPct ?? 0;
-  const valorDescontoAVista = isPagamentoAVistaAtivoManual && precoTabelaOriginal > 0
+  const valorDescontoAVista = isPagamentoAVistaAtivoManual && descontoVistaAtivo && precoTabelaOriginal > 0
     ? Math.round(precoTabelaOriginal * (descontoAVistaPctPolitica / 100) * 100) / 100
     : 0;
   const price = Math.max(0, Math.round((precoTabelaOriginal - valorDescontoAVista) * 100) / 100);
@@ -424,6 +445,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const handleTorreChange = (torre: string) => {
     setSelectedTorre(torre);
     setSelectedUnidade('');
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
+    setIsPagamentoAVistaAtivoManual(false);
+    setDescontoVistaAtivo(false);
     if (currentCond) {
       setQtdMensais(condNumParcelas);
     }
@@ -434,6 +459,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   const handleUnidadeChange = (unidade: string) => {
     setSelectedUnidade(unidade);
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
+    setIsPagamentoAVistaAtivoManual(false);
+    setDescontoVistaAtivo(false);
     if (currentCond) {
       setQtdMensais(condNumParcelas);
     }
@@ -493,11 +522,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setAtoInputText('');
     setIsEditingAto(false);
     setIsPagamentoAVistaAtivoManual(false);
+    setDescontoVistaAtivo(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
     setItbiInputText('');
     setIsEditingITBI(false);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setValParc2(0);
     setParc2InputText('');
     setIsEditingParc2(false);
@@ -1402,12 +1432,71 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     }
   };
 
+  // "Pgtº à vista" (botão de cabeçalho e interruptor do quadro de aprovação): mesmo fluxo nos dois.
+  const handleTogglePagamentoAVistaDetails = (ativo: boolean, descontoLigado: boolean = padraoVistaLigado) => {
+    setIsPagamentoAVistaAtivoManual(ativo);
+    setDescontoVistaAtivo(ativo && descontoLigado);
+    if (ativo) {
+      // O Ato Premiado é desligado enquanto o pagamento à vista está
+      // ativo, pra não empilhar os dois descontos sem uma regra definida
+      // pra isso (mesmo padrão do Sinal c/ Morar) — volta a ficar
+      // disponível normalmente ao desligar. `isAtoPremiadoEnabled` ainda
+      // não reflete isso neste mesmo evento, então os cálculos abaixo já
+      // usam `false` direto, na mão.
+      setIsAtoPremiadoEnabled(false);
+      // O preço com desconto ainda não está commitado no state do React
+      // neste mesmo evento — por isso o ponto que quita tudo no Ato é
+      // calculado aqui com o preço correto "na mão", em vez de reaproveitar
+      // atoAVistaTarget/pmAtoAVistaTarget (que só refletem o desconto a
+      // partir do próximo render). Mesmo padrão do Sinal c/ Morar
+      // (FichaMorar.tsx / handleTogglePagamentoAVista).
+      const descontoNaHora = (precoTabelaOriginal > 0 && descontoLigado)
+        ? Math.round(precoTabelaOriginal * (descontoAVistaPctPolitica / 100) * 100) / 100
+        : 0;
+      const precoComDesconto = Math.max(0, Math.round((precoTabelaOriginal - descontoNaHora) * 100) / 100);
+      if (isParcelamentoMorar) {
+        const baseNaHora = hasUnitSelected ? Math.max(0, precoComDesconto - maxFinanc - pmMensaisAntecipadas) : 0;
+        const atoAposAntecipadasNaHora = hasUnitSelected ? resolverTetoAtoComDesconto(baseNaHora, false, pctAtoPremiadoCond) : 0;
+        setValAtoManual(atoAposAntecipadasNaHora + pmMensaisAntecipadas);
+      } else {
+        // Zera tudo: financiamento, subsídio e FGTS somem sozinhos (o Ato,
+        // grande o bastante para cobrir o preço inteiro, já não deixa saldo
+        // pra eles via a cascata de amortização existente) — só as mensais
+        // 30d/60d precisam ser zeradas explicitamente aqui.
+        setValParc2(0);
+        setParc2InputText('');
+        setValParc3(0);
+        setParc3InputText('');
+        const atoNaHora = hasUnitSelected ? resolverTetoAtoComDesconto(precoComDesconto, false, pctAtoPremiadoCond) : 0;
+        setValAtoManual(atoNaHora);
+      }
+    } else {
+      // Ato Premiado religado (mesmo padrão usado ao selecionar uma
+      // unidade ou limpar o fluxo) — volta a ficar disponível normalmente.
+      setIsAtoPremiadoEnabled(padraoAtoLigado);
+      setValAtoManual(null);
+      if (isParcelamentoMorar) {
+        setPmMensalObraValorManual(null);
+        setPmSemestralValorManual({});
+        setPmChavesValorManual(null);
+        setPmPosObraValorManual(null);
+      }
+    }
+  };
+
   // Função para resetar exclusivamente o Fluxo de Pagamento (Quadros 2 e 3)
+  const handleToggleDescontoVistaDetails = (ligado: boolean) => {
+    if (!isPagamentoAVistaAtivoManual) return;
+    handleTogglePagamentoAVistaDetails(true, ligado);
+  };
+
   const limparFluxoPagamento = () => {
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
     setValAtoManual(null);
     setAtoInputText('');
     setIsEditingAto(false);
     setIsPagamentoAVistaAtivoManual(false);
+    setDescontoVistaAtivo(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
     setItbiInputText('');
@@ -1419,7 +1508,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setParc3InputText('');
     setIsEditingParc3(false);
     setQtdMensais(condNumParcelas);
-    setIsAtoPremiadoEnabled(true);
+    setIsAtoPremiadoEnabled(padraoAtoLigado);
     setPmMensalObraValorManual(null);
     setPmMesesObraManual(null);
     setPmChavesEnabled(true);
@@ -2061,7 +2150,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             <span className="block text-[10px] text-slate-400 font-medium text-center mb-0.5 whitespace-nowrap">Preço de Tabela</span>
             <input
               type="text"
-              value={formatCurrency(precoTabelaOriginal)}
+              value={formatCurrency(precoTabelaLista)}
               readOnly
               className="w-full bg-transparent font-bold text-slate-900 text-center focus:outline-none cursor-not-allowed text-xs whitespace-nowrap"
             />
@@ -2170,12 +2259,54 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     <strong className="text-morar-600 font-semibold">{formatCurrency(displayFgts)}</strong>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto Construtora:</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={descontoConstrutoraAtivo}
+                      disabled={descontoConstrutoraRegra <= 0}
+                      onClick={() => {
+                        // Um Ato digitado antes da troca ficaria preso ao preço antigo: volta para o
+                        // Ato sugerido, recalculado com o preço novo.
+                        setDescontoConstrutoraAtivo(v => !v);
+                        setValAtoManual(null);
+                        setAtoInputText('');
+                        setIsEditingAto(false);
+                      }}
+                      title={descontoConstrutoraRegra <= 0
+                        ? 'Nenhuma regra de Desconto Construtora para esta unidade'
+                        : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
+                      className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                    </button>
+                    <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(descontoConstrutora)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
                     <span className="text-slate-600">Desconto à Vista:</span>
-                    <strong className="text-amber-700 font-semibold">{formatCurrency(valorDescontoAVista)}</strong>
+                    <MiniSwitch
+                      ativo={isPagamentoAVistaAtivoManual && descontoVistaAtivo}
+                      disabled={!hasUnitSelected || !isPagamentoAVistaAtivoManual}
+                      onToggle={() => handleToggleDescontoVistaDetails(!descontoVistaAtivo)}
+                      title={!isPagamentoAVistaAtivoManual ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
+                    />
+                    <strong className={isPagamentoAVistaAtivoManual && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isPagamentoAVistaAtivoManual && descontoVistaAtivo ? valorDescontoAVista : 0)}
+                    </strong>
                   </div>
                   <div className="flex justify-between items-center py-1 mt-2">
                     <span className="text-slate-600">Desconto Ato:</span>
-                    <strong className="text-emerald-600 font-semibold">{formatCurrency(displayDescontoAto)}</strong>
+                    <MiniSwitch
+                      ativo={isAtoPremiadoEnabled}
+                      disabled={!hasUnitSelected || isPagamentoAVistaAtivoManual}
+                      onToggle={() => setIsAtoPremiadoEnabled(!isAtoPremiadoEnabled)}
+                      title={isPagamentoAVistaAtivoManual ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                    />
+                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isAtoPremiadoEnabled ? displayDescontoAto : 0)}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -2365,64 +2496,14 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             }}
             descontoAto={isParcelamentoMorar ? pm.descontoAtoPremiado : descontoAto}
             isAtoPremiadoActive={isAtoPremiadoEnabled}
-            onToggleAtoPremiado={(ativo) => {
-              setIsAtoPremiadoEnabled(ativo);
-            }}
+            onToggleAtoPremiado={(ativo) => setIsAtoPremiadoEnabled(ativo)}
             // "Pgtº à vista" — botão de cabeçalho igual ao do Sinal c/ Morar: aplica
             // o desconto à vista da política, zera o ITBI e quita tudo no Ato. Único
             // botão de à vista em Parcelamento Morar (não existe financiamento/FGTS
             // nessa condição — quitar o Pró-Soluto já é quitar tudo, então o card
             // "Ato (Imóvel)" não precisa de um segundo botão separado ali).
             isPagamentoAVistaActive={isPagamentoAVistaAtivoManual}
-            onTogglePagamentoAVista={(ativo) => {
-              setIsPagamentoAVistaAtivoManual(ativo);
-              if (ativo) {
-                // O Ato Premiado é desligado enquanto o pagamento à vista está
-                // ativo, pra não empilhar os dois descontos sem uma regra definida
-                // pra isso (mesmo padrão do Sinal c/ Morar) — volta a ficar
-                // disponível normalmente ao desligar. `isAtoPremiadoEnabled` ainda
-                // não reflete isso neste mesmo evento, então os cálculos abaixo já
-                // usam `false` direto, na mão.
-                setIsAtoPremiadoEnabled(false);
-                // O preço com desconto ainda não está commitado no state do React
-                // neste mesmo evento — por isso o ponto que quita tudo no Ato é
-                // calculado aqui com o preço correto "na mão", em vez de reaproveitar
-                // atoAVistaTarget/pmAtoAVistaTarget (que só refletem o desconto a
-                // partir do próximo render). Mesmo padrão do Sinal c/ Morar
-                // (FichaMorar.tsx / handleTogglePagamentoAVista).
-                const descontoNaHora = precoTabelaOriginal > 0
-                  ? Math.round(precoTabelaOriginal * (descontoAVistaPctPolitica / 100) * 100) / 100
-                  : 0;
-                const precoComDesconto = Math.max(0, Math.round((precoTabelaOriginal - descontoNaHora) * 100) / 100);
-                if (isParcelamentoMorar) {
-                  const baseNaHora = hasUnitSelected ? Math.max(0, precoComDesconto - maxFinanc - pmMensaisAntecipadas) : 0;
-                  const atoAposAntecipadasNaHora = hasUnitSelected ? resolverTetoAtoComDesconto(baseNaHora, false, pctAtoPremiadoCond) : 0;
-                  setValAtoManual(atoAposAntecipadasNaHora + pmMensaisAntecipadas);
-                } else {
-                  // Zera tudo: financiamento, subsídio e FGTS somem sozinhos (o Ato,
-                  // grande o bastante para cobrir o preço inteiro, já não deixa saldo
-                  // pra eles via a cascata de amortização existente) — só as mensais
-                  // 30d/60d precisam ser zeradas explicitamente aqui.
-                  setValParc2(0);
-                  setParc2InputText('');
-                  setValParc3(0);
-                  setParc3InputText('');
-                  const atoNaHora = hasUnitSelected ? resolverTetoAtoComDesconto(precoComDesconto, false, pctAtoPremiadoCond) : 0;
-                  setValAtoManual(atoNaHora);
-                }
-              } else {
-                // Ato Premiado religado (mesmo padrão usado ao selecionar uma
-                // unidade ou limpar o fluxo) — volta a ficar disponível normalmente.
-                setIsAtoPremiadoEnabled(true);
-                setValAtoManual(null);
-                if (isParcelamentoMorar) {
-                  setPmMensalObraValorManual(null);
-                  setPmSemestralValorManual({});
-                  setPmChavesValorManual(null);
-                  setPmPosObraValorManual(null);
-                }
-              }
-            }}
+            onTogglePagamentoAVista={handleTogglePagamentoAVistaDetails}
             isAVistaActive={isParcelamentoMorar ? undefined : isAVistaActive}
             onToggleAVista={isParcelamentoMorar ? undefined : (ativo) => {
               // Mesmo mecanismo de um Ato (Imóvel) digitado manualmente — só que o valor
@@ -2941,7 +3022,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           areaPriv={areaPriv}
           areaQuintal={areaQuintal}
           price={price}
-          precoTabelaOriginal={precoTabelaOriginal}
+          precoTabelaOriginal={precoTabelaLista}
+          descontoConstrutora={descontoConstrutora}
           evaluation={evaluation}
           deliveryText={deliveryText}
           income={income}
