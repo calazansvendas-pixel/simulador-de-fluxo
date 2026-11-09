@@ -4,7 +4,7 @@ import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Calculator, ShieldCheck, Bu
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, calculatePricePMT, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
 import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
@@ -143,6 +143,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const [valParc3, setValParc3] = useState<number>(0);
   // Liga/desliga o Desconto Construtora da regra da política (sempre inicia desligado).
   const [descontoConstrutoraAtivo, setDescontoConstrutoraAtivo] = useState<boolean>(padraoConstrutoraLigado);
+  // "Carta na Manga" digitada pelo corretor (limitada ao teto da política; zera ao trocar de unidade).
+  const [cartaNaManga, setCartaNaManga] = useState<number>(0);
+  // Interruptor da Carta na Manga: só habilita com valor digitado; liga sozinho ao digitar.
+  const [cartaNaMangaAtiva, setCartaNaMangaAtiva] = useState<boolean>(false);
   // 1ª/2ª Mensal (30 e 60 dias) ligadas na Política? Desligadas, os cards somem e os valores
   // ficam em R$ 0,00 (as fórmulas do fluxo continuam iguais, só com mensais zeradas).
   const mensal1Ativa = currentCond?.habilitar1aMensal !== false;
@@ -388,8 +392,31 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     ? resolverDescontoConstrutora(currentCond?.descontosConstrutora, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
     : 0;
   const descontoConstrutora = descontoConstrutoraAtivo ? descontoConstrutoraRegra : 0;
-  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); }, [selectedTorre, selectedUnidade, currentProd?.id]);
-  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora) * 100) / 100);
+  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); setCartaNaManga(0); setCartaNaMangaAtiva(false); }, [selectedTorre, selectedUnidade, currentProd?.id]);
+  const cartaNaMangaMax = hasUnitSelected
+    ? resolverCartaNaMangaMaximo(currentCond?.cartasNaManga, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
+    : 0;
+  const cartaNaMangaDigitada = Math.min(cartaNaManga, cartaNaMangaMax);
+  // Só entra nas contas com o interruptor ligado e valor > 0.
+  const cartaNaMangaEfetiva = cartaNaMangaAtiva && cartaNaMangaDigitada > 0 ? cartaNaMangaDigitada : 0;
+  // Carta na Manga soma-se ao Desconto Construtora no abatimento do preço-base (cascata completa).
+  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora - cartaNaMangaEfetiva) * 100) / 100);
+  const handleCartaNaMangaChange = (valor: number) => {
+    const v = Math.min(Math.max(0, valor), cartaNaMangaMax);
+    setCartaNaManga(v);
+    if (v <= 0) setCartaNaMangaAtiva(false);
+    else if (cartaNaManga <= 0) setCartaNaMangaAtiva(true);
+    setValAtoManual(null);
+    setAtoInputText('');
+    setIsEditingAto(false);
+  };
+  const handleToggleCartaNaManga = () => {
+    if (cartaNaMangaDigitada <= 0) return;
+    setCartaNaMangaAtiva(v => !v);
+    setValAtoManual(null);
+    setAtoInputText('');
+    setIsEditingAto(false);
+  };
   const evaluation = hasUnitSelected && matchingRow ? parseCurrency(matchingRow[6]) : 0;
 
   // Desconto à Vista: aplicado sobre o Preço de Tabela ANTES de qualquer outro
@@ -446,6 +473,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setSelectedTorre(torre);
     setSelectedUnidade('');
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaAtivoManual(false);
     setDescontoVistaAtivo(false);
@@ -460,6 +489,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const handleUnidadeChange = (unidade: string) => {
     setSelectedUnidade(unidade);
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaAtivoManual(false);
     setDescontoVistaAtivo(false);
@@ -1492,6 +1523,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   const limparFluxoPagamento = () => {
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     setValAtoManual(null);
     setAtoInputText('');
     setIsEditingAto(false);
@@ -2214,6 +2247,9 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           isFirstHome={isFirstHomeLocal}
           onFinPercentChange={handleFinancingPercentageChange}
           onFirstHomeChange={handleFirstHomeChange}
+          cartaNaManga={cartaNaMangaDigitada}
+          cartaNaMangaMax={cartaNaMangaMax}
+          onCartaNaMangaChange={handleCartaNaMangaChange}
         />
         </div>
 
@@ -2259,6 +2295,30 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     <strong className="text-morar-600 font-semibold">{formatCurrency(displayFgts)}</strong>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto à Vista:</span>
+                    <MiniSwitch
+                      ativo={isPagamentoAVistaAtivoManual && descontoVistaAtivo}
+                      disabled={!hasUnitSelected || !isPagamentoAVistaAtivoManual}
+                      onToggle={() => handleToggleDescontoVistaDetails(!descontoVistaAtivo)}
+                      title={!isPagamentoAVistaAtivoManual ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
+                    />
+                    <strong className={isPagamentoAVistaAtivoManual && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isPagamentoAVistaAtivoManual && descontoVistaAtivo ? valorDescontoAVista : 0)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto Ato:</span>
+                    <MiniSwitch
+                      ativo={isAtoPremiadoEnabled}
+                      disabled={!hasUnitSelected || isPagamentoAVistaAtivoManual}
+                      onToggle={() => setIsAtoPremiadoEnabled(!isAtoPremiadoEnabled)}
+                      title={isPagamentoAVistaAtivoManual ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                    />
+                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isAtoPremiadoEnabled ? displayDescontoAto : 0)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
                     <span className="text-slate-600">Desconto Construtora:</span>
                     <button
                       type="button"
@@ -2276,36 +2336,24 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       title={descontoConstrutoraRegra <= 0
                         ? 'Nenhuma regra de Desconto Construtora para esta unidade'
                         : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
-                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600/70 ring-1 ring-inset ring-emerald-700/20' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow-xs transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
                     </button>
                     <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(descontoConstrutora)}
                     </strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Desconto à Vista:</span>
+                  <div className="flex justify-between items-center py-1 mt-1">
+                    <span className="text-slate-600">Carta na Manga:</span>
                     <MiniSwitch
-                      ativo={isPagamentoAVistaAtivoManual && descontoVistaAtivo}
-                      disabled={!hasUnitSelected || !isPagamentoAVistaAtivoManual}
-                      onToggle={() => handleToggleDescontoVistaDetails(!descontoVistaAtivo)}
-                      title={!isPagamentoAVistaAtivoManual ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
+                      ativo={cartaNaMangaEfetiva > 0}
+                      disabled={cartaNaMangaDigitada <= 0}
+                      onToggle={handleToggleCartaNaManga}
+                      title={cartaNaMangaDigitada <= 0 ? 'Digite um valor de Carta na Manga para habilitar' : (cartaNaMangaEfetiva > 0 ? 'Carta na Manga ativa — clique para desativar' : 'Ativar Carta na Manga')}
                     />
-                    <strong className={isPagamentoAVistaAtivoManual && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
-                      {formatCurrency(isPagamentoAVistaAtivoManual && descontoVistaAtivo ? valorDescontoAVista : 0)}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1 mt-2">
-                    <span className="text-slate-600">Desconto Ato:</span>
-                    <MiniSwitch
-                      ativo={isAtoPremiadoEnabled}
-                      disabled={!hasUnitSelected || isPagamentoAVistaAtivoManual}
-                      onToggle={() => setIsAtoPremiadoEnabled(!isAtoPremiadoEnabled)}
-                      title={isPagamentoAVistaAtivoManual ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
-                    />
-                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
-                      {formatCurrency(isAtoPremiadoEnabled ? displayDescontoAto : 0)}
+                    <strong className={cartaNaMangaEfetiva > 0 ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(cartaNaMangaEfetiva)}
                     </strong>
                   </div>
                 </div>
@@ -3024,6 +3072,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           price={price}
           precoTabelaOriginal={precoTabelaLista}
           descontoConstrutora={descontoConstrutora}
+            cartaNaManga={cartaNaMangaEfetiva}
           evaluation={evaluation}
           deliveryText={deliveryText}
           income={income}

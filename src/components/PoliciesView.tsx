@@ -21,7 +21,7 @@ import {
   Percent
 } from 'lucide-react';
 import { MiniSwitch } from './MiniSwitch';
-import { CommercialCondition, DescontoConstrutoraRegra, Product, SelectedUnit, SimulationData } from '../types';
+import { CartaNaMangaRegra, CommercialCondition, DescontoConstrutoraRegra, Product, SelectedUnit, SimulationData } from '../types';
 import { formatCurrency, parseCurrency } from '../utils/formatters';
 import { calculatePresentValue, ensureProductConditions, calculatePolicyRiskValues, decomposeMorarMonths, getConditionKind, ConditionKind, chaveTorreTipologia } from '../utils/calculations';
 
@@ -141,6 +141,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   // Tetos da 1ª/2ª Mensal (texto; vazio = sem teto por esse critério)
   // Regras de Desconto Construtora (Produto × Torre × Tipologia) do produto ativo.
   const [regrasDesconto, setRegrasDesconto] = useState<DescontoConstrutoraRegra[]>([]);
+  // Regras de Carta na Manga (teto por Produto × Torre × Tipologia).
+  const [regrasCarta, setRegrasCarta] = useState<CartaNaMangaRegra[]>([]);
   // Estado inicial (padrão) dos 3 interruptores de desconto ao abrir a simulação do produto.
   const [padraoDescontos, setPadraoDescontos] = useState({ construtora: false, vista: false, ato: false });
   const [habilitar1Mensal, setHabilitar1Mensal] = useState<boolean>(true);
@@ -280,6 +282,32 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       conditions: (prodWithConds.conditions || []).map(c => ({ ...c, descontosConstrutora: novas }))
     });
   };
+  // Grava as regras de Carta na Manga em TODAS as condições do produto.
+  const persistirRegrasCarta = (novas: CartaNaMangaRegra[]) => {
+    setRegrasCarta(novas);
+    if (!prodWithConds) return;
+    onSaveProductPolicy({
+      ...prodWithConds,
+      name: productName.trim() || prodWithConds.name,
+      deliveryDate: deliveryDatePhase1 || deliveryDatePhase2 || '',
+      deliveryDatePhase1,
+      deliveryDatePhase2,
+      isFeatured,
+      conditions: (prodWithConds.conditions || []).map(c => ({ ...c, cartasNaManga: novas }))
+    });
+  };
+  const adicionarRegraCarta = () => {
+    if (!prodWithConds) return;
+    persistirRegrasCarta([
+      ...regrasCarta,
+      { id: `cm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, produtoId: prodWithConds.id, torre: 'todas', tipologias: [], valorMaximo: 0 }
+    ]);
+  };
+  const atualizarRegraCarta = (id: string, parcial: Partial<CartaNaMangaRegra>) =>
+    persistirRegrasCarta(regrasCarta.map(r => (r.id === id ? { ...r, ...parcial } : r)));
+  const removerRegraCarta = (id: string) =>
+    persistirRegrasCarta(regrasCarta.filter(r => r.id !== id));
+
   // Grava o estado padrão dos 3 interruptores em TODAS as condições do produto.
   const persistirPadraoDescontos = (novo: { construtora: boolean; vista: boolean; ato: boolean }) => {
     setPadraoDescontos(novo);
@@ -522,6 +550,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setTaxaAssinaturaContratoStr(formatDecimalBR(ta, 4, 4));
     const fmtLim = (v: number | undefined) => (v !== undefined && v > 0 ? formatDecimalBR(v, 2, 2) : '');
     setRegrasDesconto(Array.isArray(cond.descontosConstrutora) ? cond.descontosConstrutora : []);
+    setRegrasCarta(Array.isArray(cond.cartasNaManga) ? cond.cartasNaManga : []);
     setPadraoDescontos({
       construtora: cond.descontoConstrutoraPadraoLigado === true,
       vista: cond.descontoVistaPadraoLigado === true,
@@ -668,6 +697,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       limite2aMensal,
       habilitar1aMensal: habilitar1Mensal,
       descontosConstrutora: regrasDesconto,
+      cartasNaManga: regrasCarta,
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
@@ -1033,6 +1063,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       limite2aMensal,
       habilitar1aMensal: habilitar1Mensal,
       descontosConstrutora: regrasDesconto,
+      cartasNaManga: regrasCarta,
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
@@ -1697,6 +1728,95 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                   })()}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* SEÇÃO: CARTA NA MANGA POR PRODUTO × TORRE × TIPOLOGIA */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div>
+                <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Carta na Manga</h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Valor máximo (R$) que o corretor pode conceder de abatimento extra na unidade. Vale a regra mais específica (Torre + Tipologia, depois Torre, depois Tipologia, depois geral). Sem regra aplicável, o limite é R$ 0,00.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={adicionarRegraCarta}
+                className="shrink-0 px-2.5 py-1.5 rounded-lg bg-morar-600 hover:bg-morar-700 text-white text-[11px] font-bold cursor-pointer"
+              >
+                + Adicionar regra
+              </button>
+            </div>
+            {regrasCarta.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic">Nenhuma regra cadastrada — o limite de Carta na Manga é R$ 0,00.</p>
+            ) : (
+              <div className="space-y-2">
+                {regrasCarta.map(r => {
+                  const selecionadas = (r.tipologias || []).filter(x => x.toLowerCase() !== 'todas');
+                  const todas = selecionadas.length === 0;
+                  const alternar = (tip: string) => {
+                    const novas = selecionadas.some(x => x.toLowerCase() === tip.toLowerCase())
+                      ? selecionadas.filter(x => x.toLowerCase() !== tip.toLowerCase())
+                      : [...selecionadas, tip];
+                    atualizarRegraCarta(r.id, { tipologias: novas });
+                  };
+                  const pill = (ativo: boolean) => `px-2 py-0.5 rounded-full border text-[11px] font-bold cursor-pointer transition-colors ${
+                    ativo ? 'bg-morar-600 border-morar-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-morar-400'
+                  }`;
+                  return (
+                    <div key={r.id} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+                      <div className="grid grid-cols-2 md:grid-cols-[1fr_160px_32px] gap-2 items-end">
+                        <label className="text-[10px] font-bold text-slate-500">Torre
+                          <select
+                            value={r.torre || 'todas'}
+                            onChange={(e) => atualizarRegraCarta(r.id, { torre: e.target.value })}
+                            className="mt-0.5 w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
+                          >
+                            <option value="todas">Todas</option>
+                            {allTorres.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-[10px] font-bold text-slate-500">Valor Máximo Permitido (R$)
+                          <input
+                            key={r.id}
+                            type="text"
+                            inputMode="decimal"
+                            defaultValue={formatDecimalBR(r.valorMaximo || 0, 2, 2)}
+                            onBlur={(e) => {
+                              const val = Math.max(0, parseDecimal(e.target.value, 0));
+                              e.target.value = formatDecimalBR(val, 2, 2);
+                              if (val !== r.valorMaximo) atualizarRegraCarta(r.id, { valorMaximo: val });
+                            }}
+                            className="mt-0.5 w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-amber-700 text-right"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removerRegraCarta(r.id)}
+                          className="h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-300 cursor-pointer"
+                          title="Remover regra"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                          Tipologias — {todas ? 'todas' : `${selecionadas.length} selecionada${selecionadas.length > 1 ? 's' : ''}`}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button type="button" className={pill(todas)} onClick={() => atualizarRegraCarta(r.id, { tipologias: [] })}>Todas</button>
+                          {tipologiasDoProduto.map(tip => (
+                            <button key={tip} type="button" className={pill(selecionadas.some(x => x.toLowerCase() === tip.toLowerCase()))} onClick={() => alternar(tip)}>
+                              {tip}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

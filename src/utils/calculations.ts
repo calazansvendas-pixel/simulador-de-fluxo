@@ -1,4 +1,4 @@
-import { CommercialCondition, DescontoConstrutoraRegra, Product, SimulationData } from '../types';
+import { CartaNaMangaRegra, CommercialCondition, DescontoConstrutoraRegra, Product, SimulationData } from '../types';
 import { parseCurrency } from './formatters';
 
 export interface FinancialParams {
@@ -206,6 +206,35 @@ export function resolverDescontoConstrutora(
   const { tipoDesconto, valor } = melhor.regra;
   const bruto = tipoDesconto === 'percentual' ? precoTabela * ((valor || 0) / 100) : (valor || 0);
   return Math.min(precoTabela, Math.max(0, Math.round(bruto * 100) / 100));
+}
+
+/**
+ * Teto de "Carta na Manga" da unidade: regra mais específica (torre+tipologia > torre > tipologia
+ * > geral) para Produto + Torre + Tipologia. Sem regra aplicável = 0. Nunca passa do preço.
+ */
+export function resolverCartaNaMangaMaximo(
+  regras: CartaNaMangaRegra[] | undefined,
+  produtoId: string | null | undefined,
+  torre: string | null | undefined,
+  tipologia: string | null | undefined,
+  precoTabela: number
+): number {
+  if (!regras || regras.length === 0 || !(precoTabela > 0)) return 0;
+  const norm = (v?: string | null) => String(v ?? '').trim().toLowerCase();
+  const ehTodas = (v?: string | null) => norm(v) === '' || norm(v) === 'todas';
+  let melhor: { regra: CartaNaMangaRegra; pontos: number } | null = null;
+  for (const r of regras) {
+    if (r.produtoId && produtoId && r.produtoId !== produtoId) continue;
+    const casaTorre = ehTodas(r.torre) || norm(r.torre) === norm(torre);
+    const listaTip = (r.tipologias || []).filter(x => !ehTodas(x));
+    const tipTodas = listaTip.length === 0;
+    const casaTip = tipTodas || listaTip.some(x => norm(x) === norm(tipologia));
+    if (!casaTorre || !casaTip) continue;
+    const pontos = (ehTodas(r.torre) ? 0 : 2) + (tipTodas ? 0 : 1);
+    if (!melhor || pontos > melhor.pontos) melhor = { regra: r, pontos };
+  }
+  if (!melhor) return 0;
+  return Math.min(precoTabela, Math.max(0, Math.round((melhor.regra.valorMaximo || 0) * 100) / 100));
 }
 
 /** Chave da regra "Apenas Fase Obra": Torre + Tipologia, sem diferenciar maiúsculas/espaços. */

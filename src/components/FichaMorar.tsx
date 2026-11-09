@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, getConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';
@@ -262,6 +262,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const [parcelasITBIManual, setParcelasITBIManual] = useState<number | null>(null);
   // Liga/desliga o Desconto Construtora da regra da política (sempre inicia desligado).
   const [descontoConstrutoraAtivo, setDescontoConstrutoraAtivo] = useState<boolean>(padraoConstrutoraLigado);
+  // "Carta na Manga" digitada pelo corretor (limitada ao teto da política; zera ao trocar de unidade).
+  const [cartaNaManga, setCartaNaManga] = useState<number>(0);
+  // Interruptor da Carta na Manga: só habilita com valor digitado; liga sozinho ao digitar.
+  const [cartaNaMangaAtiva, setCartaNaMangaAtiva] = useState<boolean>(false);
 
 
 
@@ -492,8 +496,39 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     ? resolverDescontoConstrutora(currentCond?.descontosConstrutora, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
     : 0;
   const descontoConstrutora = descontoConstrutoraAtivo ? descontoConstrutoraRegra : 0;
-  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); }, [selectedTorre, selectedUnidade, currentProd?.id]);
-  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora) * 100) / 100);
+  useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); setCartaNaManga(0); setCartaNaMangaAtiva(false); }, [selectedTorre, selectedUnidade, currentProd?.id]);
+  const cartaNaMangaMax = hasUnitSelected
+    ? resolverCartaNaMangaMaximo(currentCond?.cartasNaManga, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
+    : 0;
+  const cartaNaMangaDigitada = Math.min(cartaNaManga, cartaNaMangaMax);
+  // Só entra nas contas com o interruptor ligado e valor > 0.
+  const cartaNaMangaEfetiva = cartaNaMangaAtiva && cartaNaMangaDigitada > 0 ? cartaNaMangaDigitada : 0;
+  // Carta na Manga soma-se ao Desconto Construtora no abatimento do preço-base (cascata completa).
+  const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora - cartaNaMangaEfetiva) * 100) / 100);
+  const handleCartaNaMangaChange = (valor: number) => {
+    const v = Math.min(Math.max(0, valor), cartaNaMangaMax);
+    setCartaNaManga(v);
+    if (v <= 0) setCartaNaMangaAtiva(false);
+    else if (cartaNaManga <= 0) setCartaNaMangaAtiva(true);
+    setValAtoManual(null);
+    setAtoInputText('');
+    setIsEditingAto(false);
+    setIsManualObra(false);
+    setIsManualPos(false);
+    setItbiObraValorManual(null);
+    setItbiPosValorManual(null);
+  };
+  const handleToggleCartaNaManga = () => {
+    if (cartaNaMangaDigitada <= 0) return;
+    setCartaNaMangaAtiva(v => !v);
+    setValAtoManual(null);
+    setAtoInputText('');
+    setIsEditingAto(false);
+    setIsManualObra(false);
+    setIsManualPos(false);
+    setItbiObraValorManual(null);
+    setItbiPosValorManual(null);
+  };
   const evaluation = hasUnitSelected && matchingRow ? Number(matchingRow.avaliacao_bancaria || 0) : 0;
 
   // Desconto à Vista: aplicado sobre o Preço de Tabela ANTES de qualquer outro
@@ -568,6 +603,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setSelectedTorre(torre);
     setSelectedUnidade('');
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
     setDescontoVistaAtivo(false);
@@ -584,6 +621,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const handleUnidadeChange = (unidade: string) => {
     setSelectedUnidade(unidade);
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
     setDescontoVistaAtivo(false);
@@ -651,6 +690,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     onShowToast('Ficha Morar limpa com sucesso. Selecione a Torre e Unidade para calcular.');
   };
 
@@ -683,6 +724,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
     setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     // Prazo do ITBI volta a acompanhar o fluxo (Obra + Pós ativos): desfaz o prazo estendido ou
     // encurtado à mão. O efeito de inicialização automática recalcula parcela do ITBI e séries.
     setParcelasITBIManual(null);
@@ -2416,6 +2459,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             price={price}
             precoTabelaOriginal={precoTabelaLista}
             descontoConstrutora={descontoConstrutora}
+            cartaNaManga={cartaNaMangaEfetiva}
             descontoAVista={isPagamentoAVistaEnabled ? valorDescontoAVista : 0}
             evaluation={evaluation}
             deliveryText={deliveryText}
@@ -2550,6 +2594,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           isFirstHome={isFirstHomeLocal}
           onFinPercentChange={handleFinancingPercentageChange}
           onFirstHomeChange={handleFirstHomeChange}
+          cartaNaManga={cartaNaMangaDigitada}
+          cartaNaMangaMax={cartaNaMangaMax}
+          onCartaNaMangaChange={handleCartaNaMangaChange}
         />
         </div>
 
@@ -2598,6 +2645,30 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <strong className="text-morar-600 font-semibold">{formatCurrency(fgtsEfetivo)}</strong>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto à Vista:</span>
+                    <MiniSwitch
+                      ativo={isPagamentoAVistaEnabled && descontoVistaAtivo}
+                      disabled={!hasUnitSelected || !isPagamentoAVistaEnabled}
+                      onToggle={() => handleToggleDescontoVista(!descontoVistaAtivo)}
+                      title={!isPagamentoAVistaEnabled ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
+                    />
+                    <strong className={isPagamentoAVistaEnabled && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isPagamentoAVistaEnabled && descontoVistaAtivo ? valorDescontoAVista : 0)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Desconto Ato:</span>
+                    <MiniSwitch
+                      ativo={isAtoPremiadoEnabled}
+                      disabled={!hasUnitSelected || isPagamentoAVistaEnabled}
+                      onToggle={() => handleToggleAtoPremiado(!isAtoPremiadoEnabled)}
+                      title={isPagamentoAVistaEnabled ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                    />
+                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(isAtoPremiadoEnabled ? descontoAto : 0)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
                     <span className="text-slate-600">Desconto Construtora:</span>
                     <button
                       type="button"
@@ -2621,36 +2692,24 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                       title={descontoConstrutoraRegra <= 0
                         ? 'Nenhuma regra de Desconto Construtora para esta unidade'
                         : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
-                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600/70 ring-1 ring-inset ring-emerald-700/20' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow-xs transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
                     </button>
                     <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(descontoConstrutora)}
                     </strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Desconto à Vista:</span>
-                    <MiniSwitch
-                      ativo={isPagamentoAVistaEnabled && descontoVistaAtivo}
-                      disabled={!hasUnitSelected || !isPagamentoAVistaEnabled}
-                      onToggle={() => handleToggleDescontoVista(!descontoVistaAtivo)}
-                      title={!isPagamentoAVistaEnabled ? 'Ative o botão "Pgtº à vista" para usar o Desconto à Vista' : (descontoVistaAtivo ? 'Desconto à Vista ativo — clique para desativar' : 'Ativar Desconto à Vista')}
-                    />
-                    <strong className={isPagamentoAVistaEnabled && descontoVistaAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
-                      {formatCurrency(isPagamentoAVistaEnabled && descontoVistaAtivo ? valorDescontoAVista : 0)}
-                    </strong>
-                  </div>
                   <div className="flex justify-between items-center py-1 mt-1">
-                    <span className="text-slate-600">Desconto Ato:</span>
+                    <span className="text-slate-600">Carta na Manga:</span>
                     <MiniSwitch
-                      ativo={isAtoPremiadoEnabled}
-                      disabled={!hasUnitSelected || isPagamentoAVistaEnabled}
-                      onToggle={() => handleToggleAtoPremiado(!isAtoPremiadoEnabled)}
-                      title={isPagamentoAVistaEnabled ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                      ativo={cartaNaMangaEfetiva > 0}
+                      disabled={cartaNaMangaDigitada <= 0}
+                      onToggle={handleToggleCartaNaManga}
+                      title={cartaNaMangaDigitada <= 0 ? 'Digite um valor de Carta na Manga para habilitar' : (cartaNaMangaEfetiva > 0 ? 'Carta na Manga ativa — clique para desativar' : 'Ativar Carta na Manga')}
                     />
-                    <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
-                      {formatCurrency(isAtoPremiadoEnabled ? descontoAto : 0)}
+                    <strong className={cartaNaMangaEfetiva > 0 ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                      {formatCurrency(cartaNaMangaEfetiva)}
                     </strong>
                   </div>
                 </div>
@@ -3526,6 +3585,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           price={price}
           precoTabelaOriginal={precoTabelaLista}
           descontoConstrutora={descontoConstrutora}
+            cartaNaManga={cartaNaMangaEfetiva}
           descontoAVista={isPagamentoAVistaEnabled ? valorDescontoAVista : 0}
           evaluation={evaluation}
           deliveryText={deliveryText}

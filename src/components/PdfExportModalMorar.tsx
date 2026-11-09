@@ -46,6 +46,8 @@ interface PdfExportModalMorarProps {
   precoTabelaOriginal: number;
   // Desconto Construtora (política por Produto/Torre/Tipologia) já abatido do preço antes do Sinal.
   descontoConstrutora?: number;
+  // Carta na Manga concedida (só aparece quando > 0).
+  cartaNaManga?: number;
   // Desconto à Vista aplicado (0 quando o interruptor está desligado).
   descontoAVista?: number;
   evaluation: number;
@@ -107,6 +109,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   price,
   precoTabelaOriginal,
   descontoConstrutora = 0,
+  cartaNaManga = 0,
   descontoAVista = 0,
   evaluation,
   deliveryText,
@@ -505,6 +508,13 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                       <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
                         <span className="text-slate-600 font-medium">Desconto Construtora:</span>
                         <strong className="text-amber-700 font-semibold">{fmt(descontoConstrutora)}</strong>
+                      </div>
+                    )}
+
+                    {cartaNaManga > 0 && (
+                      <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
+                        <span className="text-slate-600 font-medium">Carta na Manga:</span>
+                        <strong className="text-amber-700 font-semibold">{fmt(cartaNaManga)}</strong>
                       </div>
                     )}
 

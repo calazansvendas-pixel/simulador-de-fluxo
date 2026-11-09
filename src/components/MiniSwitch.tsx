@@ -17,8 +17,8 @@ export const MiniSwitch: React.FC<MiniSwitchProps> = ({ ativo, onToggle, disable
     disabled={disabled}
     onClick={onToggle}
     title={title}
-    className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${ativo ? 'bg-emerald-600' : 'bg-slate-300'} ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+    className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${ativo ? 'bg-emerald-600/70 ring-1 ring-inset ring-emerald-700/20' : 'bg-slate-300'} ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
   >
-    <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow transition-transform ${ativo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+    <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow-xs transition-transform ${ativo ? 'translate-x-3' : 'translate-x-0.5'}`} />
   </button>
 );

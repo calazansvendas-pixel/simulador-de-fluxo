@@ -40,6 +40,8 @@ interface PdfExportModalProps {
   precoTabelaOriginal: number;
   // Desconto Construtora (política por Produto/Torre/Tipologia) já abatido do preço antes do Sinal.
   descontoConstrutora?: number;
+  // Carta na Manga concedida (só aparece quando > 0).
+  cartaNaManga?: number;
   evaluation: number;
   deliveryText: string;
   income: number;
@@ -108,6 +110,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   price,
   precoTabelaOriginal,
   descontoConstrutora = 0,
+  cartaNaManga = 0,
   evaluation,
   deliveryText,
   income,
@@ -674,6 +677,13 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
                           <span className="text-slate-600">Desconto Construtora:</span>
                           <strong className="text-amber-700 font-semibold">{fmt(descontoConstrutora)}</strong>
+                        </div>
+                      )}
+
+                      {cartaNaManga > 0 && (
+                        <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
+                          <span className="text-slate-600">Carta na Manga:</span>
+                          <strong className="text-amber-700 font-semibold">{fmt(cartaNaManga)}</strong>
                         </div>
                       )}
                       <div className="flex justify-between items-center py-0.5">

@@ -102,6 +102,8 @@ export interface CommercialCondition {
   descontoAtoPadraoLigado?: boolean;
   // Regras de Desconto Construtora do produto (mesma lista gravada em todas as condições dele).
   descontosConstrutora?: DescontoConstrutoraRegra[];
+  // Regras de "Carta na Manga" do produto (teto que o corretor pode conceder por unidade).
+  cartasNaManga?: CartaNaMangaRegra[];
   habilitar1aMensal?: boolean;
   habilitar2aMensal?: boolean;
   limite1aMensal?: { maxPercentualRenda?: number; maxPercentualImovel?: number };
@@ -162,6 +164,18 @@ export interface DescontoConstrutoraRegra {
   tipologias?: string[];
   tipoDesconto: 'fixo' | 'percentual';
   valor: number;         // Valor em R$ (fixo) ou percentual sobre o preço de tabela
+}
+
+/**
+ * Regra de "Carta na Manga" por Produto / Torre / Tipologia: define o valor MÁXIMO (R$) que o
+ * corretor pode conceder de abatimento extra na unidade. Sem regra aplicável, o teto é R$ 0,00.
+ */
+export interface CartaNaMangaRegra {
+  id: string;
+  produtoId: string;
+  torre?: string;        // Torre específica ou 'todas'
+  tipologias?: string[]; // Vazio/ausente ou contendo 'todas' = todas as tipologias
+  valorMaximo: number;   // Teto em R$
 }
 
 export interface Product {
