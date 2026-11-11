@@ -72,6 +72,7 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.status == 'pendente'
         && request.resource.data.proprietario == false
+        && request.resource.data.get('pode_editar_politicas', false) == false
         && request.resource.data.superior_id == null
         && request.resource.data.ancestrais.size() == 0
         && request.resource.data.telas_liberadas.size() == 0

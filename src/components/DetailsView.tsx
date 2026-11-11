@@ -1785,12 +1785,14 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const podeApartarComissao = !!condAlvoComissao && !!onSelectCondition;
 
   // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
-  const entregaChaves = formatDateMonthYear(
-    (hasUnitSelected && matchingRow && String(fase).includes('2') && currentProd.deliveryDatePhase2 ? currentProd.deliveryDatePhase2 : undefined)
-      || currentProd.deliveryDatePhase1
-      || currentProd.deliveryDate
-      || currentProd.deliveryDatePhase2
-  );
+  // Sem Torre + Unidade não dá para saber a fase do imóvel, então não mostra data nenhuma.
+  const entregaChaves = hasUnitSelected
+    ? formatDateMonthYear(
+        String(fase).includes('2')
+          ? (currentProd.deliveryDatePhase2 || currentProd.deliveryDate)
+          : (currentProd.deliveryDatePhase1 || currentProd.deliveryDate)
+      )
+    : '';
 
   // Dynamic key delivery dates from product policy or selected unit phase
   let deliveryText = '';

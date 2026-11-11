@@ -334,6 +334,20 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
     }
   };
 
+  // Liga/desliga a permissão "Editar Políticas" de um usuário. Atualiza a linha na
+  // hora (otimista) e desfaz se a gravação falhar.
+  const alternarEditarPoliticas = async (u: PerfilUsuario) => {
+    const novo = !u.canEditPolicies;
+    setAtivos(prev => prev.map(x => (x.id === u.id ? { ...x, canEditPolicies: novo } : x)));
+    const res = await authService.definirPermissaoEditarPoliticas(u.id, novo);
+    if (res.success) {
+      onShowToast(novo ? `${u.nomeCompleto} agora pode editar as políticas.` : `${u.nomeCompleto} não pode mais editar as políticas.`);
+    } else {
+      setAtivos(prev => prev.map(x => (x.id === u.id ? { ...x, canEditPolicies: u.canEditPolicies } : x)));
+      onShowToast(`Erro: ${res.error || 'erro desconhecido'}`);
+    }
+  };
+
   const alternarPausa = async (u: PerfilUsuario) => {
     if (u.cargo === 'Administrador' && u.status === 'ativo') {
       onShowToast('Administradores não podem ser pausados por aqui. Mude o cargo da pessoa antes, se for o caso.');
@@ -882,13 +896,14 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[760px]">
+            <table className="w-full text-xs min-w-[960px]">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
                   <th className="px-5 py-2.5 font-bold">Nome</th>
                   <th className="px-3 py-2.5 font-bold">Cargo</th>
                   <th className="px-3 py-2.5 font-bold">Superior</th>
                   <th className="px-3 py-2.5 font-bold">Status</th>
+                  <th className="px-3 py-2.5 font-bold">Editar Políticas</th>
                   <th className="px-5 py-2.5 font-bold">Ações</th>
                 </tr>
               </thead>
@@ -916,6 +931,32 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                         <span className={`px-2 py-0.5 rounded-full font-bold ${u.status === 'ativo' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                           {u.status === 'ativo' ? 'Ativo' : 'Pausado'}
                         </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        {(() => {
+                          const ehAdm = u.cargo === 'Administrador';
+                          const donoAlheio = u.proprietario && u.id !== usuarioAtualId;
+                          const travado = ehAdm || donoAlheio;
+                          return (
+                            <label
+                              className={`inline-flex items-center gap-2 ${travado ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                              title={ehAdm ? 'Administradores sempre podem editar as políticas' : `Permitir que ${u.nomeCompleto} edite as políticas`}
+                            >
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={u.canEditPolicies}
+                                aria-label={`Editar políticas: ${u.nomeCompleto}`}
+                                disabled={travado}
+                                onClick={() => alternarEditarPoliticas(u)}
+                                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${u.canEditPolicies ? 'bg-emerald-600' : 'bg-slate-300'} ${travado ? '' : 'cursor-pointer'}`}
+                              >
+                                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-xs transition-transform ${u.canEditPolicies ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                              </button>
+                              <span className="text-[11px] font-semibold text-slate-600 max-w-[140px] truncate">{u.nomeCompleto}</span>
+                            </label>
+                          );
+                        })()}
                       </td>
                       <td className="px-5 py-3">
                         {confirmandoExclusao === u.id ? (

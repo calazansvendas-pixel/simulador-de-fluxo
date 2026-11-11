@@ -67,6 +67,7 @@ interface PerfilRow {
   campos_editaveis_equipe: string[] | null;
   empreendimentos_liberados: string[] | null;
   proprietario: boolean | null;
+  pode_editar_politicas?: boolean | null;
   created_at?: string;
 }
 
@@ -106,6 +107,8 @@ function rowParaPerfil(row: PerfilRow): PerfilUsuario {
     camposEditaveisEquipe: row.campos_editaveis_equipe || [],
     empreendimentosLiberados: row.empreendimentos_liberados ?? null,
     proprietario: !!row.proprietario,
+    // Administradores sempre editam as políticas; os demais só com o flag ligado (padrão: desligado).
+    canEditPolicies: row.cargo === 'Administrador' || !!row.pode_editar_politicas,
     createdAt: row.created_at
   };
 }
@@ -207,6 +210,7 @@ export const authService = {
         campos_editaveis_equipe: [],
         empreendimentos_liberados: null,
         proprietario: false,
+        pode_editar_politicas: false,
         created_at: new Date().toISOString()
       });
       batch.set(doc(db, 'perfis_publicos', uid), {
@@ -516,6 +520,17 @@ export const authService = {
       return { success: true as const, error: undefined };
     } catch (e: any) {
       return { success: false as const, error: mensagemDeErro(e, 'Erro ao alterar o status.') };
+    }
+  },
+
+  // Liga/desliga, individualmente, a permissão de editar as Políticas de Crédito.
+  // Só o Administrador grava (firestore.rules); fica só em `perfis` (não vai ao espelho público).
+  async definirPermissaoEditarPoliticas(id: string, valor: boolean) {
+    try {
+      await setDoc(doc(db, 'perfis', id), { pode_editar_politicas: valor }, { merge: true });
+      return { success: true as const, error: undefined };
+    } catch (e: any) {
+      return { success: false as const, error: mensagemDeErro(e, 'Erro ao alterar a permissão.') };
     }
   },
 

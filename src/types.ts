@@ -272,6 +272,10 @@ export interface PerfilUsuario {
   // resolvida em tempo real pela RPC empreendimentos_liberados_efetivos — não
   // é uma cópia congelada no momento do cadastro.
   empreendimentosLiberados: string[] | null;
+  // Permissão individual para EDITAR as Políticas de Crédito (tela "Políticas &
+  // Empreendimentos" e botão "Editar Políticas" do Simulador). Padrão false;
+  // Administradores sempre true. Quem não tem vê a tela só em modo leitura.
+  canEditPolicies: boolean;
   // Existe no máximo UM usuário com proprietario=true no sistema inteiro (trava
   // por índice único no banco). É quem "é dono" do aplicativo — mesmo sendo
   // Administrador como qualquer outro, só ele mesmo pode se rebaixar de cargo,

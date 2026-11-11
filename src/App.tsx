@@ -716,6 +716,7 @@ export default function App({ perfil, onSair }: AppProps) {
               onNavigateToPolicies={() => setActiveTab('policies')}
               onResetAll={handleResetAll}
               condicoesLiberadas={condicoesLiberadas}
+              podeEditarPoliticas={perfil.canEditPolicies}
             />
           )}
 
@@ -792,6 +793,7 @@ export default function App({ perfil, onSair }: AppProps) {
               isFirstHome={simulationData.isFirstHome}
               simulationData={simulationData}
               selectedUnits={selectedUnits}
+              podeEditar={perfil.canEditPolicies}
             />
           )}
 

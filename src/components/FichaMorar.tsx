@@ -2057,12 +2057,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         : '';
 
   // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
-  const entregaChaves = formatDateMonthYear(
-    currentProd.deliveryDate
-      || (fase.includes('2') && currentProd.deliveryDatePhase2 ? currentProd.deliveryDatePhase2 : undefined)
-      || currentProd.deliveryDatePhase1
-      || currentProd.deliveryDatePhase2
-  );
+  // Sem Torre + Unidade não dá para saber a fase do imóvel, então não mostra data nenhuma.
+  const entregaChaves = hasUnitSelected
+    ? formatDateMonthYear(
+        fase.includes('2')
+          ? (currentProd.deliveryDatePhase2 || currentProd.deliveryDate)
+          : (currentProd.deliveryDatePhase1 || currentProd.deliveryDate)
+      )
+    : '';
 
   const hasTable = dbUnitsEfetivos.length > 0;
 

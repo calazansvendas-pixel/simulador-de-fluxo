@@ -61,6 +61,8 @@ interface PoliciesViewProps {
   isFirstHome?: boolean;
   simulationData?: SimulationData;
   selectedUnits?: Record<string, SelectedUnit>;
+  // canEditPolicies do usuário logado. false/ausente = tela em modo somente leitura.
+  podeEditar?: boolean;
 }
 
 // Helpers para conversão e formatação robusta de decimais e inteiros
@@ -101,15 +103,23 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   products,
   activeProductId,
   onSelectProduct,
-  onSaveProductPolicy,
-  onDeleteProduct,
-  onOpenNewProductModal,
+  onSaveProductPolicy: onSaveProductPolicyProp,
+  onDeleteProduct: onDeleteProductProp,
+  onOpenNewProductModal: onOpenNewProductModalProp,
   onShowToast,
   clientIncome,
   isFirstHome = true,
   simulationData,
-  selectedUnits
+  selectedUnits,
+  podeEditar = false
 }) => {
+  // Sem permissão (canEditPolicies), a tela é só de consulta: nenhuma gravação
+  // chega ao App, nem as automáticas (trocar de condição/fase salva o formulário
+  // anterior). Os campos também ficam desabilitados via <fieldset disabled>.
+  const somenteLeitura = !podeEditar;
+  const onSaveProductPolicy: typeof onSaveProductPolicyProp = (p) => { if (!somenteLeitura) onSaveProductPolicyProp(p); };
+  const onDeleteProduct: typeof onDeleteProductProp = (id) => { if (!somenteLeitura) onDeleteProductProp(id); };
+  const onOpenNewProductModal: typeof onOpenNewProductModalProp = () => { if (!somenteLeitura) onOpenNewProductModalProp(); };
   const activeProd = products.find(p => p.id === activeProductId) || products[0];
   const prodWithConds = activeProd ? ensureProductConditions({ ...activeProd }) : null;
 
@@ -942,7 +952,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   };
 
   const handleSavePolicy = () => {
-    if (!prodWithConds) return;
+    if (somenteLeitura || !prodWithConds) return;
     if (!productName.trim()) {
       onShowToast("O nome do empreendimento é obrigatório.");
       return;
@@ -1230,6 +1240,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             Selecione o empreendimento e a condição comercial para configurar regras e políticas específicas de crédito.
           </p>
         </div>
+        {somenteLeitura ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl shrink-0" title="Seu usuário não tem permissão para editar as políticas. Peça ao Administrador.">
+            <ShieldAlert className="w-3.5 h-3.5" /> Somente leitura
+          </span>
+        ) : (
         <button
           onClick={onOpenNewProductModal}
           type="button"
@@ -1238,6 +1253,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
           <Plus className="w-4 h-4" />
           <span>Novo Empreendimento</span>
         </button>
+        )}
       </div>
 
       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
@@ -1263,6 +1279,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             <span className="text-[10px] font-bold text-amber-700 uppercase bg-amber-50 px-2.5 py-1 rounded border border-amber-200 shrink-0">
               {isFeatured ? 'Destaque Principal' : 'Empreendimento'}
             </span>
+            {!somenteLeitura && (
             <button
               onClick={() => onDeleteProduct(activeProductId)}
               type="button"
@@ -1271,11 +1288,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
               <span>Excluir</span>
             </button>
+            )}
           </div>
         </div>
 
         {/* FORMULÁRIO DE EDIÇÃO DO EMPREENDIMENTO */}
         <div className="space-y-5 text-xs pt-1">
+          <fieldset disabled={somenteLeitura} className="min-w-0">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
@@ -1314,6 +1333,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             </div>
           </div>
 
+          </fieldset>
+
           {/* 2. SELETOR DE CONDIÇÃO COMERCIAL */}
           <div className="bg-gradient-to-br from-amber-50/80 via-amber-50/30 to-white p-4 rounded-xl border border-amber-200/80 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1333,6 +1354,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                 </select>
               </div>
 
+              {!somenteLeitura && (
               <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                 <button
                   type="button"
@@ -1351,9 +1373,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                   <span>Excluir Condição</span>
                 </button>
               </div>
+              )}
             </div>
           </div>
 
+          <fieldset disabled={somenteLeitura} className="space-y-5 min-w-0">
           {/* SEÇÃO: TORRES DISPONÍVEIS PARA SIMULAÇÃO */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
@@ -1821,6 +1845,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             )}
           </div>
 
+          </fieldset>
+
           {/* PARÂMETROS DA POLÍTICA DE CRÉDITO PARA A CONDIÇÃO SELECIONADA */}
           <div className="bg-gradient-to-r from-morar-50/80 via-slate-50 to-white p-4 rounded-xl border border-morar-100 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-morar-100 pb-2">
@@ -1869,6 +1895,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
               </div>
             </div>
 
+            <fieldset disabled={somenteLeitura} className="space-y-4 min-w-0">
             {editingFase === '2' && (
               <div className="p-2.5 bg-violet-50 border border-violet-200 rounded-lg text-[11px] text-violet-800 flex items-center gap-2 font-semibold">
                 <Layers className="w-3.5 h-3.5 text-violet-600 shrink-0" />
@@ -3117,8 +3144,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
               </div>
             )}
 
+            </fieldset>
           </div>
 
+          <fieldset disabled={somenteLeitura} className="space-y-5 min-w-0">
           <div>
             <div className="flex justify-between items-center mb-1">
               <label className="block font-semibold text-slate-700">
@@ -3155,16 +3184,19 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             </label>
           </div>
 
-          <div className="pt-3 border-t border-slate-100 flex justify-end">
-            <button
-              onClick={handleSavePolicy}
-              type="button"
-              className="px-5 py-2.5 bg-morar-600 hover:bg-morar-700 text-white font-semibold rounded-xl text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <Save className="w-4 h-4" />
-              <span>Salvar Alterações</span>
-            </button>
-          </div>
+          {!somenteLeitura && (
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={handleSavePolicy}
+                type="button"
+                className="px-5 py-2.5 bg-morar-600 hover:bg-morar-700 text-white font-semibold rounded-xl text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Alterações</span>
+              </button>
+            </div>
+          )}
+          </fieldset>
         </div>
       </div>
 

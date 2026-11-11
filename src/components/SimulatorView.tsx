@@ -28,6 +28,8 @@ interface SimulatorViewProps {
   // parte do menu lateral, o que aparece no dropdown "Selecionar Condição"
   // abaixo (ver types.ts). undefined = sem restrição (Administrador).
   condicoesLiberadas?: string[];
+  // canEditPolicies do usuário logado — sem ele, o botão "Editar Políticas" some.
+  podeEditarPoliticas?: boolean;
 }
 
 export const SimulatorView: React.FC<SimulatorViewProps> = ({
@@ -39,7 +41,8 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
   onAdvanceToDetails,
   onNavigateToPolicies,
   onResetAll,
-  condicoesLiberadas
+  condicoesLiberadas,
+  podeEditarPoliticas = false
 }) => {
   // Fallback seguro caso simulationData venha undefined
   const safeSimulationData: SimulationData = simulationData || {
@@ -362,13 +365,15 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                     3. Empreendimentos
                   </h2>
                 </div>
-                <button
-                  type="button"
-                  onClick={onNavigateToPolicies}
-                  className="text-[11px] font-semibold text-morar-600 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <Edit3 className="w-3 h-3" /> Editar Políticas
-                </button>
+                {podeEditarPoliticas && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToPolicies}
+                    className="text-[11px] font-semibold text-morar-600 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3 h-3" /> Editar Políticas
+                  </button>
+                )}
               </div>
 
               {/* DROPDOWN ÚNICO DE EMPREENDIMENTO — substitui a lista com um
