@@ -294,8 +294,10 @@ export default function App({ perfil, onSair }: AppProps) {
   }, [products]);
 
   // Simulation form data state
+  // Valor inicial de "Imobiliária / Corretor": dados do usuário logado (editável).
+  const agenciaPadrao = [perfil.imobiliaria, perfil.nomeCompleto].map(v => v?.trim()).filter(Boolean).join(' / ');
   const [simulationData, setSimulationData] = useState<SimulationData>({
-    agency: '',
+    agency: agenciaPadrao,
     clientName: '',
     income: null,
     subsidy: null,
@@ -342,7 +344,7 @@ export default function App({ perfil, onSair }: AppProps) {
   const handleResetAll = () => {
     // Redefinição completa do Formulário de Simulação, condições e seletores de Torre e Unidade
     setSimulationData({
-      agency: '',
+      agency: agenciaPadrao,
       clientName: '',
       income: null,
       subsidy: null,

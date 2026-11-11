@@ -155,13 +155,13 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Imobiliária Parcial / Parceira
+                    Imobiliária / Corretor
                   </label>
                   <input
                     type="text"
                     value={safeSimulationData.agency || ''}
                     onChange={(e) => onSimulationDataChange({ ...safeSimulationData, agency: e.target.value })}
-                    placeholder="Nome da imobiliária (opcional)"
+                    placeholder="Imobiliária / Corretor (opcional)"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-morar-600 transition-all"
                   />
                 </div>
