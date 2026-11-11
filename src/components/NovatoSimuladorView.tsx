@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Pencil, RotateCcw } from 'lucide-react';
 import { ActiveTab, CommercialCondition, PdfExportSettings, Product, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatForEdit, parseCurrency } from '../utils/formatters';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { MorarBarDatum, MorarFaixa, MorarPieDatum } from './PdfExportModalMorar';
 import { MonthStepper } from './MonthStepper';
 import { FichaMorarTopBar } from './FichaMorarTopBar';

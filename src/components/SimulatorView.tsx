@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { 
   UserCheck, 
   Wallet, 
@@ -6,8 +6,6 @@ import {
   Edit3, 
   ChevronRight, 
   KeyRound,
-  Coins,
-  Sparkles,
   RotateCcw
 } from 'lucide-react';
 import { ActiveTab, Product, SimulationData } from '../types';

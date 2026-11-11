@@ -7,13 +7,12 @@ import {
   Coins,
   Receipt,
   FileCheck2,
-  Building,
   Check,
   PieChart
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
-import { formatCurrency, formatM2, formatArea, parseCurrency, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, decomposeMorarMonths, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, getConditionKind } from '../utils/calculations';
+import { formatCurrency, formatArea, parseCurrency, formatDeliveryText, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
+import { ensureProductConditions, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';

@@ -1,4 +1,4 @@
-import { CartaNaMangaRegra, CommercialCondition, DescontoConstrutoraRegra, Product, SimulationData } from '../types';
+import { CartaNaMangaRegra, CommercialCondition, DescontoConstrutoraRegra, Product } from '../types';
 import { parseCurrency } from './formatters';
 
 export interface FinancialParams {

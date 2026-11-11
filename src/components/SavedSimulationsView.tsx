@@ -3,7 +3,7 @@ import { Eye, Pencil, Trash2, X, RefreshCw, ClipboardList, AlertTriangle, Buildi
 import { formatCurrency, parseCurrency, formatForEdit } from '../utils/formatters';
 import { imoveisService } from '../services/imoveisService';
 import { authService, MembroEquipeEditavel } from '../services/authService';
-import { CAMPOS_EDITAVEIS_EQUIPE, CARGOS, TELAS_APP } from '../config/telasApp';
+import { CARGOS, TELAS_APP } from '../config/telasApp';
 import { Cargo, Product } from '../types';
 
 export interface SavedSimulationRecord {

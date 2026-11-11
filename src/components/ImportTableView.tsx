@@ -418,8 +418,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
 
   const handleSaveTable = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Validação de salvamento - Empreendimento ID:", activeImportProductId);
-    console.log("handleSaveTable chamado", { activeImportProductId, temProduto: Boolean(activeProd), validFrom, validTo, temPlanilha: Boolean(tempParsedData) });
     if (!activeProd) {
       console.error('Salvar tabela: nenhum empreendimento selecionado. activeImportProductId =', activeImportProductId, '| ids disponíveis:', products.map(p => p.id));
       onShowToast("Por favor, selecione um empreendimento na lista suspensa.");
@@ -427,7 +425,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
     }
 
     // O <input type="date"> entrega YYYY-MM-DD; só acusa erro com campo vazio, data ilegível ou fim < início.
-    console.log("Validando vigência:", { dataInicio: validFrom, dataFim: validTo });
     const inicio = new Date(validFrom).getTime();
     const fim = new Date(validTo).getTime();
     if (!validFrom || !validTo) {
@@ -526,7 +523,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
       };
 
       // Salva no estado global e no cache local (localStorage)
-      console.log('Tabela salva — atualizando estado do empreendimento:', { id: activeProd.id, active: newTableInfo.active, validFrom, validTo, unidades: finalRows.length });
       onSaveTableInfo(activeProd.id, newTableInfo);
       // Limpa o arquivo importado (preview e input) para a tela mostrar só a tabela vigente.
       setTempParsedData(null);
@@ -876,7 +872,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
                   </button>
                   <button
                     type="submit"
-                    onClick={(e) => console.log("CLIQUE NO BOTÃO DISPARADO!", e)}
                     disabled={isSaving}
                     className="px-5 py-2 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
@@ -950,7 +945,6 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
               </button>
               <button
                 type="submit"
-                onClick={(e) => console.log("CLIQUE NO BOTÃO DISPARADO!", e)}
                 disabled={isSaving}
                 className="px-5 py-2.5 bg-morar-600 hover:bg-morar-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
               >
