@@ -91,7 +91,7 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
       // Elegível (teto da política > 0): mesmo verde-claro dos quadros TORRE/UNIDADE, com borda suave.
       <div className={`p-3.5 rounded-xl border shadow-sm space-y-1 transition-colors ${desabilitada ? "bg-white border-slate-200" : "bg-morar-50/60 border-morar-100"}`}>
         <div className="flex items-center justify-between gap-2">
-          <span className={`whitespace-nowrap text-[11px] sm:text-xs font-semibold ${desabilitada ? "text-slate-700" : "text-morar-700"}`}>Carta na Manga</span>
+          <span className={`whitespace-nowrap text-[11px] sm:text-xs font-semibold ${desabilitada ? "text-slate-700" : "text-morar-700"}`}>Carta na Manga para o Cliente</span>
           <div className="flex items-center gap-1.5">
             <button
               type="button"

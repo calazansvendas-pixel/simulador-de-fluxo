@@ -513,8 +513,8 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
 
                     {cartaNaManga > 0 && (
                       <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
-                        <span className="text-slate-600 font-medium">Carta na Manga:</span>
-                        <strong className="text-amber-700 font-semibold">{fmt(cartaNaManga)}</strong>
+                        <span className="text-slate-600 font-medium pr-2">Carta na Manga para o Cliente:</span>
+                        <strong className="text-amber-700 font-semibold shrink-0">{fmt(cartaNaManga)}</strong>
                       </div>
                     )}
 

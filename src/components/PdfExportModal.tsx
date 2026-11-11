@@ -682,8 +682,8 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
 
                       {cartaNaManga > 0 && (
                         <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
-                          <span className="text-slate-600">Carta na Manga:</span>
-                          <strong className="text-amber-700 font-semibold">{fmt(cartaNaManga)}</strong>
+                          <span className="text-slate-600 pr-2">Carta na Manga para o Cliente:</span>
+                          <strong className="text-amber-700 font-semibold shrink-0">{fmt(cartaNaManga)}</strong>
                         </div>
                       )}
                       <div className="flex justify-between items-center py-0.5">
