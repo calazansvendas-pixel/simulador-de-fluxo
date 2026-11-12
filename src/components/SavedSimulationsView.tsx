@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Eye, Pencil, Trash2, X, RefreshCw, ClipboardList, AlertTriangle, Building2, User, Filter, ChevronDown, ChevronUp, Search, Users, Save } from 'lucide-react';
 import { formatCurrency, parseCurrency, formatForEdit } from '../utils/formatters';
 import { imoveisService } from '../services/imoveisService';
@@ -844,49 +845,58 @@ export const SavedSimulationsView: React.FC<SavedSimulationsViewProps> = ({ onEd
       </div>
       </div>
 
-      {/* MODAL: VISUALIZAR DETALHES */}
-      {viewingSim && (
+      {/* MODAL: VISUALIZAR DETALHES — renderizado no <body> (portal): o contêiner da tela tem
+          animação com transform, e um `fixed` dentro dele deixa de ser relativo à janela (o modal
+          ficava colado/cortado no topo da página em vez de centralizado na viewport). */}
+      {viewingSim && createPortal(
         <div
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in"
           onClick={(e) => { if (e.target === e.currentTarget) setViewingSim(null); }}
         >
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6 space-y-4 relative">
-            <button
-              type="button"
-              onClick={() => setViewingSim(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                {viewingSim.dados?.cliente_nome || viewingSim.cliente_nome || 'Cliente Não Informado'}
-              </h3>
-              <p className="text-xs text-slate-500">
-                {viewingSim.dados?.empreendimento_nome} — {viewingSim.dados?.condicao_nome}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Torre {viewingSim.dados?.torre || '-'} / Unidade {viewingSim.dados?.unidade || '-'} • Salvo em {formatarData(viewingSim.dados?.salvo_em)}
-                {viewingSim.criado_por_nome && (
-                  <>
-                    {' '}• Feito por {viewingSim.criado_por_nome}
-                    {viewingSim.criado_por_cargo && <> ({viewingSim.criado_por_cargo}{viewingSim.criado_por_imobiliaria ? ` — ${viewingSim.criado_por_imobiliaria}` : ''})</>}
-                  </>
-                )}
-              </p>
+          <div className="bg-white rounded-2xl border border-[#E5E8E6] shadow-xl w-full max-w-2xl my-auto max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden">
+            {/* CABEÇALHO */}
+            <div className="shrink-0 px-6 py-4 border-b border-[#E5E8E6] flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-900 truncate">
+                  {viewingSim.dados?.cliente_nome || viewingSim.cliente_nome || 'Cliente Não Informado'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {viewingSim.dados?.empreendimento_nome} — {viewingSim.dados?.condicao_nome}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Torre {viewingSim.dados?.torre || '-'} / Unidade {viewingSim.dados?.unidade || '-'} • Salvo em {formatarData(viewingSim.dados?.salvo_em)}
+                  {viewingSim.criado_por_nome && (
+                    <>
+                      {' '}• Feito por {viewingSim.criado_por_nome}
+                      {viewingSim.criado_por_cargo && <> ({viewingSim.criado_por_cargo}{viewingSim.criado_por_imobiliaria ? ` — ${viewingSim.criado_por_imobiliaria}` : ''})</>}
+                    </>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingSim(null)}
+                aria-label="Fechar"
+                className="shrink-0 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5 text-xs pt-2 border-t border-slate-100">
-              {CAMPOS_DETALHE.filter(c => viewingSim.dados?.[c.key] !== undefined).map(c => (
-                <div key={c.key} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
-                  <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">{c.label}</span>
-                  <span className="font-bold text-slate-800">{formatarValor(viewingSim.dados?.[c.key], c.formato)}</span>
-                </div>
-              ))}
+            {/* CORPO (só ele rola) */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                {CAMPOS_DETALHE.filter(c => viewingSim.dados?.[c.key] !== undefined).map(c => (
+                  <div key={c.key} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                    <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">{c.label}</span>
+                    <span className="font-bold text-slate-800">{formatarValor(viewingSim.dados?.[c.key], c.formato)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            {/* RODAPÉ */}
+            <div className="shrink-0 px-6 py-4 border-t border-[#E5E8E6] bg-[#F8F9F8] flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setViewingSim(null)}
@@ -904,7 +914,8 @@ export const SavedSimulationsView: React.FC<SavedSimulationsViewProps> = ({ onEd
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL: CONFIRMAR EXCLUSÃO — fixo no topo da tela (não no centro do
