@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
+  Minus, 
+  RotateCcw, 
   Trash2, 
   Layers, 
   PlusCircle, 
@@ -91,6 +93,13 @@ const resolveSinalMinimo = (raw: string, defaultVal = 2000): number => {
   return raw.trim() === '' ? defaultVal : parseCurrency(raw);
 };
 
+// Passo de ajuste rápido (R$): sem teto máximo. 0 é válido (desliga os botões +/− na simulação);
+// ausente, negativo ou inválido cai no padrão de R$ 100,00.
+const stepValido = (v: number | undefined): number => (typeof v === 'number' && isFinite(v) && v >= 0 ? Math.round(v * 100) / 100 : 100);
+
+// Lê o passo digitado em formato BR ("1.000,00", "1000", "50"). Vazio/sem dígitos = padrão (100).
+const lerStep = (raw: string): number => (/[0-9]/.test(raw) ? parseCurrency(raw) : 100);
+
 const formatDecimalBR = (num: number, minDec = 1, maxDec = 2): string => {
   if (isNaN(num)) return '0';
   return num.toLocaleString('pt-BR', { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
@@ -152,6 +161,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [regrasCarta, setRegrasCarta] = useState<CartaNaMangaRegra[]>([]);
   // Estado inicial (padrão) dos 3 interruptores de desconto ao abrir a simulação do produto.
   const [padraoDescontos, setPadraoDescontos] = useState({ construtora: false, vista: false, ato: false });
+  // Graduação de Ajuste Rápido (Entrada): passo (R$) dos botões +/- do Ato (Imóvel) e do ITBI no Ato.
+  const [stepAtoStr, setStepAtoStr] = useState<string>('100');
+  const [stepItbiStr, setStepItbiStr] = useState<string>('100');
   const [habilitar1Mensal, setHabilitar1Mensal] = useState<boolean>(true);
   const [habilitar2Mensal, setHabilitar2Mensal] = useState<boolean>(true);
   const [m1RendaStr, setM1RendaStr] = useState<string>('');
@@ -333,6 +345,43 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
         descontoAtoPadraoLigado: novo.ato
       }))
     });
+  };
+  // Grava o passo de ajuste rápido (R$) do Ato e do ITBI em TODAS as condições do produto.
+  const persistirSteps = (sobrescrever?: { ato?: string; itbi?: string }) => {
+    const stepAto = stepValido(lerStep(sobrescrever?.ato ?? stepAtoStr));
+    const stepItbi = stepValido(lerStep(sobrescrever?.itbi ?? stepItbiStr));
+    setStepAtoStr(formatDecimalBR(stepAto, 2, 2));
+    setStepItbiStr(formatDecimalBR(stepItbi, 2, 2));
+    if (!prodWithConds) return;
+    onSaveProductPolicy({
+      ...prodWithConds,
+      name: productName.trim() || prodWithConds.name,
+      deliveryDate: deliveryDatePhase1 || deliveryDatePhase2 || '',
+      deliveryDatePhase1,
+      deliveryDatePhase2,
+      isFeatured,
+      conditions: (prodWithConds.conditions || []).map(c => ({ ...c, stepAtoImovel: stepAto, stepItbiAto: stepItbi }))
+    });
+  };
+  // Botões + / − dos passos: de R$ 50 em R$ 50, sem teto (mínimo 0). Valor quebrado vai direto ao
+  // múltiplo de 50 superior (+) ou inferior (−); valor já múltiplo (inclusive 0) anda um passo inteiro.
+  // Grava na hora.
+  const ajustarStep = (qual: 'ato' | 'itbi', direcao: 1 | -1) => {
+    const bruto = lerStep(qual === 'ato' ? stepAtoStr : stepItbiStr);
+    const cent = Math.round((isFinite(bruto) ? bruto : 100) * 100);
+    const passo = 5000;
+    const resto = ((cent % passo) + passo) % passo;
+    const proximo = resto === 0 ? cent + direcao * passo : (direcao > 0 ? cent - resto + passo : cent - resto);
+    const novo = Math.max(0, proximo) / 100;
+    const texto = formatDecimalBR(novo, 2, 2);
+    if (qual === 'ato') setStepAtoStr(texto); else setStepItbiStr(texto);
+    persistirSteps(qual === 'ato' ? { ato: texto } : { itbi: texto });
+  };
+  // Zera o passo (0 = os botões +/− da simulação ficam sem efeito). Grava na hora.
+  const zerarStep = (qual: 'ato' | 'itbi') => {
+    const texto = formatDecimalBR(0, 2, 2);
+    if (qual === 'ato') setStepAtoStr(texto); else setStepItbiStr(texto);
+    persistirSteps(qual === 'ato' ? { ato: texto } : { itbi: texto });
   };
   const adicionarRegraDesconto = () => {
     if (!prodWithConds) return;
@@ -563,6 +612,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       vista: cond.descontoVistaPadraoLigado === true,
       ato: cond.descontoAtoPadraoLigado === true
     });
+    setStepAtoStr(formatDecimalBR(stepValido(cond.stepAtoImovel), 2, 2));
+    setStepItbiStr(formatDecimalBR(stepValido(cond.stepItbiAto), 2, 2));
     setHabilitar1Mensal(cond.habilitar1aMensal !== false);
     setHabilitar2Mensal(cond.habilitar2aMensal !== false);
     setM1RendaStr(fmtLim(source.limite1aMensal?.maxPercentualRenda));
@@ -708,6 +759,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
+      stepAtoImovel: stepValido(lerStep(stepAtoStr)),
+      stepItbiAto: stepValido(lerStep(stepItbiStr)),
       habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: atoPremiadoPctSalvar,
       comissaoApartadaPct: comissaoApartadaPctSalvar,
@@ -1074,6 +1127,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
+      stepAtoImovel: stepValido(lerStep(stepAtoStr)),
+      stepItbiAto: stepValido(lerStep(stepItbiStr)),
       habilitar2aMensal: habilitar2Mensal,
       atoPremiadoPct: parsedAtoPremiadoPct,
       comissaoApartadaPct: parsedComissaoApartadaPct,
@@ -1639,6 +1694,68 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                     <MiniSwitch ativo={padraoDescontos[chave]} onToggle={() => persistirPadraoDescontos({ ...padraoDescontos, [chave]: !padraoDescontos[chave] })} />
                   </span>
                 </label>
+              ))}
+            </div>
+          </div>
+
+          {/* SEÇÃO: GRADUAÇÃO DE AJUSTE RÁPIDO (ENTRADA) */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="border-b border-slate-100 pb-2.5">
+              <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Graduação de Ajuste Rápido (Entrada)</h4>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Passo (R$) dos botões + e − nos campos "Ato (Imóvel)" e "ITBI no Ato" da simulação. Se o valor atual não for múltiplo do passo, o primeiro clique arredonda para o múltiplo (para cima no +, para baixo no −). Sem teto máximo. Padrão: R$ 100,00; R$ 0,00 desativa os botões na simulação.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                ['Passo do Ato (Imóvel)', stepAtoStr, setStepAtoStr, 'ato'],
+                ['Passo do ITBI no Ato', stepItbiStr, setStepItbiStr, 'itbi']
+              ] as const).map(([rotulo, valor, setValor, qual]) => (
+                <div key={rotulo}>
+                  <label className="block font-semibold text-slate-700 mb-1">{rotulo}</label>
+                  <div className="flex items-stretch rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:bg-white focus-within:border-morar-600">
+                    <button
+                      type="button"
+                      onClick={() => zerarStep(qual)}
+                      title="Zerar valor"
+                      aria-label={`Zerar ${rotulo}`}
+                      className="self-center ml-1.5 shrink-0 p-1 rounded text-slate-400 hover:text-[#006B3F] hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RotateCcw size={13} />
+                    </button>
+                    <span className="self-center pl-1.5 text-slate-400 font-semibold pointer-events-none">R$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={valor}
+                      onChange={(e) => setValor(e.target.value)}
+                      onBlur={() => persistirSteps()}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      placeholder="100,00"
+                      className="flex-1 min-w-0 pl-1.5 pr-3 py-2.5 bg-transparent font-semibold text-slate-900 focus:outline-none"
+                    />
+                    <div className="flex flex-col w-5 h-auto shrink-0 border-l border-[#E5E8E6] overflow-hidden rounded-r-lg">
+                      <button
+                        type="button"
+                        onClick={() => ajustarStep(qual, 1)}
+                        title="Aumentar R$ 50,00"
+                        aria-label={`Aumentar ${rotulo}`}
+                        className="flex-1 flex items-center justify-center hover:bg-slate-100 text-slate-600 hover:text-[#006B3F] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Plus size={10} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => ajustarStep(qual, -1)}
+                        title="Diminuir R$ 50,00"
+                        aria-label={`Diminuir ${rotulo}`}
+                        className="flex-1 flex items-center justify-center border-t border-[#E5E8E6] hover:bg-slate-100 text-slate-600 hover:text-[#006B3F] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Minus size={10} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

@@ -100,6 +100,10 @@ export interface CommercialCondition {
   descontoConstrutoraPadraoLigado?: boolean;
   descontoVistaPadraoLigado?: boolean;
   descontoAtoPadraoLigado?: boolean;
+  // "Graduação de Ajuste Rápido (Entrada)": passo (R$) dos botões +/- de "Ato (Imóvel)" e "ITBI no
+  // Ato" (mesmo valor em todas as condições do produto). Ausente/inválido = 100.
+  stepAtoImovel?: number;
+  stepItbiAto?: number;
   // Regras de Desconto Construtora do produto (mesma lista gravada em todas as condições dele).
   descontosConstrutora?: DescontoConstrutoraRegra[];
   // Regras de "Carta na Manga" do produto (teto que o corretor pode conceder por unidade).

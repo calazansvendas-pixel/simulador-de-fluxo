@@ -1,6 +1,64 @@
 import React, { useState, useEffect } from 'react';
-import { Building, RotateCcw, Sliders, Wallet } from 'lucide-react';
+import { Building, Minus, Plus, RotateCcw, Sliders, Wallet } from 'lucide-react';
 import { formatCurrency, parseCurrency, formatForEdit } from '../utils/formatters';
+
+// Passo padrão (R$) dos botões +/- de "Ato (Imóvel)" e "ITBI no Ato" quando a política não define outro.
+export const STEP_AJUSTE_PADRAO = 100;
+
+// Primeiro clique alinha ao múltiplo do passo (para cima no +, para baixo no -); se o valor já é
+// múltiplo exato, soma/subtrai o passo. Trabalha em centavos para não acumular erro de ponto
+// flutuante e nunca devolve menos que 0.
+export function proximoValorComPasso(valor: number, passo: number, direcao: 1 | -1): number {
+  const v = Math.round((Number.isFinite(valor) ? valor : 0) * 100);
+  const s = Math.round((Number.isFinite(passo) && passo > 0 ? passo : STEP_AJUSTE_PADRAO) * 100); // sem teto máximo
+  const resto = ((v % s) + s) % s;
+  const proximo = resto === 0 ? v + direcao * s : (direcao > 0 ? v - resto + s : v - resto);
+  return Math.max(0, proximo) / 100;
+}
+
+interface AjusteRapidoProps {
+  children: React.ReactNode;
+  onRestaurar: () => void;
+  onMais: () => void;
+  onMenos: () => void;
+  tituloRestaurar: string;
+}
+
+// Moldura do campo em UMA linha (altura compacta): [↺ restaurar sugerido] [campo] [+ / − empilhados].
+const AjusteRapido: React.FC<AjusteRapidoProps> = ({ children, onRestaurar, onMais, onMenos, tituloRestaurar }) => (
+  <div className="flex items-center gap-1 mt-1.5 w-full min-w-0">
+    <button
+      type="button"
+      onClick={onRestaurar}
+      title={tituloRestaurar}
+      aria-label={tituloRestaurar}
+      className="p-0.5 text-slate-400 hover:text-emerald-700 shrink-0 transition-colors cursor-pointer"
+    >
+      <RotateCcw size={11} />
+    </button>
+    {children}
+    <div className="flex flex-col w-4 h-7 shrink-0 border border-slate-200 rounded overflow-hidden bg-white">
+      <button
+        type="button"
+        onClick={onMais}
+        title="Aumentar"
+        aria-label="Aumentar"
+        className="flex-1 flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+      >
+        <Plus size={9} />
+      </button>
+      <button
+        type="button"
+        onClick={onMenos}
+        title="Diminuir"
+        aria-label="Diminuir"
+        className="flex-1 flex items-center justify-center border-t border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+      >
+        <Minus size={9} />
+      </button>
+    </div>
+  </div>
+);
 
 export interface FluxoEntradaConstrutoraProps {
   title?: string;
@@ -16,6 +74,9 @@ export interface FluxoEntradaConstrutoraProps {
   valorAtoMinimo: number;
   valorAtoMaximo?: number;
   onAtoChange: (novoValor: number | null) => void;
+  // Passo (R$) dos botões +/- do Ato (Imóvel) e do ITBI no Ato (Política de Crédito; padrão 100).
+  stepAto?: number;
+  stepItbi?: number;
   onShowToast?: (msg: string) => void;
   // Alternância Parcelado / À Vista (opcional — só usada no fluxo Sinal c/ Morar,
   // onde existe Pró-Soluto parcelado a ser trazido inteiro para o Ato).
@@ -53,6 +114,8 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
   valorAtoMinimo,
   valorAtoMaximo = 0,
   onAtoChange,
+  stepAto = STEP_AJUSTE_PADRAO,
+  stepItbi = STEP_AJUSTE_PADRAO,
   onShowToast,
   isAVistaActive = false,
   onToggleAVista,
@@ -168,6 +231,32 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
     setItbiInputText(formatCurrency(parsed));
   };
 
+  // Ajuste rápido (+/-) do Ato (Imóvel): respeita piso (mínimo da política) e teto, e reaproveita o
+  // mesmo onAtoChange da digitação manual — então o fluxo, o saldo e o sinal líquido recalculam igual.
+  const ajustarAto = (direcao: 1 | -1) => {
+    if (stepAto <= 0) { onShowToast?.('O passo do Ato (Imóvel) está em R$ 0,00 nas Políticas — ajuste lá para usar os botões + e −.'); return; }
+    let novo = proximoValorComPasso(valorAto, stepAto, direcao);
+    if (valorAtoMinimo > 0 && novo < valorAtoMinimo) novo = valorAtoMinimo;
+    if (valorAtoMaximo > 0 && novo > valorAtoMaximo) novo = valorAtoMaximo;
+    novo = Math.round(novo * 100) / 100;
+    setIsEditingAto(false);
+    if (Math.abs(novo - valorAto) < 0.005) return;
+    onAtoChange(novo);
+    setAtoInputText(formatCurrency(novo));
+  };
+
+  // Idem para o ITBI no Ato (0 = sem piso manual; teto = ITBI total).
+  const ajustarITBI = (direcao: 1 | -1) => {
+    if (stepItbi <= 0) { onShowToast?.('O passo do ITBI no Ato está em R$ 0,00 nas Políticas — ajuste lá para usar os botões + e −.'); return; }
+    let novo = proximoValorComPasso(valAtoITBI, stepItbi, direcao);
+    if (valorTotalITBI > 0 && novo > valorTotalITBI) novo = valorTotalITBI;
+    novo = Math.round(novo * 100) / 100;
+    setIsEditingITBI(false);
+    if (Math.abs(novo - valAtoITBI) < 0.005) return;
+    onITBIChange?.(novo);
+    setItbiInputText(novo > 0 ? formatCurrency(novo) : '');
+  };
+
   return (
     <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
       {/* CABEÇALHO PADRONIZADO */}
@@ -225,18 +314,18 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
 
       {/* GRADE DOS CARDS PADRONIZADOS (3, OU 2 QUANDO O ITBI NÃO SE APLICA) */}
       <div className="space-y-2.5 text-xs">
-        <div className={`grid grid-cols-1 ${hideITBI ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2.5`}>
+        <div className={`grid grid-cols-1 ${hideITBI ? 'sm:grid-cols-[minmax(0,1.12fr)_minmax(0,0.76fr)]' : 'sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.98fr)_minmax(0,0.87fr)]'} gap-2 w-full max-w-full`}>
           {/* CARD 1: ATO (IMÓVEL) */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-[10px] font-bold text-slate-600 uppercase whitespace-nowrap">
+          <div className="bg-slate-50 px-2 py-2 rounded-lg border border-slate-200/80 flex flex-col justify-between min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-1 min-w-0 mb-1">
+              <label className="block text-[10px] font-bold tracking-tight text-slate-600 uppercase truncate">
                 Ato (Imóvel)
               </label>
               {onToggleAVista && (
                 <button
                   type="button"
                   onClick={() => onToggleAVista(!isAVistaActive)}
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`text-[9px] font-bold px-1.5 py-0.5 shrink-0 rounded border transition-colors cursor-pointer ${
                     isAVistaActive
                       ? 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200'
                       : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
@@ -247,39 +336,46 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
                 </button>
               )}
             </div>
-            <input
-              id="input-fluxo-ato-imovel"
-              type="text"
-              value={isEditingAto ? atoInputText : (valorAto > 0 ? formatCurrency(valorAto) : '')}
-              onFocus={(e) => {
-                setIsEditingAto(true);
-                setAtoInputText(valorAto > 0 ? formatForEdit(valorAto) : '');
-                e.target.select();
-              }}
-              onChange={(e) => setAtoInputText(e.target.value)}
-              onBlur={(e) => handleFinishAtoEdit(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleFinishAtoEdit(atoInputText);
-                  (e.target as HTMLInputElement).blur();
-                }
-              }}
-              placeholder={valorAtoMinimo > 0 ? formatCurrency(valorAtoMinimo) : 'R$ 0,00'}
-              className="w-full bg-white px-2 py-1 rounded-md border border-slate-200 font-bold text-slate-800 text-center focus:outline-none focus:border-morar-600 text-xs transition-all whitespace-nowrap"
-            />
+            <AjusteRapido
+              onRestaurar={() => { setIsEditingAto(false); onAtoChange(null); }}
+              onMais={() => ajustarAto(1)}
+              onMenos={() => ajustarAto(-1)}
+              tituloRestaurar="Restaurar o Ato sugerido pelo sistema"
+            >
+              <input
+                id="input-fluxo-ato-imovel"
+                type="text"
+                value={isEditingAto ? atoInputText : (valorAto > 0 ? formatCurrency(valorAto) : '')}
+                onFocus={(e) => {
+                  setIsEditingAto(true);
+                  setAtoInputText(valorAto > 0 ? formatForEdit(valorAto) : '');
+                  e.target.select();
+                }}
+                onChange={(e) => setAtoInputText(e.target.value)}
+                onBlur={(e) => handleFinishAtoEdit(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleFinishAtoEdit(atoInputText);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder={valorAtoMinimo > 0 ? formatCurrency(valorAtoMinimo) : 'R$ 0,00'}
+                className="w-full min-w-0 flex-1 h-7 px-1 bg-white rounded-md border border-slate-200 text-center text-[11px] font-bold text-slate-800 focus:outline-none focus:border-morar-600 transition-all whitespace-nowrap"
+              />
+            </AjusteRapido>
           </div>
 
           {/* CARD 2: ITBI NO ATO (oculto quando esta condição não usa ITBI/registro) */}
           {!hideITBI && (
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-[10px] font-bold text-morar-800 uppercase whitespace-nowrap">
+            <div className="bg-slate-50 px-2 py-2 rounded-lg border border-slate-200/80 flex flex-col justify-between min-w-0 overflow-hidden">
+              <div className="flex items-center justify-between gap-1 min-w-0 mb-1">
+                <label className="block text-[10px] font-bold tracking-tight text-morar-800 uppercase truncate">
                   ITBI no Ato
                 </label>
                 <button
                   type="button"
                   onClick={onToggleFirstHome}
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`text-[9px] font-bold px-1.5 py-0.5 shrink-0 rounded border transition-colors cursor-pointer ${
                     isFirstHome
                       ? 'bg-morar-50 text-morar-700 border-morar-100 hover:bg-morar-100'
                       : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
@@ -289,40 +385,47 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
                   {isFirstHome ? 'Com Desc.' : 'Sem Desc.'}
                 </button>
               </div>
-              <input
-                id="input-fluxo-itbi-ato"
-                type="text"
-                value={isEditingITBI ? itbiInputText : (valAtoITBI > 0 ? formatCurrency(valAtoITBI) : '')}
-                onFocus={(e) => {
-                  setIsEditingITBI(true);
-                  setItbiInputText(valAtoITBI > 0 ? formatForEdit(valAtoITBI) : '');
-                  e.target.select();
-                }}
-                onChange={(e) => setItbiInputText(e.target.value)}
-                onBlur={(e) => handleFinishITBIEdit(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleFinishITBIEdit(itbiInputText);
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                placeholder="R$ 0,00"
-                className="w-full bg-white px-2 py-1 rounded-md border border-slate-200 font-bold text-morar-900 text-center focus:outline-none focus:border-morar-600 text-xs transition-all whitespace-nowrap"
-              />
+              <AjusteRapido
+                onRestaurar={() => { setIsEditingITBI(false); onITBIChange?.(0); }}
+                onMais={() => ajustarITBI(1)}
+                onMenos={() => ajustarITBI(-1)}
+                tituloRestaurar="Restaurar o ITBI sugerido pelo sistema"
+              >
+                <input
+                  id="input-fluxo-itbi-ato"
+                  type="text"
+                  value={isEditingITBI ? itbiInputText : (valAtoITBI > 0 ? formatCurrency(valAtoITBI) : '')}
+                  onFocus={(e) => {
+                    setIsEditingITBI(true);
+                    setItbiInputText(valAtoITBI > 0 ? formatForEdit(valAtoITBI) : '');
+                    e.target.select();
+                  }}
+                  onChange={(e) => setItbiInputText(e.target.value)}
+                  onBlur={(e) => handleFinishITBIEdit(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleFinishITBIEdit(itbiInputText);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="R$ 0,00"
+                  className="w-full min-w-0 flex-1 h-7 px-1 bg-white rounded-md border border-slate-200 text-center text-[11px] font-bold text-morar-900 focus:outline-none focus:border-morar-600 transition-all whitespace-nowrap"
+                />
+              </AjusteRapido>
             </div>
           )}
 
           {/* CARD 3: ATO PREMIADO (DESTAQUE EM AMARELO SUAVE) */}
-          <div className="bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/80 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-[10px] font-bold text-amber-800 uppercase whitespace-nowrap">
+          <div className="bg-amber-50/50 px-2 py-2 rounded-lg border border-amber-200/80 flex flex-col justify-start min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-1 min-w-0 mb-1">
+              <label className="block text-[10px] font-bold tracking-tight text-amber-800 uppercase whitespace-nowrap">
                 Ato Premiado
               </label>
               <button
                 type="button"
                 disabled={isPagamentoAVistaActive}
                 onClick={() => onToggleAtoPremiado(!isAtoPremiadoActive)}
-                className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-colors ${
+                className={`text-[9px] font-bold px-1.5 py-0.5 shrink-0 rounded transition-colors ${
                   isPagamentoAVistaActive
                     ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                     : isAtoPremiadoActive
@@ -334,8 +437,8 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
                 {isAtoPremiadoActive ? 'Zerar' : 'Aplicar'}
               </button>
             </div>
-            <div className="mt-auto pt-1 text-center">
-              <span className="font-extrabold text-amber-800 text-xs whitespace-nowrap">
+            <div className="flex items-center justify-center h-7 mt-1.5">
+              <span className="font-bold text-amber-800 text-xs whitespace-nowrap">
                 {isAtoPremiadoActive && descontoAto > 0 ? formatCurrency(descontoAto) : 'R$ 0,00'}
               </span>
             </div>

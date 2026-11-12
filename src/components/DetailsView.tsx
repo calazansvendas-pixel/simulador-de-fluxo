@@ -2531,6 +2531,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             onAtoChange={(novoVal) => {
               setValAtoManual(novoVal);
             }}
+            stepAto={currentCond?.stepAtoImovel}
+            stepItbi={currentCond?.stepItbiAto}
             onShowToast={onShowToast}
             hideITBI={isParcelamentoMorar}
             valAtoITBI={valAtoITBI}

@@ -3150,6 +3150,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 recalcularSeriesParaAtoManual(novoValBruto);
               }
             }}
+            stepAto={condDaFase?.stepAtoImovel}
+            stepItbi={condDaFase?.stepItbiAto}
             onShowToast={onShowToast}
             valAtoITBI={valAtoITBI}
             valorTotalITBI={valorTotalITBI}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { proximoValorComPasso, STEP_AJUSTE_PADRAO } from './FluxoEntradaConstrutora';
 
 interface PainelFinanciamentoProps {
   finPercent: number; // 0.8 ou 0.9 (SimulationData.finPercent)
@@ -35,6 +36,19 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
     if (v > cartaNaMangaMax) { v = cartaNaMangaMax; setTravou(true); } else { setTravou(false); }
     onCartaNaMangaChange?.(v);
   };
+  // Botões − / +: passo de R$ 100,00; valor quebrado vai direto ao múltiplo (acima no +, abaixo no −).
+  // Nunca passa do teto da unidade (cartaNaMangaMax) nem fica abaixo de zero.
+  const ajustar = (direcao: 1 | -1) => {
+    if (desabilitada) return;
+    let novo = proximoValorComPasso(cartaNaManga, STEP_AJUSTE_PADRAO, direcao);
+    if (novo > cartaNaMangaMax) novo = cartaNaMangaMax;
+    novo = Math.round(Math.max(0, novo) * 100) / 100;
+    setTravou(false);
+    if (Math.abs(novo - cartaNaManga) < 0.005) return;
+    onCartaNaMangaChange?.(novo);
+  };
+  const noMinimo = !(cartaNaManga > 0);
+  const noMaximo = cartaNaManga >= cartaNaMangaMax - 0.005;
   return (
   <div className="space-y-3">
     {/* QUADRO SUPERIOR: parâmetros de crédito (% aprovação + 1º imóvel) */}
@@ -90,30 +104,52 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
     {onCartaNaMangaChange && (
       // Elegível (teto da política > 0): mesmo verde-claro dos quadros TORRE/UNIDADE, com borda suave.
       <div className={`p-3.5 rounded-xl border shadow-sm space-y-1 transition-colors ${desabilitada ? "bg-white border-slate-200" : "bg-morar-50/60 border-morar-100"}`}>
-        <div className="flex items-center justify-between gap-2">
-          <span className={`whitespace-nowrap text-[11px] sm:text-xs font-semibold ${desabilitada ? "text-slate-700" : "text-morar-700"}`}>Carta na Manga para o Cliente</span>
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <span className={`min-w-0 truncate whitespace-nowrap text-[11px] sm:text-xs font-semibold ${desabilitada ? "text-slate-700" : "text-morar-700"}`} title="Carta na Manga para o Cliente">Carta na Manga para o Cliente</span>
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
               onClick={() => { setTravou(false); onCartaNaMangaChange?.(0); }}
-              disabled={!(cartaNaManga > 0) || desabilitada}
+              disabled={noMinimo || desabilitada}
               title="Zerar valor"
               aria-label="Zerar valor da Carta na Manga"
               className="p-1 rounded text-slate-400 hover:text-emerald-700 hover:bg-emerald-100/50 transition-colors cursor-pointer disabled:text-slate-200 disabled:hover:bg-transparent disabled:cursor-not-allowed"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw size={12} />
             </button>
-          <input
-            type="text"
-            inputMode="numeric"
-            disabled={desabilitada}
-            value={cartaNaManga > 0 ? formatCurrency(cartaNaManga) : ''}
-            placeholder="R$ 0,00"
-            onChange={(e) => aoDigitar(e.target.value)}
-            onBlur={() => setTravou(false)}
-            title={desabilitada ? 'Nenhuma Carta na Manga permitida para esta unidade' : undefined}
-            className="w-32 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 text-right focus:outline-none focus:border-morar-400 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
+            <div className="inline-flex items-center gap-0.5 bg-[#E5F3EB]/70 border border-[#006B3F]/20 rounded-md px-1 h-7">
+              <button
+                type="button"
+                onClick={() => ajustar(-1)}
+                disabled={desabilitada || noMinimo}
+                title="Diminuir R$ 100,00"
+                aria-label="Diminuir Carta na Manga"
+                className="w-5 h-5 rounded bg-white border border-[#E5E8E6] flex items-center justify-center text-[#006B3F] hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Minus size={10} />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                disabled={desabilitada}
+                value={cartaNaManga > 0 ? formatCurrency(cartaNaManga) : ''}
+                placeholder="R$ 0,00"
+                onChange={(e) => aoDigitar(e.target.value)}
+                onBlur={() => setTravou(false)}
+                title={desabilitada ? 'Nenhuma Carta na Manga permitida para esta unidade' : undefined}
+                className={`w-24 h-5 px-1.5 rounded bg-white border text-center text-xs font-bold focus:outline-none focus:text-slate-900 focus:border-[#006B3F]/25 focus:shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${cartaNaManga > 0 ? 'text-slate-900 border-[#006B3F]/25 shadow-2xs' : 'text-slate-500 border-[#E5E8E6]'}`}
+              />
+              <button
+                type="button"
+                onClick={() => ajustar(1)}
+                disabled={desabilitada || noMaximo}
+                title={noMaximo && !desabilitada ? 'Teto da Carta na Manga atingido' : 'Aumentar R$ 100,00'}
+                aria-label="Aumentar Carta na Manga"
+                className="w-5 h-5 rounded bg-white/80 border border-[#E5E8E6] flex items-center justify-center text-[#006B3F] hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Plus size={10} />
+              </button>
+            </div>
           </div>
         </div>
         <p className={`text-[10px] font-medium text-right ${travou ? 'text-rose-600' : 'text-slate-400'}`}>
