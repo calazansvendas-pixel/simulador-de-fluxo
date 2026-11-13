@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PainelFinanciamento } from './PainelFinanciamento';
-import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
+import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
@@ -1650,6 +1650,21 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const displayTotalNegoc = isParcelamentoMorar ? maxFinanc : totalNegocEfetivo;
   const displaySinalTotal = isParcelamentoMorar ? pmSinalTotal : sinalTotal;
 
+  // Bloco 1 padronizado com "Sinal c/ Morar" (FichaMorar): só VISUAL — nenhuma fórmula do Banco Direto muda.
+  //  - Sinal Total (s/ ITBI) = preço − total negociado (ainda sem abater o Desconto do Ato Premiado);
+  //  - Sinal Líquido = o "Sinal Total" que este card já mostrava (já líquido do Ato Premiado);
+  //  - Total com ITBI = o "Sinal + ITBI" que este card já mostrava (mesma conta de antes).
+  const sinalTotalSemITBIExibido = hasUnitSelected ? Math.max(0, Math.round((price - totalNegocEfetivo) * 100) / 100) : 0;
+  // Barra "Distribuído": soma das peças do fluxo (Ato bruto + mensais + comissão + Pró-Soluto + ITBI
+  // parcelado) conferida contra o total que elas devem fechar (Sinal Líquido + Ato Premiado + ITBI total).
+  const totalDistribuidoBanco = hasUnitSelected
+    ? Math.round((atoBruto + mens30d + mens60d + comissaoApartadaValor + proSoluto + itbiRestante) * 100) / 100
+    : 0;
+  const referenciaDistribuidoBanco = hasUnitSelected
+    ? Math.round((sinalTotal + descontoAto + valorTotalITBI) * 100) / 100
+    : 0;
+  const diferencaDistribuidoBanco = Math.round((totalDistribuidoBanco - referenciaDistribuidoBanco) * 100) / 100;
+
   const displayPctRiscoParcelaRenda = isParcelamentoMorar ? pm.pctRendaMensalObra : pctRiscoParcelaRenda;
   const displayValorRiscoParcela = isParcelamentoMorar ? pm.valorMensalObra : valorRiscoParcela;
   const displayPctRiscoProSoluto = isParcelamentoMorar ? pm.pctSubtotalAteChaves : pctRiscoProSoluto;
@@ -2280,10 +2295,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                   1. Dados da Aprovação de Crédito
                 </h3>
               </div>
+              {!isParcelamentoMorar && hasUnitSelected && valorBaseImovel > 0 && (
+                <div className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                  Valor Base: <strong className="text-slate-800">{formatCurrency(valorBaseImovel)}</strong>
+                </div>
+              )}
             </div>
 
             {/* SUBCOLUNAS LADO A LADO: RECURSOS DO CLIENTE & OPERAÇÃO BANCÁRIA */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               <div className="bg-slate-50/70 p-3 rounded-lg border border-slate-200/80 flex flex-col justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider block border-b border-slate-200 pb-1 mb-1.5">
@@ -2379,20 +2399,57 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     <span className="text-slate-600">Total Negoc:</span>
                     <strong className="text-slate-800 font-semibold">{formatCurrency(displayTotalNegoc)}</strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Sinal Total:</span>
-                    <strong className="text-amber-600 font-bold">{formatCurrency(displaySinalTotal)}</strong>
-                  </div>
-                  {/* Esta condição não usa ITBI/registro — "Sinal + ITBI" não se aplica */}
-                  {!isParcelamentoMorar && (
-                    <div className="flex justify-between items-center py-1 mt-2">
-                      <span className="text-slate-600">Sinal + ITBI:</span>
-                      <strong className="text-emerald-600 font-bold">{formatCurrency(displaySinalTotal + saldoITBI)}</strong>
+                  {isParcelamentoMorar ? (
+                    // Esta condição não usa ITBI/registro: mantém só o Sinal Total.
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-slate-600">Sinal Total:</span>
+                      <strong className="text-amber-600 font-bold">{formatCurrency(displaySinalTotal)}</strong>
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                        <span className="text-slate-600">Sinal Total (s/ ITBI):</span>
+                        <strong className="text-amber-700 font-bold">{formatCurrency(sinalTotalSemITBIExibido)}</strong>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                        <span className="text-slate-600">Sinal Líquido:</span>
+                        <strong className="text-amber-800 font-black">{formatCurrency(displaySinalTotal)}</strong>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                        <span className="text-slate-600">ITBI / Registro Total:</span>
+                        <strong className="text-slate-800 font-semibold">{formatCurrency(valorTotalITBI)}</strong>
+                      </div>
+                      <div className="flex justify-between items-center py-1">
+                        <span className="text-slate-600">Total com ITBI:</span>
+                        <strong className="text-[#006B3F] font-bold">{formatCurrency(displaySinalTotal + saldoITBI)}</strong>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* VALIDAÇÃO EM TEMPO REAL: TOTAL DISTRIBUÍDO (mesma barra do "Sinal c/ Morar") */}
+            {!isParcelamentoMorar && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2.5 bg-morar-50 px-3.5 rounded-lg border border-morar-100 gap-2 transition-colors">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-slate-800">Distribuído:</span>
+                  {hasUnitSelected && (Math.abs(diferencaDistribuidoBanco) <= 0.05 ? (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      100% Validado
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title="O fluxo distribuído não fecha com o total do sinal + ITBI">
+                      Diferença de {formatCurrency(Math.abs(diferencaDistribuidoBanco))}
+                    </span>
+                  ))}
+                </div>
+                <strong className="text-xs font-semibold text-morar-700">
+                  {formatCurrency(totalDistribuidoBanco)}
+                </strong>
+              </div>
+            )}
           </div>
           )}
 
