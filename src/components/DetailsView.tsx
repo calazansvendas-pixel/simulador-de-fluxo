@@ -18,6 +18,7 @@ import { larguraMinimaBarra, rotuloBarraDireita } from './RotuloBarra';
 import { PmCampoEditavel } from './PmCampoEditavel';
 import { MiniSwitch } from './MiniSwitch';
 import { MonthStepper } from './MonthStepper';
+import { ComissaoParcelasLista, ComissaoTravadas, parcelasComissaoDetalhe, parcelasComissaoIguais } from './ComissaoParcelas';
 import { imoveisService } from '../services/imoveisService';
 
 interface DetailsViewProps {
@@ -167,6 +168,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Quantidade de parcelas da Comissão Apartada — sugestão vem da política
   // (comissaoApartadaParcelas), mas é editável por simulação nesta ficha.
   const [comissaoParcelasManual, setComissaoParcelasManual] = useState<number | null>(null);
+  // Parcelas da comissão travadas (cadeado) com valor próprio; as demais dividem o saldo igualmente.
+  const [comissaoTravadas, setComissaoTravadas] = useState<ComissaoTravadas>({});
 
   // Condição comercial "Parcelamento Morar": mesmo layout desta tela (Sinal c/
   // Banco Direto), mas com o Bloco 3 substituído por um motor de cálculo próprio
@@ -305,7 +308,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmChavesValorManual(null);
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     if (currentProd && !soCondicaoMudou) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
@@ -582,7 +585,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmChavesValorManual(null);
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     if (currentProd) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
@@ -1176,6 +1179,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const comissaoApartadaParcelaValor = comissaoApartadaValor > 0
     ? Math.round((comissaoApartadaValor / comissaoApartadaParcelasQtd) * 100) / 100
     : 0;
+  const comissaoParcelasDetalhe = comissaoApartadaValor > 0
+    ? parcelasComissaoDetalhe(comissaoApartadaValor, comissaoApartadaParcelasQtd, comissaoTravadas)
+    : [];
+  const comissaoParcelasIguais = parcelasComissaoIguais(comissaoParcelasDetalhe.map(p => p.valor));
 
   // 1. Cálculo do Teto dos Recursos Bancários/Negociados:
   // O montante máximo que pode ser negociado via banco/governo não pode ultrapassar o saldo restante do imóvel.
@@ -1556,7 +1563,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmChavesValorManual(null);
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     if (onShowToast) {
       onShowToast('Fluxo de pagamento redefinido para as condições padrão.');
     }
@@ -1878,6 +1885,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
         dadosCompletos.comissao_apartada_valor = comissaoApartadaValor;
         dadosCompletos.comissao_apartada_parcelas = comissaoApartadaParcelasQtd;
         dadosCompletos.comissao_apartada_parcela_valor = comissaoApartadaParcelaValor;
+        dadosCompletos.comissao_apartada_parcelas_detalhe = comissaoParcelasDetalhe;
       }
     }
     return dadosCompletos;
@@ -3033,19 +3041,19 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     Comissão a Pagar
                   </h3>
                 </div>
-                {comissaoParcelasManual !== null && (
+                {(comissaoParcelasManual !== null || Object.keys(comissaoTravadas).length > 0) && (
                   <button
                     type="button"
                     onClick={() => {
-                      setComissaoParcelasManual(null);
+                      setComissaoParcelasManual(null); setComissaoTravadas({});
                       const padrao = currentCond?.comissaoApartadaParcelas ?? 6;
                       onShowToast(`Parcelas da comissão restauradas para o padrão da política (${padrao}x).`);
                     }}
                     className="px-2 py-1 bg-fuchsia-50 hover:bg-fuchsia-100 text-fuchsia-700 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Restaurar Qtd. Parcelas para o padrão da política"
+                    title="Destravar todos os cadeados e voltar à divisão igual (quantidade padrão da política)"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Padrão</span>
+                    <span>Equalizar</span>
                   </button>
                 )}
               </div>
@@ -3080,10 +3088,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 text-center">
                   <span className="block text-[10px] font-bold text-slate-400 uppercase">Valor da Parcela</span>
                   <strong className="text-slate-900 font-bold text-xs sm:text-sm block mt-1">
-                    {formatCurrency(comissaoApartadaParcelaValor)}
+                    {comissaoParcelasIguais ? formatCurrency(Math.max(...comissaoParcelasDetalhe.map(p => p.valor), 0)) : 'Personalizado'}
                   </strong>
                 </div>
               </div>
+
+              <ComissaoParcelasLista total={comissaoApartadaValor} qtd={comissaoApartadaParcelasQtd} travadas={comissaoTravadas} onChange={setComissaoTravadas} />
 
               <p className="text-[10px] text-slate-500 leading-relaxed px-1">
                 Parcelamento simples, sem taxa bancária nem limites de risco — só divide a comissão pelo número de parcelas. Não afeta o Ato, o Pró-Soluto nem os indicadores de comprometimento de renda exibidos nesta ficha.

@@ -20,6 +20,7 @@ import { telaVisibilidadeService } from '../services/telaVisibilidadeService';
 import { PdfExportModalMorar, MorarFaixa } from './PdfExportModalMorar';
 import { NovatoSimuladorView } from './NovatoSimuladorView';
 import { MonthStepper } from './MonthStepper';
+import { ComissaoParcelasLista, ComissaoTravadas, parcelasComissaoDetalhe, parcelasComissaoIguais } from './ComissaoParcelas';
 import { MiniSwitch } from './MiniSwitch';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
@@ -204,6 +205,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // parcelas da comissão, editável na própria ficha (sugestão inicial vem da
   // política em condDaFase.comissaoApartadaParcelas).
   const [comissaoParcelasManual, setComissaoParcelasManual] = useState<number | null>(null);
+  // Parcelas da comissão travadas (cadeado) com valor próprio; as demais dividem o saldo igualmente.
+  const [comissaoTravadas, setComissaoTravadas] = useState<ComissaoTravadas>({});
   // Pagamento à vista: aplica o % de Desconto à Vista da política sobre o
   // Preço de Tabela (antes de qualquer outro cálculo), zera o ITBI (que passa
   // a ser responsabilidade do cliente após o Habite-se) e traz o Sinal
@@ -313,7 +316,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setParcelasITBIManual(null);
     // Nova torre/unidade herda a quantidade de parcelas padrão da política —
     // não carrega um ajuste manual feito para a unidade anterior.
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     if (!selectedTorre || !selectedUnidade) {
       setFaixasObra([
         { qtd: 12, valor: 0 },
@@ -366,7 +369,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setParcelasITBIManual(null);
     // Nova condição comercial herda a quantidade de parcelas padrão dela
     // (comissaoApartadaParcelas) — não carrega um ajuste manual da anterior.
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     setFaixasObra([
       { qtd: 12, valor: 0 },
       { qtd: 12, valor: 0 },
@@ -712,7 +715,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setParcelasITBIManual(null);
     // Nova condição comercial herda a quantidade de parcelas padrão dela
     // (comissaoApartadaParcelas) — não carrega um ajuste manual da anterior.
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
     setFaixasObra([
       { qtd: 12, valor: 0 },
       { qtd: 12, valor: 0 },
@@ -770,7 +773,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setParcelasITBIManual(null);
     // Volta a Qtd. Parcelas da Comissão Apartada para a sugestão padrão da
     // política (comissaoApartadaParcelas) em vez de manter um ajuste manual.
-    setComissaoParcelasManual(null);
+    setComissaoParcelasManual(null); setComissaoTravadas({});
 
     if (onShowToast) {
       onShowToast('Fluxo de pagamento redefinido: Ato (Imóvel), ITBI no Ato, prazo do ITBI e Ato Premiado restaurados.');
@@ -964,6 +967,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const comissaoApartadaParcelaValor = comissaoApartadaValor > 0
     ? Math.round((comissaoApartadaValor / comissaoApartadaParcelasQtd) * 100) / 100
     : 0;
+  const comissaoParcelasDetalhe = comissaoApartadaValor > 0
+    ? parcelasComissaoDetalhe(comissaoApartadaValor, comissaoApartadaParcelasQtd, comissaoTravadas)
+    : [];
+  const comissaoParcelasIguais = parcelasComissaoIguais(comissaoParcelasDetalhe.map(p => p.valor));
   // Ato (Imóvel) líquido da corretagem — na condição Comissão Apartada, a
   // comissão é paga pelo cliente por fora e NÃO compõe o Ato destinado à
   // construtora. `valorAtoEfetivo` (quando sugerido automaticamente) já é o
@@ -2288,6 +2295,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     comissao_apartada_valor: comissaoApartadaValor,
     comissao_apartada_parcelas: comissaoApartadaParcelasQtd,
     comissao_apartada_parcela_valor: comissaoApartadaParcelaValor,
+    comissao_apartada_parcelas_detalhe: comissaoParcelasDetalhe,
     salvo_em: new Date().toISOString()
   });
 
@@ -2478,6 +2486,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           comissaoApartadaValor={comissaoApartadaValor}
           comissaoApartadaParcelasQtd={comissaoApartadaParcelasQtd}
           comissaoApartadaParcelaValor={comissaoApartadaParcelaValor}
+          comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
           minComissaoParcelas={minComissaoParcelas}
           maxComissaoParcelas={maxComissaoParcelas}
           onComissaoParcelasChange={setComissaoParcelasManual}
@@ -2553,6 +2562,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             comissaoApartadaValor={comissaoApartadaValor}
             comissaoApartadaParcelasQtd={comissaoApartadaParcelasQtd}
             comissaoApartadaParcelaValor={comissaoApartadaParcelaValor}
+            comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
             dataObra={dataObra}
             totalParcObra={totalParcObra}
             faixasObra={faixasObra}
@@ -3538,19 +3548,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     Comissão a Pagar
                   </h3>
                 </div>
-                {comissaoParcelasManual !== null && (
+                {(comissaoParcelasManual !== null || Object.keys(comissaoTravadas).length > 0) && (
                   <button
                     type="button"
                     onClick={() => {
-                      setComissaoParcelasManual(null);
+                      setComissaoParcelasManual(null); setComissaoTravadas({});
                       const padrao = currentCond?.comissaoApartadaParcelas ?? 6;
                       onShowToast(`Parcelas da comissão restauradas para o padrão da política (${padrao}x).`);
                     }}
                     className="px-2 py-1 bg-fuchsia-50 hover:bg-fuchsia-100 text-fuchsia-700 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Restaurar Qtd. Parcelas para o padrão da política"
+                    title="Destravar todos os cadeados e voltar à divisão igual (quantidade padrão da política)"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Padrão</span>
+                    <span>Equalizar</span>
                   </button>
                 )}
               </div>
@@ -3585,10 +3595,12 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 text-center">
                   <span className="block text-[10px] font-bold text-slate-400 uppercase">Valor da Parcela</span>
                   <strong className="text-slate-900 font-bold text-xs sm:text-sm block mt-1">
-                    {formatCurrency(comissaoApartadaParcelaValor)}
+                    {comissaoParcelasIguais ? formatCurrency(Math.max(...comissaoParcelasDetalhe.map(p => p.valor), 0)) : 'Personalizado'}
                   </strong>
                 </div>
               </div>
+
+              <ComissaoParcelasLista total={comissaoApartadaValor} qtd={comissaoApartadaParcelasQtd} travadas={comissaoTravadas} onChange={setComissaoTravadas} />
 
               <p className="text-[10px] text-slate-500 leading-relaxed px-1">
                 Parcelamento simples, sem taxa bancária nem limites de risco — só divide a comissão pelo número de parcelas. É pago em separado, por fora do contrato com a construtora, e não incide sobre as parcelas contratuais (séries de Obra/Pós-Obra) exibidas nesta ficha.
@@ -3665,6 +3677,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           comissaoApartadaValor={comissaoApartadaValor}
           comissaoApartadaParcelasQtd={comissaoApartadaParcelasQtd}
           comissaoApartadaParcelaValor={comissaoApartadaParcelaValor}
+          comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
           dataObra={dataObra}
           totalParcObra={totalParcObra}
           faixasObra={faixasObra}

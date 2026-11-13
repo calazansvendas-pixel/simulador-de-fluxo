@@ -105,6 +105,7 @@ interface NovatoSimuladorViewProps {
   comissaoApartadaValor?: number;
   comissaoApartadaParcelasQtd?: number;
   comissaoApartadaParcelaValor?: number;
+  comissaoApartadaParcelasDetalhe?: { numero: number; valor: number; travada: boolean }[];
   // Teto/piso de parcelas da Comissão Apartada, configuráveis por política em
   // Políticas & Empreendimentos (currentCond.comissaoApartadaParcelasMin/Max)
   // — o stepper do card "Comissão Apartada" respeita esses limites, com o "+"

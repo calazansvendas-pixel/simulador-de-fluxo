@@ -71,6 +71,8 @@ interface PdfExportModalMorarProps {
   comissaoApartadaValor?: number;
   comissaoApartadaParcelasQtd?: number;
   comissaoApartadaParcelaValor?: number;
+  // Só vem preenchido quando o corretor personalizou as parcelas (valores diferentes); senão, resumo compacto.
+  comissaoApartadaParcelasDetalhe?: { numero: number; valor: number; travada: boolean }[];
   dataObra: string;
   totalParcObra: number;
   faixasObra: MorarFaixa[];
@@ -132,6 +134,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   comissaoApartadaValor = 0,
   comissaoApartadaParcelasQtd = 0,
   comissaoApartadaParcelaValor = 0,
+  comissaoApartadaParcelasDetalhe,
   dataObra,
   totalParcObra,
   faixasObra,
@@ -682,11 +685,18 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
 
                   {/* COMISSÃO APARTADA — só na condição "Sinal c/ Morar (Comissão Apartada)" */}
                   {comissaoApartadaValor > 0 && (
-                    <div className="flex items-center justify-between bg-fuchsia-50 px-3 py-2 rounded-lg border border-fuchsia-100 text-xs">
+                    <div className="flex items-center justify-between flex-wrap bg-fuchsia-50 px-3 py-2 rounded-lg border border-fuchsia-100 text-xs">
                       <span className="font-bold text-fuchsia-700">Comissão Apartada ({comissaoApartadaParcelasQtd}x):</span>
                       <strong className="text-fuchsia-800 font-black text-xs sm:text-sm">
-                        {fmt(comissaoApartadaValor)} <span className="font-semibold">({fmt(comissaoApartadaParcelaValor)}/mês)</span>
+                        {fmt(comissaoApartadaValor)}{!comissaoApartadaParcelasDetalhe && <span className="font-semibold"> ({fmt(comissaoApartadaParcelaValor)}/mês)</span>}
                       </strong>
+                      {comissaoApartadaParcelasDetalhe && (
+                        <div className="w-full basis-full mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-semibold text-fuchsia-800">
+                          {comissaoApartadaParcelasDetalhe.map(p => (
+                            <span key={p.numero} className="flex justify-between"><span>{p.numero}ª Parcela</span><span>{fmt(p.valor)}</span></span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
