@@ -130,6 +130,10 @@ export interface CommercialCondition {
   pmParcelaMinimaMensalObra?: number; // padrão R$ 200,00
   pmParcelaMinimaSemestral?: number; // padrão R$ 200,00
   pmParcelaMinimaPosObra?: number; // padrão R$ 200,00
+  // Passo (R$) dos botões +/- na ficha do Parcelamento Morar (padrões: 100 / 500 / 1.000; 0 desativa os botões).
+  pmPassoMensalObra?: number;
+  pmPassoSemestral?: number;
+  pmPassoChaves?: number;
 }
 
 export interface TableRow {

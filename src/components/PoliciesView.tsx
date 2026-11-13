@@ -219,6 +219,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [pmParcelaMinMensalObra, setPmParcelaMinMensalObra] = useState<string>('R$ 200,00');
   const [pmParcelaMinSemestral, setPmParcelaMinSemestral] = useState<string>('R$ 200,00');
   const [pmParcelaMinPosObra, setPmParcelaMinPosObra] = useState<string>('R$ 200,00');
+  const [pmPassoMensalStr, setPmPassoMensalStr] = useState<string>('R$ 100,00');
+  const [pmPassoSemestralStr, setPmPassoSemestralStr] = useState<string>('R$ 500,00');
+  const [pmPassoChavesStr, setPmPassoChavesStr] = useState<string>('R$ 1.000,00');
 
   // Estado das torres habilitadas para simulação nesta política
   const [torresHabilitadas, setTorresHabilitadas] = useState<string[]>([]);
@@ -577,6 +580,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     const pmMinMensalObra = source.pmParcelaMinimaMensalObra !== undefined ? source.pmParcelaMinimaMensalObra : 200;
     const pmMinSemestral = source.pmParcelaMinimaSemestral !== undefined ? source.pmParcelaMinimaSemestral : 200;
     const pmMinPosObra = source.pmParcelaMinimaPosObra !== undefined ? source.pmParcelaMinimaPosObra : 200;
+    const pmPassoMensal = source.pmPassoMensalObra !== undefined ? source.pmPassoMensalObra : 100;
+    const pmPassoSemestral = source.pmPassoSemestral !== undefined ? source.pmPassoSemestral : 500;
+    const pmPassoChaves = source.pmPassoChaves !== undefined ? source.pmPassoChaves : 1000;
 
     const parsedSinal = source.sinalMinimo !== undefined ? parseCurrency(source.sinalMinimo) : 2000;
     const formattedSinal = formatCurrency(parsedSinal);
@@ -650,6 +656,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setPmParcelaMinMensalObra(formatCurrency(pmMinMensalObra));
     setPmParcelaMinSemestral(formatCurrency(pmMinSemestral));
     setPmParcelaMinPosObra(formatCurrency(pmMinPosObra));
+    setPmPassoMensalStr(formatCurrency(pmPassoMensal));
+    setPmPassoSemestralStr(formatCurrency(pmPassoSemestral));
+    setPmPassoChavesStr(formatCurrency(pmPassoChaves));
     setDescontoAVistaStr(formatDecimalBR(descontoAVista, 1, 2));
 
     setPolicyText(source.policy || '');
@@ -727,6 +736,10 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const pmParcelaMinimaMensalObraNum = Math.max(0, parseCurrency(pmParcelaMinMensalObra));
   const pmParcelaMinimaSemestralNum = Math.max(0, parseCurrency(pmParcelaMinSemestral));
   const pmParcelaMinimaPosObraNum = Math.max(0, parseCurrency(pmParcelaMinPosObra));
+  const lerPasso = (raw: string, padrao: number) => (/[0-9]/.test(raw) ? Math.max(0, parseCurrency(raw)) : padrao);
+  const pmPassoMensalObra = lerPasso(pmPassoMensalStr, 100);
+  const pmPassoSemestral = lerPasso(pmPassoSemestralStr, 500);
+  const pmPassoChaves = lerPasso(pmPassoChavesStr, 1000);
 
   // Reúne os valores atualmente em edição no formulário como um objeto de
   // parâmetros de política de crédito — usado para gravar tanto na condição
@@ -790,6 +803,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmParcelaMinimaMensalObra: pmParcelaMinimaMensalObraNum,
       pmParcelaMinimaSemestral: pmParcelaMinimaSemestralNum,
       pmParcelaMinimaPosObra: pmParcelaMinimaPosObraNum,
+      pmPassoMensalObra,
+      pmPassoSemestral,
+      pmPassoChaves,
       descontoAVistaPct: parseDecimal(descontoAVistaStr, 0),
       policy: policyText
     };
@@ -1158,6 +1174,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmParcelaMinimaMensalObra: parsedPmMinMensalObra,
       pmParcelaMinimaSemestral: parsedPmMinSemestral,
       pmParcelaMinimaPosObra: parsedPmMinPosObra,
+      pmPassoMensalObra,
+      pmPassoSemestral,
+      pmPassoChaves,
       descontoAVistaPct: parsedDescontoAVista,
       policy: policyText
     };
@@ -2804,6 +2823,37 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                 </div>
 
                 {blocoLimitesMensais}
+
+                {/* PASSO DOS BOTÕES (+ / −) NO SIMULADOR */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200/80 max-w-3xl space-y-2">
+                  <div>
+                    <p className="font-semibold text-slate-700 text-[11px]">Passo dos Botões (+ / −) no Simulador</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">De quanto em quanto o valor sobe ou desce a cada clique na ficha. Com R$ 0,00 os botões daquele campo ficam desativados.</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {([
+                      ['Passo da Mensal de Obra (R$)', pmPassoMensalStr, setPmPassoMensalStr, 'R$ 100,00'],
+                      ['Passo das Intermediárias Semestrais (R$)', pmPassoSemestralStr, setPmPassoSemestralStr, 'R$ 500,00'],
+                      ['Passo da Parcela Chaves (R$)', pmPassoChavesStr, setPmPassoChavesStr, 'R$ 1.000,00']
+                    ] as [string, string, (v: string) => void, string][]).map(([rotulo, valor, setValor, padrao]) => (
+                      <div key={rotulo}>
+                        <div className="flex justify-between items-center mb-1 gap-2">
+                          <label className="block font-bold text-slate-800 text-[11px]">{rotulo}</label>
+                          <span className="text-[10px] text-slate-500 font-bold shrink-0">Padrão: {padrao}</span>
+                        </div>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={valor}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => setValor(e.target.value)}
+                          onBlur={() => setValor(formatCurrency(lerPasso(valor, parseCurrency(padrao))))}
+                          className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 text-center focus:outline-none focus:border-morar-600 text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 <p className="text-[10px] text-slate-500 px-1 leading-relaxed">
                   A quantidade de meses de obra (parcelas mensais lineares) é calculada automaticamente a partir da data de hoje e da previsão de entrega (habite-se) do empreendimento — assim como as intermediárias semestrais, sempre em Junho e Dezembro. Os valores e quantidades podem ser ajustados manualmente na ficha do cliente; esta política define apenas as sugestões iniciais, os pisos de parcela mínima e o vencimento da parcela de chaves.

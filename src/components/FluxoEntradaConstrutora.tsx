@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building, Minus, Plus, RotateCcw, Sliders, Wallet } from 'lucide-react';
+import { Building, Lock, Minus, Plus, RotateCcw, Sliders, Unlock, Wallet } from 'lucide-react';
 import { formatCurrency, parseCurrency, formatForEdit } from '../utils/formatters';
 
 // Passo padrão (R$) dos botões +/- de "Ato (Imóvel)" e "ITBI no Ato" quando a política não define outro.
@@ -77,6 +77,9 @@ export interface FluxoEntradaConstrutoraProps {
   // Passo (R$) dos botões +/- do Ato (Imóvel) e do ITBI no Ato (Política de Crédito; padrão 100).
   stepAto?: number;
   stepItbi?: number;
+  // Cadeado do Ato (Parcelamento Morar): travado = fora da redistribuição automática.
+  travadoAto?: boolean;
+  onToggleTravaAto?: () => void;
   onShowToast?: (msg: string) => void;
   // Alternância Parcelado / À Vista (opcional — só usada no fluxo Sinal c/ Morar,
   // onde existe Pró-Soluto parcelado a ser trazido inteiro para o Ato).
@@ -115,6 +118,8 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
   valorAtoMaximo = 0,
   onAtoChange,
   stepAto = STEP_AJUSTE_PADRAO,
+  travadoAto = false,
+  onToggleTravaAto,
   stepItbi = STEP_AJUSTE_PADRAO,
   onShowToast,
   isAVistaActive = false,
@@ -321,6 +326,17 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
               <label className="block text-[10px] font-bold tracking-tight text-slate-600 uppercase truncate">
                 Ato (Imóvel)
               </label>
+              {onToggleTravaAto && (
+                <button
+                  type="button"
+                  onClick={onToggleTravaAto}
+                  aria-pressed={travadoAto}
+                  title={travadoAto ? 'Destravar o Ato: volta a absorver a diferença do fluxo' : 'Travar o valor do Ato'}
+                  className={`ml-auto mr-1 w-5 h-5 flex items-center justify-center shrink-0 cursor-pointer ${travadoAto ? 'text-[#006B3F]' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  {travadoAto ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                </button>
+              )}
               {onToggleAVista && (
                 <button
                   type="button"

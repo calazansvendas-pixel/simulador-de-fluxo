@@ -4,7 +4,7 @@ import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, calcularParcelamentoMorar, calcularDescontoAtoPremiado, ATO_PREMIADO_PCT_PADRAO, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
 import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
@@ -231,6 +231,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // altera o valor das outras, mas entra no mesmo motor de cálculo, então
   // dispara um novo cálculo geral do fluxo (o Ato absorve a diferença).
   const [pmSemestralValorManual, setPmSemestralValorManual] = useState<Record<number, number>>({});
+  // Cadeados do fluxo do Parcelamento Morar: 'ato' | 'mensal' | 'sem-<idx>' | 'chaves' | 'pos' → true = travado.
+  const [pmLocks, setPmLocks] = useState<Record<string, boolean>>({});
   // Data de cada intermediária semestral, editável individualmente (índice ->
   // "YYYY-MM"). Quando não há override, usa a data sugerida automaticamente.
   const [pmSemestralDatasManual, setPmSemestralDatasManual] = useState<Record<number, string>>({});
@@ -305,7 +307,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmSemestralIndividualEnabled({});
     setPmSemestralValorManual({});
     setPmSemestralDatasManual({});
-    setPmChavesValorManual(null);
+    setPmChavesValorManual(null); setPmLocks({});
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
     setComissaoParcelasManual(null); setComissaoTravadas({});
@@ -582,7 +584,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmSemestralIndividualEnabled({});
     setPmSemestralValorManual({});
     setPmSemestralDatasManual({});
-    setPmChavesValorManual(null);
+    setPmChavesValorManual(null); setPmLocks({});
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
     setComissaoParcelasManual(null); setComissaoTravadas({});
@@ -823,6 +825,123 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // valor do imóvel antes de descontar o Ato em si (Ato + este saldo = tudo
   // que precisa ser pago fora do Ato: mensais de obra + semestrais + chaves).
   const pmSinalTotal = pm.saldoAPagarDireto + pm.atoEfetivo;
+  // Limites da política por rubrica (mesma base do motor: valor do imóvel líquido do desconto do Ato Premiado).
+  // Passar do limite só pinta o campo de vermelho — não trava nem altera o cálculo (o Ato absorve a diferença).
+  const pmValorUtilizado = Math.max(0, price - pm.descontoAtoPremiado - (hasUnitSelected ? maxFinanc : 0));
+  const pmTetoSemestral = pmValorUtilizado * ((currentCond?.pmParcelaSemestralMaxPct ?? 4) / 100);
+  const pmTetoChaves = pmValorUtilizado * ((currentCond?.pmParcelaChavesMaxPct ?? 15) / 100);
+  // Passos dos botões +/- vêm da Política de Crédito (0 desativa os botões daquele campo).
+  const pmPassoMensal = currentCond?.pmPassoMensalObra ?? 100;
+  const pmPassoSemestral = currentCond?.pmPassoSemestral ?? 500;
+  const pmPassoChaves = currentCond?.pmPassoChaves ?? 1000;
+
+  // ===================== CADEADOS + EQUALIZAÇÃO PROPORCIONAL =====================
+  // Blocos do fluxo (valor TOTAL de cada um). O total a fechar é o que o motor já distribui hoje
+  // (Ato + demais séries); o Ato aberto é o resíduo exato do motor, então a soma nunca fura.
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const pmBlocos: { chave: string; valor: number; ativo: boolean }[] = isParcelamentoMorar ? [
+    { chave: 'ato', valor: pm.atoEfetivo, ativo: true },
+    { chave: 'mensal', valor: pm.valorMensalObraTotal, ativo: pm.nMensaisObra > 0 },
+    ...pmSemestraisEnabledIdxs.map((idx, rank) => ({ chave: `sem-${idx}`, valor: pm.valoresSemestrais[rank] || 0, ativo: true })),
+    { chave: 'chaves', valor: pm.valorChaves, ativo: pmChavesEnabled && !pmIsAVistaActive },
+    { chave: 'pos', valor: pm.valorPosObraTotal, ativo: pm.qtdParcelasPosObra > 0 && !pmObraReduzida }
+  ] : [];
+
+  const pmAplicarValorBloco = (chave: string, total: number) => {
+    const t = r2(Math.max(0, total));
+    if (chave === 'ato') setValAtoManual(t);
+    else if (chave === 'mensal') setPmMensalObraValorManual(pm.nMensaisObra > 0 ? r2(t / pm.nMensaisObra) : null);
+    else if (chave === 'chaves') setPmChavesValorManual(t);
+    else if (chave === 'pos') setPmPosObraValorManual(pm.qtdParcelasPosObra > 0 ? r2(t / pm.qtdParcelasPosObra) : null);
+    else if (chave.startsWith('sem-')) {
+      const idx = Number(chave.slice(4));
+      setPmSemestralValorManual(prev => ({ ...prev, [idx]: t }));
+    }
+  };
+
+  // Edita um bloco: aplica o valor (limitado ao saldo), FECHA o cadeado dele e redistribui o restante
+  // proporcionalmente entre os demais blocos com cadeado aberto. Sem nenhum aberto, bloqueia.
+  const pmEditarBloco = (chave: string, novoTotal: number) => {
+    const ativos = pmBlocos.filter(b => b.ativo);
+    if (!ativos.some(b => b.chave === chave)) return;
+    const outros = ativos.filter(b => b.chave !== chave);
+    const travado = (k: string) => !!pmLocks[k];
+    const abertosNaoAto = outros.filter(b => b.chave !== 'ato' && !travado(b.chave));
+    const atoAberto = chave !== 'ato' && !travado('ato');
+    if (abertosNaoAto.length === 0 && !atoAberto) {
+      onShowToast?.('Destrave ao menos um campo para redistribuir a diferença');
+      return;
+    }
+    const somaTravados = outros.filter(b => travado(b.chave)).reduce((s, b) => s + b.valor, 0);
+    let total = pm.atoEfetivo + pm.saldoAPagarDireto;
+    const reservaAto = atoAberto ? pm.sinalMinimoCalculado : 0;
+    const novo = r2(Math.min(Math.max(0, novoTotal), Math.max(0, total - somaTravados - reservaAto)));
+    if (chave === 'ato' && isAtoPremiadoEnabled) {
+      // O desconto do Ato Premiado depende do próprio Ato: o total a distribuir acompanha o novo Ato.
+      const pct = Math.max(0, currentCond?.atoPremiadoPct ?? ATO_PREMIADO_PCT_PADRAO);
+      total = total + pm.descontoAtoPremiado - calcularDescontoAtoPremiado(novo, pct);
+    }
+    if (novo < novoTotal - 0.005) onShowToast?.('Valor ajustado ao saldo disponível do fluxo.');
+    const restante = Math.max(0, r2(total - somaTravados - novo));
+    const pesos = (lista: { valor: number }[]) => {
+      const soma = lista.reduce((s, b) => s + b.valor, 0);
+      return lista.map(b => (soma > 0.005 ? b.valor / soma : 1 / lista.length));
+    };
+    let paraAbertos = restante;
+    if (atoAberto) {
+      // o Ato aberto fica com a parte proporcional (nunca abaixo do sinal mínimo); o motor o fecha como resíduo
+      const todos = [...abertosNaoAto, outros.find(b => b.chave === 'ato')!];
+      const w = pesos(todos)[todos.length - 1];
+      const parteAto = Math.max(pm.sinalMinimoCalculado, r2(restante * w));
+      paraAbertos = Math.max(0, r2(restante - parteAto));
+      setValAtoManual(null);
+    }
+    if (abertosNaoAto.length > 0) {
+      const w = pesos(abertosNaoAto);
+      let acumulado = 0;
+      abertosNaoAto.forEach((b, i) => {
+        const parte = i === abertosNaoAto.length - 1 ? r2(paraAbertos - acumulado) : r2(paraAbertos * w[i]);
+        acumulado = r2(acumulado + parte);
+        pmAplicarValorBloco(b.chave, Math.max(0, parte));
+      });
+    }
+    pmAplicarValorBloco(chave, novo);
+    setPmLocks(prev => ({ ...prev, [chave]: true }));
+  };
+
+  // Limpar o campo (null) devolve o bloco ao automático e abre o cadeado dele.
+  const pmLimparBloco = (chave: string) => {
+    setPmLocks(prev => ({ ...prev, [chave]: false }));
+    if (chave === 'ato') setValAtoManual(null);
+    else if (chave === 'mensal') setPmMensalObraValorManual(null);
+    else if (chave === 'chaves') setPmChavesValorManual(null);
+    else if (chave === 'pos') setPmPosObraValorManual(null);
+    else if (chave.startsWith('sem-')) {
+      const idx = Number(chave.slice(4));
+      setPmSemestralValorManual(prev => { const n = { ...prev }; delete n[idx]; return n; });
+    }
+  };
+
+  const pmAlternarTrava = (chave: string) => {
+    if (pmLocks[chave]) {
+      setPmLocks(prev => ({ ...prev, [chave]: false }));
+      if (chave === 'ato') setValAtoManual(null);
+      return;
+    }
+    const b = pmBlocos.find(x => x.chave === chave);
+    if (b) pmAplicarValorBloco(chave, b.valor); // congela o valor atual para não flutuar com o automático
+    setPmLocks(prev => ({ ...prev, [chave]: true }));
+  };
+
+  const pmEqualizarTudo = () => {
+    setPmLocks({});
+    setValAtoManual(null);
+    setPmMensalObraValorManual(null);
+    setPmSemestralValorManual({});
+    setPmChavesValorManual(null);
+    setPmPosObraValorManual(null);
+    onShowToast?.('Cadeados destravados e fluxo recalculado pela política.');
+  };
 
   // Percentuais de comprometimento de cada grupo do Parcelamento Morar,
   // usados no gráfico de barras logo abaixo do Bloco 4 — cada grupo em
@@ -1524,7 +1643,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       if (isParcelamentoMorar) {
         setPmMensalObraValorManual(null);
         setPmSemestralValorManual({});
-        setPmChavesValorManual(null);
+        setPmChavesValorManual(null); setPmLocks({});
         setPmPosObraValorManual(null);
       }
     }
@@ -1563,7 +1682,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmSemestralIndividualEnabled({});
     setPmSemestralValorManual({});
     setPmSemestralDatasManual({});
-    setPmChavesValorManual(null);
+    setPmChavesValorManual(null); setPmLocks({});
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
     setComissaoParcelasManual(null); setComissaoTravadas({});
@@ -2578,8 +2697,11 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             valorAtoMinimo={isParcelamentoMorar ? pm.sinalMinimoCalculado : atoMinimoCalculado}
             valorAtoMaximo={isParcelamentoMorar ? pm.atoMaximoPossivel : atoMaximoPossivel}
             onAtoChange={(novoVal) => {
-              setValAtoManual(novoVal);
+              if (!isParcelamentoMorar) { setValAtoManual(novoVal); return; }
+              if (novoVal === null) pmLimparBloco('ato'); else pmEditarBloco('ato', novoVal);
             }}
+            travadoAto={!!pmLocks['ato']}
+            onToggleTravaAto={isParcelamentoMorar ? () => pmAlternarTrava('ato') : undefined}
             stepAto={currentCond?.stepAtoImovel}
             stepItbi={currentCond?.stepItbiAto}
             onShowToast={onShowToast}
@@ -2740,9 +2862,19 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     3. Parcelamento Morar
                   </h3>
                 </div>
-                <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                  {pm.nMensaisObra} meses de obra
-                </span>
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    onClick={pmEqualizarTudo}
+                    title="Abre todos os cadeados e recalcula o fluxo pela política"
+                    className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-semibold border border-slate-200/80 flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Equalizar / Destravar Tudo
+                  </button>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                    {pm.nMensaisObra} meses de obra
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2 text-xs">
@@ -2754,7 +2886,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       <span className="text-[9.5px] text-slate-400 font-semibold">A partir de {pmMensalObraDataInicio}</span>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-1 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-end">
                     <PmCampoEditavel
                       label="Qtd. Meses"
                       tipo="inteiro"
@@ -2767,13 +2899,17 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       label="Valor da Parcela"
                       tipo="moeda"
                       minimo={currentCond?.pmParcelaMinimaMensalObra ?? 200}
+                      passo={pmPassoMensal}
+                      alerta={pm.excedeRiscoRenda}
+                      travado={!!pmLocks['mensal']}
+                      onToggleTrava={() => pmAlternarTrava('mensal')}
                       value={pm.valorMensalObra}
-                      onCommit={setPmMensalObraValorManual}
+                      onCommit={(v) => { if (v === null) pmLimparBloco('mensal'); else pmEditarBloco('mensal', v * pm.nMensaisObra); }}
                       onShowToast={onShowToast}
                     />
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
-                      <div className="w-full bg-white px-2 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs">
+                      <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
+                      <div className="bg-white px-3 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs whitespace-nowrap">
                         {formatCurrency(pm.valorMensalObraTotal)}
                       </div>
                     </div>
@@ -2836,22 +2972,18 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         </div>
                       </label>
                       {semestralAtiva && (
-                        <div className="w-32">
+                        <div className="w-52">
                           <PmCampoEditavel
                             label="Valor"
                             tipo="moeda"
                             minimo={currentCond?.pmParcelaMinimaSemestral ?? 200}
+                            passo={pmPassoSemestral}
+                            alerta={semestralValorAtual > pmTetoSemestral + 0.01}
+                            travado={!!pmLocks[`sem-${idx}`]}
+                            onToggleTrava={() => pmAlternarTrava(`sem-${idx}`)}
                             value={semestralValorAtual}
                             onCommit={(novoValor) => {
-                              setPmSemestralValorManual(prev => {
-                                const next = { ...prev };
-                                if (novoValor === null) {
-                                  delete next[idx];
-                                } else {
-                                  next[idx] = novoValor;
-                                }
-                                return next;
-                              });
+                              if (novoValor === null) pmLimparBloco(`sem-${idx}`); else pmEditarBloco(`sem-${idx}`, novoValor);
                             }}
                             onShowToast={onShowToast}
                           />
@@ -2881,13 +3013,17 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     </div>
                   </label>
                   {pmChavesEnabled && (
-                    <div className="w-32">
+                    <div className="w-52">
                       <PmCampoEditavel
                         label="Valor"
                         tipo="moeda"
                         colorClass="text-amber-800"
+                        passo={pmPassoChaves}
+                        alerta={pm.valorChaves > pmTetoChaves + 0.01}
+                        travado={!!pmLocks['chaves']}
+                        onToggleTrava={() => pmAlternarTrava('chaves')}
                         value={pm.valorChaves}
-                        onCommit={setPmChavesValorManual}
+                        onCommit={(v) => { if (v === null) pmLimparBloco('chaves'); else pmEditarBloco('chaves', v); }}
                         onShowToast={onShowToast}
                       />
                     </div>
@@ -2907,7 +3043,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       Não utilizado — prazo de obra reduzido do sugerido.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-1.5">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-end">
                       <PmCampoEditavel
                         label="Qtd. Meses"
                         tipo="inteiro"
@@ -2919,13 +3055,16 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         label="Valor da Parcela"
                         tipo="moeda"
                         minimo={currentCond?.pmParcelaMinimaPosObra ?? 200}
+                        passo={pmPassoMensal}
+                        travado={!!pmLocks['pos']}
+                        onToggleTrava={() => pmAlternarTrava('pos')}
                         value={pm.valorPosObraParcela}
-                        onCommit={setPmPosObraValorManual}
+                        onCommit={(v) => { if (v === null) pmLimparBloco('pos'); else pmEditarBloco('pos', v * pm.qtdParcelasPosObra); }}
                         onShowToast={onShowToast}
                       />
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
-                        <div className="w-full bg-white px-2 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs">
+                        <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
+                        <div className="bg-white px-3 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs whitespace-nowrap">
                           {formatCurrency(pm.valorPosObraTotal)}
                         </div>
                       </div>
