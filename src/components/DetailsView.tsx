@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { redistribuirParcelamentoMorar, redistribuirPorPasso, aplicarDestinoParcelamentoMorar, PmContexto, PmDestino } from '../utils/parcelamentoMorarRedistribuicao';
 import { PainelFinanciamento } from './PainelFinanciamento';
 import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
@@ -233,6 +235,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const [pmSemestralValorManual, setPmSemestralValorManual] = useState<Record<number, number>>({});
   // Cadeados do fluxo do Parcelamento Morar: 'ato' | 'mensal' | 'sem-<idx>' | 'chaves' | 'pos' → true = travado.
   const [pmLocks, setPmLocks] = useState<Record<string, boolean>>({});
+  // Diminuição sem margem automática: aguarda o corretor escolher para onde vai a diferença.
+  const [pmDestinoPendente, setPmDestinoPendente] = useState<{ origem: string; valores: Record<string, number>; diferenca: number; modo: 'jogar' | 'descontar' } | null>(null);
   // Data de cada intermediária semestral, editável individualmente (índice ->
   // "YYYY-MM"). Quando não há override, usa a data sugerida automaticamente.
   const [pmSemestralDatasManual, setPmSemestralDatasManual] = useState<Record<number, string>>({});
@@ -828,12 +832,21 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Limites da política por rubrica (mesma base do motor: valor do imóvel líquido do desconto do Ato Premiado).
   // Passar do limite só pinta o campo de vermelho — não trava nem altera o cálculo (o Ato absorve a diferença).
   const pmValorUtilizado = Math.max(0, price - pm.descontoAtoPremiado - (hasUnitSelected ? maxFinanc : 0));
+  // Tetos da política sobre a base LÍQUIDA (imóvel − Desconto do Ato Premiado − recursos): a mesma base do
+  // gráfico de Percentuais de Comprometimento, então uma série no teto aparece exatamente com o % da política.
   const pmTetoSemestral = pmValorUtilizado * ((currentCond?.pmParcelaSemestralMaxPct ?? 4) / 100);
   const pmTetoChaves = pmValorUtilizado * ((currentCond?.pmParcelaChavesMaxPct ?? 15) / 100);
+  // Conferência do fluxo: tudo que foi distribuído (Ato + 1ª/2ª Mensal + Mensais + Semestrais + Chaves +
+  // Pós-Obra) contra o valor líquido da negociação (imóvel − desconto do Ato Premiado − recursos).
+  const pmTotalDistribuido = Math.round((pm.atoEfetivo + pmMensaisAntecipadas + pm.saldoAPagarDireto) * 100) / 100;
+  const pmValorAlvoDistribuicao = Math.round(pmValorUtilizado * 100) / 100;
+  const pmDiferencaDistribuido = Math.round((pmTotalDistribuido - pmValorAlvoDistribuicao) * 100) / 100;
+
   // Passos dos botões +/- vêm da Política de Crédito (0 desativa os botões daquele campo).
   const pmPassoMensal = currentCond?.pmPassoMensalObra ?? 100;
   const pmPassoSemestral = currentCond?.pmPassoSemestral ?? 500;
   const pmPassoChaves = currentCond?.pmPassoChaves ?? 1000;
+  const pmPassoAto = currentCond?.pmPassoAto ?? 1000;
 
   // ===================== CADEADOS + EQUALIZAÇÃO PROPORCIONAL =====================
   // Blocos do fluxo (valor TOTAL de cada um). O total a fechar é o que o motor já distribui hoje
@@ -847,9 +860,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     { chave: 'pos', valor: pm.valorPosObraTotal, ativo: pm.qtdParcelasPosObra > 0 && !pmObraReduzida }
   ] : [];
 
+  // O motor guarda o Ato ANTES de absorver a 1ª/2ª Mensal (valAtoManual = Ato exibido + antecipadas).
+  const pmGravarAto = (exibido: number) => {
+    const d = r2(Math.max(0, exibido));
+    setValAtoManual(d >= pm.sinalMinimoCalculado ? r2(d + pmMensaisAntecipadas) : d);
+  };
+
   const pmAplicarValorBloco = (chave: string, total: number) => {
     const t = r2(Math.max(0, total));
-    if (chave === 'ato') setValAtoManual(t);
+    if (chave === 'ato') pmGravarAto(t);
     else if (chave === 'mensal') setPmMensalObraValorManual(pm.nMensaisObra > 0 ? r2(t / pm.nMensaisObra) : null);
     else if (chave === 'chaves') setPmChavesValorManual(t);
     else if (chave === 'pos') setPmPosObraValorManual(pm.qtdParcelasPosObra > 0 ? r2(t / pm.qtdParcelasPosObra) : null);
@@ -859,54 +878,72 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     }
   };
 
-  // Edita um bloco: aplica o valor (limitado ao saldo), FECHA o cadeado dele e redistribui o restante
-  // proporcionalmente entre os demais blocos com cadeado aberto. Sem nenhum aberto, bloqueia.
-  const pmEditarBloco = (chave: string, novoTotal: number) => {
-    const ativos = pmBlocos.filter(b => b.ativo);
-    if (!ativos.some(b => b.chave === chave)) return;
-    const outros = ativos.filter(b => b.chave !== chave);
-    const travado = (k: string) => !!pmLocks[k];
-    const abertosNaoAto = outros.filter(b => b.chave !== 'ato' && !travado(b.chave));
-    const atoAberto = chave !== 'ato' && !travado('ato');
-    if (abertosNaoAto.length === 0 && !atoAberto) {
-      onShowToast?.('Destrave ao menos um campo para redistribuir a diferença');
+  // Teto (valor TOTAL do bloco) pela Política de Crédito sobre a base líquida de um dado Ato
+  // (o Desconto do Ato Premiado depende do Ato). Sem Ato informado, usa o Ato atual.
+  const pmTetoBlocoPara = (chave: string, baseLiquida: number): number => {
+    const capRendaParcela = income > 0 ? income * ((currentCond?.riscoRendaPct ?? 40) / 100) : 0;
+    if (chave === 'mensal') return capRendaParcela * pm.nMensaisObra;
+    if (chave.startsWith('sem-')) return baseLiquida * ((currentCond?.pmParcelaSemestralMaxPct ?? 4) / 100);
+    if (chave === 'chaves') return baseLiquida * ((currentCond?.pmParcelaChavesMaxPct ?? 15) / 100);
+    if (chave === 'pos') {
+      const qtd = pm.qtdParcelasPosObra;
+      if (qtd <= 0) return 0;
+      const porImovel = baseLiquida * ((currentCond?.pmRiscoProSolutoPosObraPct ?? 5) / 100);
+      return income > 0 ? Math.min(porImovel, capRendaParcela * qtd) : porImovel;
+    }
+    return Infinity;
+  };
+  const pmTetoBloco = (chave: string): number => pmTetoBlocoPara(chave, pmValorUtilizado);
+
+  // ===================== REDISTRIBUIÇÃO (função pura em utils/parcelamentoMorarRedistribuicao) =====================
+  // O DetailsView só monta o contexto (valores atuais, tetos, pisos e cadeados) e aplica o resultado.
+  const pmPctAto = Math.max(0, currentCond?.atoPremiadoPct ?? ATO_PREMIADO_PCT_PADRAO);
+  const pmDesc = (ato: number) => (isAtoPremiadoEnabled ? calcularDescontoAtoPremiado(ato, pmPctAto) : 0);
+  const pmBaseNegociacao = Math.max(0, price - (hasUnitSelected ? maxFinanc : 0));
+  const pmMsgPisoSinal = `O Sinal não pode ser inferior ao limite mínimo da Política de Crédito (${String(pmSinalMinimoPct).replace('.', ',')}%).`;
+
+  const pmContexto = (): PmContexto => ({
+    blocos: pmBlocos.filter(b => b.ativo).map(b => ({
+      chave: b.chave,
+      valor: b.valor,
+      teto: b.chave === 'ato' ? Infinity : pmTetoBloco(b.chave),
+      piso: b.chave === 'ato' ? pm.sinalMinimoCalculado : 0,
+      travado: !!pmLocks[b.chave],
+      meses: b.chave === 'mensal' ? pm.nMensaisObra : b.chave === 'pos' ? pm.qtdParcelasPosObra : undefined
+    })),
+    totalPara: (ato: number) => r2(pmBaseNegociacao - pmDesc(ato) - pmMensaisAntecipadas),
+    tetoPara: (chave: string, ato: number) => pmTetoBlocoPara(chave, Math.max(0, pmBaseNegociacao - pmDesc(ato)))
+  });
+
+  // Grava todos os blocos ativos e o Ato de uma vez e fecha o cadeado de quem foi editado.
+  const pmAplicarValores = (valores: Record<string, number>, travar: string) => {
+    pmBlocos.filter(b => b.ativo && b.chave !== 'ato').forEach(b => pmAplicarValorBloco(b.chave, valores[b.chave] ?? b.valor));
+    pmGravarAto(valores.ato ?? pm.atoEfetivo);
+    setPmLocks(prev => ({ ...prev, [travar]: true }));
+  };
+
+  // porPasso = clique em − / +: se o passo inteiro passar do limite possível, encosta no limite exato (centavos).
+  const pmEditarBloco = (chave: string, novoTotal: number, porPasso = false) => {
+    const res = porPasso
+      ? redistribuirPorPasso(pmContexto(), chave, novoTotal, pmMsgPisoSinal)
+      : redistribuirParcelamentoMorar(pmContexto(), chave, novoTotal, pmMsgPisoSinal);
+    if (res.aviso) onShowToast?.(res.aviso);
+    if (res.tipo === 'bloqueado') return;
+    if (res.tipo === 'modal') {
+      setPmDestinoPendente({ origem: chave, valores: res.valores, diferenca: res.diferenca, modo: res.modo });
       return;
     }
-    const somaTravados = outros.filter(b => travado(b.chave)).reduce((s, b) => s + b.valor, 0);
-    let total = pm.atoEfetivo + pm.saldoAPagarDireto;
-    const reservaAto = atoAberto ? pm.sinalMinimoCalculado : 0;
-    const novo = r2(Math.min(Math.max(0, novoTotal), Math.max(0, total - somaTravados - reservaAto)));
-    if (chave === 'ato' && isAtoPremiadoEnabled) {
-      // O desconto do Ato Premiado depende do próprio Ato: o total a distribuir acompanha o novo Ato.
-      const pct = Math.max(0, currentCond?.atoPremiadoPct ?? ATO_PREMIADO_PCT_PADRAO);
-      total = total + pm.descontoAtoPremiado - calcularDescontoAtoPremiado(novo, pct);
-    }
-    if (novo < novoTotal - 0.005) onShowToast?.('Valor ajustado ao saldo disponível do fluxo.');
-    const restante = Math.max(0, r2(total - somaTravados - novo));
-    const pesos = (lista: { valor: number }[]) => {
-      const soma = lista.reduce((s, b) => s + b.valor, 0);
-      return lista.map(b => (soma > 0.005 ? b.valor / soma : 1 / lista.length));
-    };
-    let paraAbertos = restante;
-    if (atoAberto) {
-      // o Ato aberto fica com a parte proporcional (nunca abaixo do sinal mínimo); o motor o fecha como resíduo
-      const todos = [...abertosNaoAto, outros.find(b => b.chave === 'ato')!];
-      const w = pesos(todos)[todos.length - 1];
-      const parteAto = Math.max(pm.sinalMinimoCalculado, r2(restante * w));
-      paraAbertos = Math.max(0, r2(restante - parteAto));
-      setValAtoManual(null);
-    }
-    if (abertosNaoAto.length > 0) {
-      const w = pesos(abertosNaoAto);
-      let acumulado = 0;
-      abertosNaoAto.forEach((b, i) => {
-        const parte = i === abertosNaoAto.length - 1 ? r2(paraAbertos - acumulado) : r2(paraAbertos * w[i]);
-        acumulado = r2(acumulado + parte);
-        pmAplicarValorBloco(b.chave, Math.max(0, parte));
-      });
-    }
-    pmAplicarValorBloco(chave, novo);
-    setPmLocks(prev => ({ ...prev, [chave]: true }));
+    pmAplicarValores(res.valores, chave);
+  };
+
+  // Resolve o modal: força a diferença no destino escolhido e aplica tudo junto (Ato incluso).
+  const pmConfirmarDestino = (destino: PmDestino) => {
+    const pend = pmDestinoPendente;
+    if (!pend) return;
+    setPmDestinoPendente(null);
+    const res = aplicarDestinoParcelamentoMorar(pmContexto(), pend.valores, pend.origem, pend.modo, pend.diferenca, destino);
+    if (res.aviso) onShowToast?.(res.aviso);
+    pmAplicarValores(res.valores, pend.origem);
   };
 
   // Limpar o campo (null) devolve o bloco ao automático e abre o cadeado dele.
@@ -929,7 +966,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       return;
     }
     const b = pmBlocos.find(x => x.chave === chave);
-    if (b) pmAplicarValorBloco(chave, b.valor); // congela o valor atual para não flutuar com o automático
+    if (b) pmAplicarValorBloco(chave, b.valor); // congela o valor atual (o Ato vai pela convenção do motor)
     setPmLocks(prev => ({ ...prev, [chave]: true }));
   };
 
@@ -2694,15 +2731,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             title="2. FLUXO DE ENTRADA C/ CONSTRUTORA"
             onLimpar={limparFluxoPagamento}
             valorAto={isParcelamentoMorar ? pm.atoEfetivo : atoAposMensais}
-            valorAtoMinimo={isParcelamentoMorar ? pm.sinalMinimoCalculado : atoMinimoCalculado}
-            valorAtoMaximo={isParcelamentoMorar ? pm.atoMaximoPossivel : atoMaximoPossivel}
-            onAtoChange={(novoVal) => {
+            valorAtoMinimo={isParcelamentoMorar ? 0 : atoMinimoCalculado}
+            valorAtoMaximo={isParcelamentoMorar ? undefined : atoMaximoPossivel}
+            onAtoChange={(novoVal, porPasso) => {
               if (!isParcelamentoMorar) { setValAtoManual(novoVal); return; }
-              if (novoVal === null) pmLimparBloco('ato'); else pmEditarBloco('ato', novoVal);
+              if (novoVal === null) pmLimparBloco('ato'); else pmEditarBloco('ato', novoVal, porPasso);
             }}
             travadoAto={!!pmLocks['ato']}
             onToggleTravaAto={isParcelamentoMorar ? () => pmAlternarTrava('ato') : undefined}
-            stepAto={currentCond?.stepAtoImovel}
+            stepAto={isParcelamentoMorar ? pmPassoAto : currentCond?.stepAtoImovel}
             stepItbi={currentCond?.stepItbiAto}
             onShowToast={onShowToast}
             hideITBI={isParcelamentoMorar}
@@ -2886,7 +2923,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       <span className="text-[9.5px] text-slate-400 font-semibold">A partir de {pmMensalObraDataInicio}</span>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-end">
+                  <div className="flex flex-nowrap items-end justify-between gap-1.5">
                     <PmCampoEditavel
                       label="Qtd. Meses"
                       tipo="inteiro"
@@ -2904,12 +2941,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       travado={!!pmLocks['mensal']}
                       onToggleTrava={() => pmAlternarTrava('mensal')}
                       value={pm.valorMensalObra}
-                      onCommit={(v) => { if (v === null) pmLimparBloco('mensal'); else pmEditarBloco('mensal', v * pm.nMensaisObra); }}
+                      onCommit={(v, porPasso) => { if (v === null) pmLimparBloco('mensal'); else pmEditarBloco('mensal', v * pm.nMensaisObra, porPasso); }}
                       onShowToast={onShowToast}
                     />
-                    <div>
+                    <div className="w-[120px] shrink-0">
                       <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
-                      <div className="bg-white px-3 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs whitespace-nowrap">
+                      <div className="w-full h-9 flex items-center justify-center bg-white px-1 rounded-lg border border-slate-200 font-bold tabular-nums text-slate-900 text-xs whitespace-nowrap">
                         {formatCurrency(pm.valorMensalObraTotal)}
                       </div>
                     </div>
@@ -2972,7 +3009,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         </div>
                       </label>
                       {semestralAtiva && (
-                        <div className="w-52">
+                        <div className="shrink-0">
                           <PmCampoEditavel
                             label="Valor"
                             tipo="moeda"
@@ -2982,8 +3019,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                             travado={!!pmLocks[`sem-${idx}`]}
                             onToggleTrava={() => pmAlternarTrava(`sem-${idx}`)}
                             value={semestralValorAtual}
-                            onCommit={(novoValor) => {
-                              if (novoValor === null) pmLimparBloco(`sem-${idx}`); else pmEditarBloco(`sem-${idx}`, novoValor);
+                            onCommit={(novoValor, porPasso) => {
+                              if (novoValor === null) pmLimparBloco(`sem-${idx}`); else pmEditarBloco(`sem-${idx}`, novoValor, porPasso);
                             }}
                             onShowToast={onShowToast}
                           />
@@ -3013,7 +3050,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     </div>
                   </label>
                   {pmChavesEnabled && (
-                    <div className="w-52">
+                    <div className="shrink-0">
                       <PmCampoEditavel
                         label="Valor"
                         tipo="moeda"
@@ -3023,7 +3060,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         travado={!!pmLocks['chaves']}
                         onToggleTrava={() => pmAlternarTrava('chaves')}
                         value={pm.valorChaves}
-                        onCommit={(v) => { if (v === null) pmLimparBloco('chaves'); else pmEditarBloco('chaves', v); }}
+                        onCommit={(v, porPasso) => { if (v === null) pmLimparBloco('chaves'); else pmEditarBloco('chaves', v, porPasso); }}
                         onShowToast={onShowToast}
                       />
                     </div>
@@ -3031,24 +3068,23 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                 </div>
 
                 {/* PARCELAMENTO PÓS-OBRA — ZERADO AUTOMATICAMENTE SE O PRAZO DE OBRA FOI REDUZIDO */}
-                <div className={`p-2.5 rounded-lg border ${pmObraReduzida ? 'bg-slate-50/60 border-slate-200/60 opacity-60' : 'bg-slate-50 border-slate-200/80'}`}>
+                <div className="p-2.5 rounded-lg border bg-slate-50 border-slate-200/80">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">Pós-Obra</span>
                     {!pmObraReduzida && pmPosObraDataInicio && (
                       <span className="text-[9.5px] text-slate-400 font-semibold">A partir de {pmPosObraDataInicio}</span>
                     )}
                   </div>
-                  {pmObraReduzida ? (
-                    <div className="text-[10px] text-slate-500 font-semibold text-center py-2">
-                      Não utilizado — prazo de obra reduzido do sugerido.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 min-[420px]:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-end">
+                    <div className="flex flex-nowrap items-end justify-between gap-1.5">
                       <PmCampoEditavel
                         label="Qtd. Meses"
                         tipo="inteiro"
                         value={pmPosObraQtd}
-                        onCommit={setPmQtdPosObraManual}
+                        onCommit={(q) => {
+                          // + no Pós-Obra com a Obra reduzida: a Obra volta ao prazo máximo e o Pós-Obra segue normal
+                          if ((q ?? 0) > 0 && pmObraReduzida) setPmMesesObraManual(null);
+                          setPmQtdPosObraManual(q);
+                        }}
                         onShowToast={onShowToast}
                       />
                       <PmCampoEditavel
@@ -3058,18 +3094,18 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         passo={pmPassoMensal}
                         travado={!!pmLocks['pos']}
                         onToggleTrava={() => pmAlternarTrava('pos')}
+                        disabled={pmObraReduzida || pm.qtdParcelasPosObra <= 0}
                         value={pm.valorPosObraParcela}
-                        onCommit={(v) => { if (v === null) pmLimparBloco('pos'); else pmEditarBloco('pos', v * pm.qtdParcelasPosObra); }}
+                        onCommit={(v, porPasso) => { if (v === null) pmLimparBloco('pos'); else pmEditarBloco('pos', v * pm.qtdParcelasPosObra, porPasso); }}
                         onShowToast={onShowToast}
                       />
-                      <div>
+                      <div className="w-[120px] shrink-0">
                         <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
-                        <div className="bg-white px-3 py-1.5 rounded-md border border-slate-200 font-bold text-slate-900 text-center text-xs whitespace-nowrap">
+                        <div className="w-full h-9 flex items-center justify-center bg-white px-1 rounded-lg border border-slate-200 font-bold tabular-nums text-slate-900 text-xs whitespace-nowrap">
                           {formatCurrency(pm.valorPosObraTotal)}
                         </div>
                       </div>
                     </div>
-                  )}
                 </div>
               </div>
 
@@ -3084,12 +3120,22 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                   <strong className="text-slate-900 font-bold">{formatCurrency(pm.valorPosObraTotal)}</strong>
                 </div>
 
-                {/* TARJA SUBTOTAL ATÉ AS CHAVES */}
-                <div className="flex justify-between items-center bg-morar-50 px-3 py-2 rounded-lg border border-morar-200 mt-1">
-                  <span className="text-xs font-semibold text-slate-700">
-                    Subtotal até as Chaves: <span className="text-[10.5px] font-normal text-slate-500">({pm.pctSubtotalAteChaves.toFixed(1)}% do imóvel)</span>
-                  </span>
-                  <strong className="text-sm sm:text-base font-bold text-morar-700">{formatCurrency(pm.subtotalAteChaves)}</strong>
+                {/* CONFERÊNCIA: DISTRIBUÍDO (Ato + 1ª/2ª Mensal + Mensais + Semestrais + Chaves + Pós-Obra) × VALOR ALVO */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2.5 bg-morar-50 px-3.5 rounded-lg border border-morar-100 gap-2 transition-colors">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-slate-800">Distribuído:</span>
+                    {hasUnitSelected && (Math.abs(pmDiferencaDistribuido) <= 0.05 ? (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        ✓ 100% Validado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title={`Alvo da negociação: ${formatCurrency(pmValorAlvoDistribuicao)}`}>
+                        Diferença de {formatCurrency(Math.abs(pmDiferencaDistribuido))}
+                      </span>
+                    ))}
+                  </div>
+                  <strong className="text-xs font-semibold text-morar-700">{formatCurrency(pmTotalDistribuido)}</strong>
                 </div>
               </div>
             </div>
@@ -3316,6 +3362,62 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           pmPctSubtotalAteChaves={pm.pctSubtotalAteChaves}
           pmComprometimentoData={pmComprometimentoData}
         />
+      )}
+
+
+      {/* DECISÃO: PARA ONDE VAI A DIFERENÇA (todos os outros campos travados ou no teto da política) */}
+      {pmDestinoPendente && createPortal(
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setPmDestinoPendente(null); }}
+        >
+          <div className="bg-white rounded-2xl border border-[#E5E8E6] shadow-xl w-full max-w-md p-5 space-y-4" role="dialog" aria-modal="true">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-slate-700 leading-snug">
+                {pmDestinoPendente.modo === 'descontar'
+                  ? 'Todos os campos abertos já foram zerados. De qual campo travado deseja descontar'
+                  : pmDestinoPendente.origem === 'ato'
+                    ? 'Os campos abertos atingiram o limite da Política de Crédito ou estão travados. Para onde deseja jogar a diferença de'
+                    : 'Todos os demais campos estão travados ou no limite da Política de Crédito. Para onde deseja jogar a diferença de'}{' '}
+                <strong className="text-slate-900">{formatCurrency(pmDestinoPendente.diferenca)}</strong>{pmDestinoPendente.modo === 'descontar' ? ' para aumentar o Sinal?' : '?'}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {([
+                ['ato', `${pmDestinoPendente.modo === 'descontar' ? 'Descontar do' : 'Jogar no'} Ato (Imóvel)`],
+                ['mensal', `${pmDestinoPendente.modo === 'descontar' ? 'Descontar da' : 'Jogar na'} Mensal de Obra`],
+                ['semestrais', `${pmDestinoPendente.modo === 'descontar' ? 'Descontar das' : 'Jogar nas'} Intermediárias Semestrais`],
+                ['chaves', `${pmDestinoPendente.modo === 'descontar' ? 'Descontar da' : 'Jogar na'} Parcela Chaves`],
+                ['pos', `${pmDestinoPendente.modo === 'descontar' ? 'Descontar do' : 'Jogar no'} Pós-Obra`]
+              ] as ['ato' | 'mensal' | 'semestrais' | 'chaves' | 'pos', string][])
+                .filter(([k]) => {
+                  const origem = pmDestinoPendente.origem;
+                  const exigeSaldo = pmDestinoPendente.modo === 'descontar';
+                  if (k === 'semestrais') return pmBlocos.some(x => x.ativo && x.chave.startsWith('sem-') && x.chave !== origem && (!exigeSaldo || x.valor > 0.005));
+                  return k !== origem && pmBlocos.some(x => x.ativo && x.chave === k && (!exigeSaldo || x.valor > 0.005));
+                })
+                .map(([k, rotulo]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => pmConfirmarDestino(k)}
+                    className="px-4 py-2 text-xs font-bold text-white bg-[#006B3F] hover:bg-[#005a35] rounded-xl cursor-pointer text-left"
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              <button
+                type="button"
+                onClick={() => setPmDestinoPendente(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-300 hover:bg-slate-50 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
     </div>

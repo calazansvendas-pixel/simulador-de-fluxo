@@ -13,6 +13,8 @@ interface MonthStepperProps {
   // Texto usado nos tooltips e no aria-label dos botões, ex.: "mês"/"parcela".
   unitLabel?: string;
   disabled?: boolean;
+  // Visual "solto": sem cápsula externa; botões −/+ quadrados (w-7 h-9) e o número centralizado entre eles.
+  solto?: boolean;
 }
 
 // Stepper interativo `[ - Nx + ]` — componente padrão do app para qualquer
@@ -27,7 +29,8 @@ export const MonthStepper: React.FC<MonthStepperProps> = ({
   min = 0,
   max,
   unitLabel = 'mês',
-  disabled = false
+  disabled = false,
+  solto = false
 }) => {
   const atMin = disabled || total <= min;
   const atMax = disabled || (max !== undefined && total >= max);
@@ -59,17 +62,17 @@ export const MonthStepper: React.FC<MonthStepperProps> = ({
   };
 
   return (
-    <div className={`flex items-center gap-1 border rounded-lg px-1 py-0.5 ${colorClass}`}>
+    <div className={solto ? `flex items-center gap-1 ${colorClass.replace(/\bbg-\S+|\bborder-\S+/g, '')}` : `flex items-center gap-1 border rounded-lg px-1 py-0.5 ${colorClass}`}>
       <button
         type="button"
         onClick={() => onChange(Math.max(min, total - 1))}
         disabled={atMin}
-        className="w-5 h-5 flex items-center justify-center rounded bg-white border border-current/30 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black/5 cursor-pointer"
+        className={`${solto ? 'w-7 h-9 rounded-lg border border-slate-200 shrink-0' : 'w-5 h-5 rounded border border-current/30'} flex items-center justify-center bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black/5 cursor-pointer`}
         title={`Diminuir 1 ${unitLabel}`}
       >
         <Minus className="w-3 h-3" />
       </button>
-      <span className="flex items-center justify-center w-9">
+      <span className={solto ? 'inline-flex items-center justify-center gap-1 min-w-[44px] text-center tabular-nums' : 'flex items-center justify-center w-9'}>
         <input
           type="number"
           inputMode="numeric"
@@ -92,7 +95,8 @@ export const MonthStepper: React.FC<MonthStepperProps> = ({
             }
           }}
           title="Digitar a quantidade diretamente"
-          className="min-w-0 flex-1 bg-transparent border-none p-0 text-[11px] font-extrabold text-center tabular-nums focus:outline-none disabled:cursor-not-allowed appearance-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0"
+          style={solto ? { width: String(isEditing ? inputText : total).length + 'ch' } : undefined}
+          className={`min-w-0 ${solto ? '' : 'flex-1 '}bg-transparent border-none p-0 text-[11px] font-extrabold text-center tabular-nums focus:outline-none disabled:cursor-not-allowed appearance-none [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0`}
         />
         <span className="text-[11px] font-extrabold shrink-0">X</span>
       </span>
@@ -100,7 +104,7 @@ export const MonthStepper: React.FC<MonthStepperProps> = ({
         type="button"
         onClick={() => onChange(max !== undefined ? Math.min(max, total + 1) : total + 1)}
         disabled={atMax}
-        className="w-5 h-5 flex items-center justify-center rounded bg-white border border-current/30 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black/5 cursor-pointer"
+        className={`${solto ? 'w-7 h-9 rounded-lg border border-slate-200 shrink-0' : 'w-5 h-5 rounded border border-current/30'} flex items-center justify-center bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black/5 cursor-pointer`}
         title={`Aumentar 1 ${unitLabel}`}
       >
         <Plus className="w-3 h-3" />

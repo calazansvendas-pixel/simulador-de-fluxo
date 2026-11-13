@@ -1786,7 +1786,20 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
   const recursos = Math.max(0, p.recursos || 0);
   const renda = Math.max(0, p.renda || 0);
 
-  const sinalMinimoCalculado = Math.round(price * ((p.pctSinalMinimo ?? 10) / 100) * 100) / 100;
+  // Sinal Mínimo = X% da MESMA base usada nos percentuais de comprometimento e nos tetos das parcelas: o
+  // imóvel já líquido do Desconto do Ato Premiado (preço − desconto(Sinal)). Como o desconto depende do próprio
+  // Sinal, é um ponto fixo: S = X% × (preço − desconto(S)). Sem isso o Sinal saía em 10,10% (10% do preço cheio)
+  // enquanto as parcelas ainda tinham margem.
+  const pctSinalMinimoPM = (p.pctSinalMinimo ?? 10) / 100;
+  const pctAtoPremiadoSinal = Math.max(0, p.atoPremiadoPct !== undefined ? p.atoPremiadoPct : ATO_PREMIADO_PCT_PADRAO);
+  let sinalMinimoCalculado = Math.round(price * pctSinalMinimoPM * 100) / 100;
+  if (p.isAtoPremiadoEnabled && pctAtoPremiadoSinal > 0) {
+    for (let i = 0; i < 20; i++) {
+      const proximo = Math.round(pctSinalMinimoPM * (price - calcularDescontoAtoPremiado(sinalMinimoCalculado, pctAtoPremiadoSinal)) * 100) / 100;
+      if (Math.abs(proximo - sinalMinimoCalculado) < 0.005) break;
+      sinalMinimoCalculado = proximo;
+    }
+  }
 
   const nMensaisObra = Math.max(0, Math.round(p.mesesObraQtd || 0));
   const nSemestrais = Math.max(0, Math.round(p.semestraisQtd || 0));
@@ -1904,13 +1917,26 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
   // nunca um único bloco absorve o corte sozinho. Blocos com valor manual (o
   // corretor digitou) ficam de fora do rateio — são tratados como fixos, e o
   // corte (se precisar) recai só sobre o(s) bloco(s) automático(s).
+  // RATEIO EQUILIBRADO: todos os blocos automáticos (Mensal de Obra, cada Semestral, Chaves e Pós-Obra)
+  // encolhem JUNTOS, na mesma proporção do respectivo teto, quando a soma dos tetos não cabe no que sobra depois
+  // do Ato (já no piso mínimo). Assim nenhum bloco fica em 100% do teto enquanto outro fica incompleto — e, com
+  // o Ato acima do mínimo, todos estão no teto. Blocos com valor manual (o corretor digitou) ficam fixos.
   const mensalObraIsManual = p.mensalObraValorManual !== null && p.mensalObraValorManual !== undefined;
   const posObraIsManual = p.posObraValorManual !== null && p.posObraValorManual !== undefined;
+  const chavesIsManual = p.chavesValorManual !== null && p.chavesValorManual !== undefined;
+  const semestralIsManual = (idx: number) => {
+    const o = p.semestraisValoresManuais?.[idx];
+    return o !== null && o !== undefined;
+  };
+  const somaSemestraisAuto = valoresSemestrais.reduce((t, v, idx) => t + (semestralIsManual(idx) ? 0 : v), 0);
+  const somaSemestraisManuais = valoresSemestrais.reduce((t, v, idx) => t + (semestralIsManual(idx) ? v : 0), 0);
   const somaMaximosFlexiveis =
-    (mensalObraIsManual ? 0 : valorMensalObraTotal) + (posObraIsManual ? 0 : valorPosObraTotal);
+    (mensalObraIsManual ? 0 : valorMensalObraTotal) + (posObraIsManual ? 0 : valorPosObraTotal) +
+    (chavesIsManual ? 0 : valorChaves) + somaSemestraisAuto;
   const totalFixo =
-    (mensalObraIsManual ? valorMensalObraTotal : 0) + (posObraIsManual ? valorPosObraTotal : 0);
-  const disponivelFlexiveis = Math.max(0, valorUtilizado - atoEfetivo - totalSemestrais - valorChaves - totalFixo);
+    (mensalObraIsManual ? valorMensalObraTotal : 0) + (posObraIsManual ? valorPosObraTotal : 0) +
+    (chavesIsManual ? valorChaves : 0) + somaSemestraisManuais;
+  const disponivelFlexiveis = Math.max(0, valorUtilizado - atoEfetivo - totalFixo);
   const fatorRateio = somaMaximosFlexiveis > 0
     ? Math.min(1, disponivelFlexiveis / somaMaximosFlexiveis)
     : 1;
@@ -1923,6 +1949,9 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
     valorPosObraTotal = valorPosObraTotal * fatorRateio;
     valorPosObraParcela = qtdParcelasPosObra > 0 ? valorPosObraTotal / qtdParcelasPosObra : 0;
   }
+  if (!chavesIsManual) valorChaves = valorChaves * fatorRateio;
+  valoresSemestrais = valoresSemestrais.map((v, idx) => (semestralIsManual(idx) ? v : v * fatorRateio));
+  totalSemestrais = valoresSemestrais.reduce((t, v) => t + v, 0);
 
   // Antecipadas que não couberam no abatimento do Ato (raro: Ato já no piso
   // mínimo) reduzem o total das Mensais de Obra — depois do rateio acima, para

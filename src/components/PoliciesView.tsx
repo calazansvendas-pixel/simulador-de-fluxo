@@ -222,6 +222,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [pmPassoMensalStr, setPmPassoMensalStr] = useState<string>('R$ 100,00');
   const [pmPassoSemestralStr, setPmPassoSemestralStr] = useState<string>('R$ 500,00');
   const [pmPassoChavesStr, setPmPassoChavesStr] = useState<string>('R$ 1.000,00');
+  const [pmPassoAtoStr, setPmPassoAtoStr] = useState<string>('R$ 1.000,00');
 
   // Estado das torres habilitadas para simulação nesta política
   const [torresHabilitadas, setTorresHabilitadas] = useState<string[]>([]);
@@ -583,6 +584,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     const pmPassoMensal = source.pmPassoMensalObra !== undefined ? source.pmPassoMensalObra : 100;
     const pmPassoSemestral = source.pmPassoSemestral !== undefined ? source.pmPassoSemestral : 500;
     const pmPassoChaves = source.pmPassoChaves !== undefined ? source.pmPassoChaves : 1000;
+    const pmPassoAto = source.pmPassoAto !== undefined ? source.pmPassoAto : 1000;
 
     const parsedSinal = source.sinalMinimo !== undefined ? parseCurrency(source.sinalMinimo) : 2000;
     const formattedSinal = formatCurrency(parsedSinal);
@@ -659,6 +661,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setPmPassoMensalStr(formatCurrency(pmPassoMensal));
     setPmPassoSemestralStr(formatCurrency(pmPassoSemestral));
     setPmPassoChavesStr(formatCurrency(pmPassoChaves));
+    setPmPassoAtoStr(formatCurrency(pmPassoAto));
     setDescontoAVistaStr(formatDecimalBR(descontoAVista, 1, 2));
 
     setPolicyText(source.policy || '');
@@ -740,6 +743,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const pmPassoMensalObra = lerPasso(pmPassoMensalStr, 100);
   const pmPassoSemestral = lerPasso(pmPassoSemestralStr, 500);
   const pmPassoChaves = lerPasso(pmPassoChavesStr, 1000);
+  const pmPassoAto = lerPasso(pmPassoAtoStr, 1000);
 
   // Reúne os valores atualmente em edição no formulário como um objeto de
   // parâmetros de política de crédito — usado para gravar tanto na condição
@@ -806,6 +810,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmPassoMensalObra,
       pmPassoSemestral,
       pmPassoChaves,
+      pmPassoAto,
       descontoAVistaPct: parseDecimal(descontoAVistaStr, 0),
       policy: policyText
     };
@@ -1177,6 +1182,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmPassoMensalObra,
       pmPassoSemestral,
       pmPassoChaves,
+      pmPassoAto,
       descontoAVistaPct: parsedDescontoAVista,
       policy: policyText
     };
@@ -2830,8 +2836,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                     <p className="font-semibold text-slate-700 text-[11px]">Passo dos Botões (+ / −) no Simulador</p>
                     <p className="text-[10px] text-slate-500 leading-tight">De quanto em quanto o valor sobe ou desce a cada clique na ficha. Com R$ 0,00 os botões daquele campo ficam desativados.</p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     {([
+                      ['Passo do Ato / Sinal (R$)', pmPassoAtoStr, setPmPassoAtoStr, 'R$ 1.000,00'],
                       ['Passo da Mensal de Obra (R$)', pmPassoMensalStr, setPmPassoMensalStr, 'R$ 100,00'],
                       ['Passo das Intermediárias Semestrais (R$)', pmPassoSemestralStr, setPmPassoSemestralStr, 'R$ 500,00'],
                       ['Passo da Parcela Chaves (R$)', pmPassoChavesStr, setPmPassoChavesStr, 'R$ 1.000,00']

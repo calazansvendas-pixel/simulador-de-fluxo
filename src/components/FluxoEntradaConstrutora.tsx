@@ -73,7 +73,7 @@ export interface FluxoEntradaConstrutoraProps {
   valorAto: number;
   valorAtoMinimo: number;
   valorAtoMaximo?: number;
-  onAtoChange: (novoValor: number | null) => void;
+  onAtoChange: (novoValor: number | null, porPasso?: boolean) => void; // porPasso = clique em − / +
   // Passo (R$) dos botões +/- do Ato (Imóvel) e do ITBI no Ato (Política de Crédito; padrão 100).
   stepAto?: number;
   stepItbi?: number;
@@ -246,8 +246,8 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
     novo = Math.round(novo * 100) / 100;
     setIsEditingAto(false);
     if (Math.abs(novo - valorAto) < 0.005) return;
-    onAtoChange(novo);
-    setAtoInputText(formatCurrency(novo));
+    // O campo exibe o valor que o pai realmente aplicar (ex.: encostado no limite quebrado) via useEffect.
+    onAtoChange(novo, true);
   };
 
   // Idem para o ITBI no Ato (0 = sem piso manual; teto = ITBI total).

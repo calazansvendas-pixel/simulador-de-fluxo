@@ -7,7 +7,7 @@ import { MonthStepper } from './MonthStepper';
 interface PmCampoEditavelProps {
   label: string;
   value: number; // valor efetivo atual (override manual, ou sugestão automática)
-  onCommit: (novoValor: number | null) => void; // null = limpa o override e volta pra sugestão
+  onCommit: (novoValor: number | null, porPasso?: boolean) => void; // null = limpa o override; porPasso = clique em − / +
   tipo?: 'moeda' | 'inteiro';
   minimo?: number; // piso — só se aplica a campos do tipo "moeda"
   maximo?: number; // teto — só se aplica a campos do tipo "inteiro" (stepper)
@@ -77,17 +77,17 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
     const novo = Math.max(0, Math.round(proximoValorComPasso(value, passo, direcao) * 100) / 100);
     if (direcao < 0 && novo < minimo - 0.005) {
       onShowToast?.(`O valor mínimo configurado é ${formatCurrency(minimo)}.`);
-      onCommit(Math.max(minimo, 0) > 0 ? minimo : null);
+      onCommit(Math.max(minimo, 0) > 0 ? minimo : null, true);
       return;
     }
-    onCommit(novo);
+    onCommit(novo, true);
   };
-  const botao = `w-6 h-6 flex items-center justify-center rounded-md border shrink-0 cursor-pointer disabled:opacity-50 ${alerta ? 'border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
+  const botao = `w-7 h-9 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer disabled:opacity-50 ${alerta ? 'border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
 
   if (tipo === 'inteiro') {
     return (
-      <div>
-        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
+      <div className="flex flex-col items-center">
+        <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
           {label}
         </label>
         <div className="flex items-center justify-center">
@@ -97,23 +97,26 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
             max={maximo}
             disabled={disabled}
             colorClass={`bg-white border-slate-200 ${colorClass}`}
+            solto
           />
         </div>
       </div>
     );
   }
 
+  // Título centralizado só sobre o input (largura fixa), sem contar os botões −, + e o cadeado.
   return (
-    <div>
-      <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
-        {label}
-      </label>
-      <div className="relative flex items-center gap-1">
+    <div className="flex items-end justify-center gap-1">
+      <div className="flex items-end gap-1">
         {passo > 0 && (
           <button type="button" disabled={disabled} aria-label={`Diminuir ${label}`} onClick={() => ajustar(-1)} className={botao}>
             <Minus className="w-3 h-3" />
           </button>
         )}
+        <div className="w-[120px] shrink-0">
+        <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">
+          {label}
+        </label>
         <input
           type="text"
           inputMode="decimal"
@@ -133,8 +136,9 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
             }
           }}
           placeholder="R$ 0,00"
-          className={`w-full min-w-0 px-2 py-1.5 rounded-md border font-bold text-center focus:outline-none text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed ${alerta ? 'bg-rose-50 border-rose-300 text-rose-700 focus:border-rose-500' : `bg-white border-slate-200 ${colorClass} focus:border-morar-600`}`}
+          className={`w-full min-w-0 h-9 px-1 rounded-lg border font-bold tabular-nums text-center focus:outline-none text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed ${alerta ? 'bg-rose-50 border-rose-300 text-rose-700 focus:border-rose-500' : `bg-white border-slate-200 ${colorClass} focus:border-morar-600`}`}
         />
+        </div>
         {passo > 0 && (
           <button type="button" disabled={disabled} aria-label={`Aumentar ${label}`} onClick={() => ajustar(1)} className={botao}>
             <Plus className="w-3 h-3" />
@@ -146,9 +150,9 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
             onClick={onToggleTrava}
             aria-pressed={travado}
             title={travado ? 'Destravar: este valor volta a participar da redistribuição' : 'Travar este valor'}
-            className={`w-6 h-6 flex items-center justify-center rounded-md shrink-0 cursor-pointer ${travado ? 'text-[#006B3F]' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`w-5 h-9 flex items-center justify-center shrink-0 cursor-pointer ${travado ? 'text-[#006B3F]' : 'text-slate-400 hover:text-slate-600'}`}
           >
-            {travado ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            {travado ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
           </button>
         )}
       </div>

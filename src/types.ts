@@ -134,6 +134,7 @@ export interface CommercialCondition {
   pmPassoMensalObra?: number;
   pmPassoSemestral?: number;
   pmPassoChaves?: number;
+  pmPassoAto?: number; // passo do Ato / Sinal no Parcelamento Morar (padrão R$ 1.000,00)
 }
 
 export interface TableRow {
