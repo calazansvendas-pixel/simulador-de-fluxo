@@ -2554,7 +2554,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     <div className="space-y-4 max-w-[1555px] mx-auto pb-12">
       
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
-      {!hasTable && (
+      {/* Só depois de as unidades do Firestore terminarem de carregar (dbUnitsLoaded): antes disso
+          a lista está vazia e o aviso piscaria. */}
+      {dbUnitsLoaded && !hasTable && (
         <div className={`${tabelaVencida ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'} border rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 ${tabelaVencida ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'} rounded-lg shrink-0`}>

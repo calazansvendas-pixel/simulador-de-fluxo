@@ -121,6 +121,11 @@ export default function App({ perfil, onSair }: AppProps) {
 
   // Referência sempre atualizada de products, para uso dentro do listener de sincronização
   // (que é registrado uma única vez e não pode depender de uma closure desatualizada de products).
+  // Vira true quando a primeira sincronização com o Firestore (empreendimentos + tabelas de
+  // unidades) termina, com sucesso ou não. Até lá as telas de simulação não podem concluir que
+  // "a tabela não foi importada" — senão o aviso amarelo pisca antes dos dados chegarem.
+  const [tabelasCarregadas, setTabelasCarregadas] = useState<boolean>(false);
+
   const productsRef = React.useRef(products);
   React.useEffect(() => {
     productsRef.current = products;
@@ -194,6 +199,8 @@ export default function App({ perfil, onSair }: AppProps) {
         }
       } catch (err) {
         console.warn('Sincronização com Firestore usando fallback local:', err);
+      } finally {
+        setTabelasCarregadas(true);
       }
     };
 
@@ -747,6 +754,7 @@ export default function App({ perfil, onSair }: AppProps) {
               }}
               onShowToast={showToast}
               cargoUsuario={perfil.cargo}
+              tabelasCarregadas={tabelasCarregadas}
             />
           )}
 

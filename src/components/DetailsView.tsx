@@ -21,6 +21,9 @@ import { MonthStepper } from './MonthStepper';
 import { imoveisService } from '../services/imoveisService';
 
 interface DetailsViewProps {
+  // false enquanto a primeira sincronização das tabelas com o Firestore não terminou: o aviso
+  // "Tabela de Vendas Não Importada" só pode aparecer depois disso (evita a tarja piscando).
+  tabelasCarregadas?: boolean;
   product: Product | null;
   condition: CommercialCondition | null;
   products?: Product[];
@@ -57,6 +60,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   onUnitSelectChange,
   onBackToSimulator,
   onNavigateToImport,
+  tabelasCarregadas = true,
   onShowToast,
   cargoUsuario
 }) => {
@@ -1982,7 +1986,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     <div className="w-full max-w-[1555px] mx-auto space-y-4 animate-fade-in">
       
       {/* ALERTA: TABELA DE VENDAS NÃO IMPORTADA OU VENCIDA */}
-      {!hasTable && (
+      {tabelasCarregadas && !hasTable && (
         <div className={`${tabelaVencida ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'} border rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 ${tabelaVencida ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'} rounded-lg shrink-0`}>
