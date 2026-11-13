@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, RefreshCw, Check, X, Pencil, Ban, PlayCircle, Trash2, Crown, ArrowLeftRight, Filter, ChevronDown, ChevronUp, Search, Building2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ShieldCheck, RefreshCw, Check, Eye, X, Pencil, Ban, PlayCircle, Trash2, Crown, ArrowLeftRight, Filter, ChevronDown, ChevronUp, Search, Building2 } from 'lucide-react';
 import { PerfilUsuario, Cargo, StatusConta, Product } from '../types';
 import { authService } from '../services/authService';
 import { TELAS_APP, CARGOS, TELAS_PADRAO_POR_CARGO, CAMPOS_EDITAVEIS_EQUIPE, CONDICOES_APP } from '../config/telasApp';
@@ -86,6 +87,9 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
   // ser corrigidos pelo Administrador antes de aprovar).
   const [ajustePendente, setAjustePendente] = useState<Record<string, { cargo: Cargo; superiorId: string | null }>>({});
   const [processandoId, setProcessandoId] = useState<string | null>(null);
+  // Cadastro pendente aberto no modal "Ver Cadastro" (a pessoa é buscada em `pendentes` pelo id, então o
+  // modal fecha sozinho quando o cadastro sai da lista ao ser aprovado/recusado).
+  const [verCadastroId, setVerCadastroId] = useState<string | null>(null);
   const [confirmandoExclusao, setConfirmandoExclusao] = useState<string | null>(null);
 
   // Filtro de "Cadastros pendentes" e de "Usuários ativos" — independentes um
@@ -783,74 +787,182 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[720px]">
-              <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                  <th className="px-5 py-2.5 font-bold">Quem se cadastrou</th>
-                  <th className="px-3 py-2.5 font-bold">Imobiliária</th>
-                  <th className="px-3 py-2.5 font-bold">Cargo indicado</th>
-                  <th className="px-3 py-2.5 font-bold">Superior hierárquico</th>
-                  <th className="px-5 py-2.5 font-bold">Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendentesFiltrados.map(u => {
-                  const ajuste = ajustePendente[u.id] || { cargo: u.cargo, superiorId: null };
-                  return (
-                    <tr key={u.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-5 py-3">
-                        <div className="font-bold text-slate-800">{u.nomeCompleto}</div>
-                        <div className="text-slate-400">{u.email}</div>
-                      </td>
-                      <td className="px-3 py-3 text-slate-600">{u.imobiliaria}</td>
-                      <td className="px-3 py-3">
-                        <select
-                          value={ajuste.cargo}
-                          onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, cargo: e.target.value as Cargo } }))}
-                          className="px-2 py-1.5 rounded-md border border-slate-300 text-xs bg-white"
-                        >
-                          {CARGOS.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-3 py-3">
-                        <select
-                          value={ajuste.superiorId || ''}
-                          onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, superiorId: e.target.value || null } }))}
-                          className="px-2 py-1.5 rounded-md border border-slate-300 text-xs bg-white min-w-[160px]"
-                        >
-                          <option value="">(nenhum)</option>
-                          {superioresDisponiveis.map(s => <option key={s.id} value={s.id}>{s.nomeCompleto} — {s.cargo}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            disabled={processandoId === u.id}
-                            onClick={() => handleAprovar(u)}
-                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-60"
-                          >
-                            <Check className="w-3.5 h-3.5" /> Aprovar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={processandoId === u.id}
-                            onClick={() => handleRecusar(u)}
-                            className="px-2.5 py-1.5 border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600 font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-60"
-                          >
-                            <X className="w-3.5 h-3.5" /> Recusar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="divide-y divide-slate-100">
+            {pendentesFiltrados.map(u => {
+              const ajuste = ajustePendente[u.id] || { cargo: u.cargo, superiorId: null };
+              const resumo = [u.imobiliaria, u.creci ? `CRECI ${u.creci}` : '', u.telefone].filter(Boolean).join(' · ');
+              return (
+                <div key={u.id} className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.3fr)_auto] gap-3 lg:gap-4 items-center px-5 py-3 text-xs">
+                  {/* COLUNA 1: QUEM SE CADASTROU */}
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 truncate" title={u.nomeCompleto}>{u.nomeCompleto}</div>
+                    <div className="text-slate-400 truncate" title={u.email}>{u.email}</div>
+                    {resumo && <div className="text-[11px] text-slate-500 truncate" title={resumo}>{resumo}</div>}
+                  </div>
+
+                  {/* COLUNA 2: CARGO E SUPERIOR */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
+                    <label className="min-w-0">
+                      <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-0.5">Cargo indicado</span>
+                      <select
+                        value={ajuste.cargo}
+                        onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, cargo: e.target.value as Cargo } }))}
+                        className="w-full min-w-0 truncate px-2 py-1.5 rounded-md border border-slate-300 text-xs bg-white"
+                      >
+                        {CARGOS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                    <label className="min-w-0">
+                      <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-0.5">Superior hierárquico</span>
+                      <select
+                        value={ajuste.superiorId || ''}
+                        onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, superiorId: e.target.value || null } }))}
+                        className="w-full min-w-0 truncate px-2 py-1.5 rounded-md border border-slate-300 text-xs bg-white"
+                      >
+                        <option value="">(nenhum)</option>
+                        {superioresDisponiveis.map(sup => <option key={sup.id} value={sup.id}>{sup.nomeCompleto} — {sup.cargo}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {/* COLUNA 3: AÇÕES */}
+                  <div className="flex flex-wrap lg:flex-nowrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setVerCadastroId(u.id)}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-[#006B3F]/40 hover:text-[#006B3F] text-slate-600 font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                      title="Ver todos os dados do cadastro"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Ver Cadastro
+                    </button>
+                    <button
+                      type="button"
+                      disabled={processandoId === u.id}
+                      onClick={() => handleAprovar(u)}
+                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                    >
+                      <Check className="w-3.5 h-3.5" /> Aprovar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={processandoId === u.id}
+                      onClick={() => handleRecusar(u)}
+                      className="px-2.5 py-1.5 border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600 font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                    >
+                      <X className="w-3.5 h-3.5" /> Recusar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* MODAL: VER CADASTRO PENDENTE — no <body> (portal), para centralizar na janela mesmo com ancestrais animados */}
+      {(() => {
+        const u = pendentes.find(p => p.id === verCadastroId);
+        if (!u) return null;
+        const ajuste = ajustePendente[u.id] || { cargo: u.cargo, superiorId: null };
+        const quando = u.createdAt ? new Date(u.createdAt).toLocaleString('pt-BR') : '—';
+        const campos: [string, string][] = [
+          ['Nome completo', u.nomeCompleto],
+          ['E-mail', u.email],
+          ['CPF', u.cpf],
+          ['Telefone / WhatsApp', u.telefone],
+          ['CRECI', u.creci || '—'],
+          ['Imobiliária / Equipe', u.imobiliaria],
+          ['Cargo solicitado', u.cargo],
+          ['Data e hora da solicitação', quando],
+          ['Status da conta', 'Aguardando aprovação'],
+          ['ID da conta', u.id]
+        ];
+        return createPortal(
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+            onClick={e => { if (e.target === e.currentTarget) setVerCadastroId(null); }}
+          >
+            <div className="bg-white rounded-2xl border border-[#E5E8E6] shadow-xl w-full max-w-2xl my-auto max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden">
+              <div className="shrink-0 px-6 py-4 border-b border-[#E5E8E6] flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="font-heading text-base font-bold text-slate-900 truncate">{u.nomeCompleto}</h3>
+                  <p className="text-xs text-slate-500">Cadastro aguardando aprovação</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVerCadastroId(null)}
+                  aria-label="Fechar"
+                  className="shrink-0 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                  {campos.map(([rotulo, valor]) => (
+                    <div key={rotulo} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 min-w-0">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">{rotulo}</span>
+                      <span className="font-semibold text-slate-800 break-words">{valor || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-slate-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <label className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">Cargo indicado</span>
+                    <select
+                      value={ajuste.cargo}
+                      onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, cargo: e.target.value as Cargo } }))}
+                      className="w-full min-w-0 truncate px-2.5 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                    >
+                      {CARGOS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">Superior hierárquico</span>
+                    <select
+                      value={ajuste.superiorId || ''}
+                      onChange={e => setAjustePendente(prev => ({ ...prev, [u.id]: { ...ajuste, superiorId: e.target.value || null } }))}
+                      className="w-full min-w-0 truncate px-2.5 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                    >
+                      <option value="">(nenhum)</option>
+                      {superioresDisponiveis.map(sup => <option key={sup.id} value={sup.id}>{sup.nomeCompleto} — {sup.cargo}</option>)}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="shrink-0 px-6 py-4 border-t border-[#E5E8E6] bg-[#F8F9F8] flex items-center justify-end gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setVerCadastroId(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  disabled={processandoId === u.id}
+                  onClick={() => handleRecusar(u)}
+                  className="px-4 py-2 text-xs font-bold border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600 rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <X className="w-3.5 h-3.5" /> Recusar
+                </button>
+                <button
+                  type="button"
+                  disabled={processandoId === u.id}
+                  onClick={() => handleAprovar(u)}
+                  className="px-4 py-2 text-xs font-bold text-white bg-[#006B3F] hover:bg-[#005a35] rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <Check className="w-3.5 h-3.5" /> Aprovar Cadastro
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
 
       {/* USUÁRIOS ATIVOS */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
@@ -895,16 +1007,25 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[960px]">
+          <div>
+            {/* table-fixed + larguras proporcionais: a tabela cabe sempre na largura do card (sem scroll horizontal) */}
+            <table className="w-full table-fixed text-xs">
+              <colgroup>
+                <col className="w-[21%]" />
+                <col className="w-[12%]" />
+                <col className="w-[14%]" />
+                <col className="w-[8%]" />
+                <col className="w-[17%]" />
+                <col className="w-[28%]" />
+              </colgroup>
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                  <th className="px-5 py-2.5 font-bold">Nome</th>
-                  <th className="px-3 py-2.5 font-bold">Cargo</th>
-                  <th className="px-3 py-2.5 font-bold">Superior</th>
-                  <th className="px-3 py-2.5 font-bold">Status</th>
-                  <th className="px-3 py-2.5 font-bold">Editar Políticas</th>
-                  <th className="px-5 py-2.5 font-bold">Ações</th>
+                  <th className="px-4 py-2.5 font-bold">Nome</th>
+                  <th className="px-2 py-2.5 font-bold">Cargo</th>
+                  <th className="px-2 py-2.5 font-bold">Superior</th>
+                  <th className="px-2 py-2.5 font-bold">Status</th>
+                  <th className="px-2 py-2.5 font-bold">Editar Políticas</th>
+                  <th className="px-4 py-2.5 font-bold">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -912,13 +1033,13 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                   const superior = ativos.find(s => s.id === u.superiorId);
                   return (
                     <tr key={u.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-5 py-3">
-                        <div className="font-bold text-slate-800">{u.nomeCompleto}</div>
-                        <div className="text-slate-400">{u.email}</div>
+                      <td className="px-4 py-3 min-w-0 align-top">
+                        <div className="font-bold text-slate-800 truncate" title={u.nomeCompleto}>{u.nomeCompleto}</div>
+                        <div className="text-slate-400 truncate" title={u.email}>{u.email}</div>
                       </td>
-                      <td className="px-3 py-3 text-slate-600">
-                        <div className="flex items-center gap-1.5">
-                          <span>{u.cargo}</span>
+                      <td className="px-2 py-3 text-slate-600 align-top">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="whitespace-normal break-words">{u.cargo}</span>
                           {u.proprietario && (
                             <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200" title="Proprietário do aplicativo">
                               <Crown className="w-3 h-3" /> Proprietário
@@ -926,20 +1047,20 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-slate-600">{superior ? `${superior.nomeCompleto} — ${superior.cargo}` : '—'}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-3 text-slate-600 whitespace-normal break-words align-top">{superior ? `${superior.nomeCompleto} — ${superior.cargo}` : '—'}</td>
+                      <td className="px-2 py-3 align-top">
                         <span className={`px-2 py-0.5 rounded-full font-bold ${u.status === 'ativo' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                           {u.status === 'ativo' ? 'Ativo' : 'Pausado'}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-2 py-3 align-top">
                         {(() => {
                           const ehAdm = u.cargo === 'Administrador';
                           const donoAlheio = u.proprietario && u.id !== usuarioAtualId;
                           const travado = ehAdm || donoAlheio;
                           return (
                             <label
-                              className={`inline-flex items-center gap-2 ${travado ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                              className={`flex items-center gap-2 min-w-0 ${travado ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                               title={ehAdm ? 'Administradores sempre podem editar as políticas' : `Permitir que ${u.nomeCompleto} edite as políticas`}
                             >
                               <button
@@ -953,12 +1074,12 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                               >
                                 <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-xs transition-transform ${u.canEditPolicies ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                               </button>
-                              <span className="text-[11px] font-semibold text-slate-600 max-w-[140px] truncate">{u.nomeCompleto}</span>
+                              <span className="text-[11px] font-semibold text-slate-600 max-w-[130px] truncate">{u.nomeCompleto}</span>
                             </label>
                           );
                         })()}
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-4 py-3 align-top">
                         {confirmandoExclusao === u.id ? (
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-rose-600 font-semibold">Excluir esta conta?</span>
@@ -975,7 +1096,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                             </button>
                           </div>
                         ) : (
-                          <div className="flex gap-1.5 flex-wrap">
+                          <div className="grid grid-cols-2 gap-1.5">
                             {(() => {
                               const donoAlheio = u.proprietario && u.id !== usuarioAtualId;
                               const bloqueado = u.cargo === 'Administrador';
@@ -986,7 +1107,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                                     disabled={donoAlheio}
                                     onClick={() => abrirEdicao(u)}
                                     title={donoAlheio ? 'Só o próprio proprietário pode editar este cadastro' : undefined}
-                                    className="px-2.5 py-1.5 border border-morar-200 text-morar-700 hover:bg-morar-50 font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                    className="px-2 py-1.5 border border-morar-200 text-morar-700 hover:bg-morar-50 font-bold rounded-lg flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                                   >
                                     <Pencil className="w-3.5 h-3.5" /> Editar
                                   </button>
@@ -995,7 +1116,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                                     disabled={processandoId === u.id || (bloqueado && u.status === 'ativo')}
                                     onClick={() => alternarPausa(u)}
                                     title={bloqueado && u.status === 'ativo' ? 'Administradores não podem ser pausados por aqui' : undefined}
-                                    className={`px-2.5 py-1.5 font-bold rounded-lg flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${bloqueado && u.status === 'ativo' ? '' : 'cursor-pointer'} ${u.status === 'ativo' ? 'border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                                    className={`px-2 py-1.5 font-bold rounded-lg flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${bloqueado && u.status === 'ativo' ? '' : 'cursor-pointer'} ${u.status === 'ativo' ? 'border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                                   >
                                     {u.status === 'ativo' ? <><Ban className="w-3.5 h-3.5" /> Pausar</> : <><PlayCircle className="w-3.5 h-3.5" /> Reativar</>}
                                   </button>
@@ -1003,7 +1124,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                                     type="button"
                                     disabled={bloqueado}
                                     onClick={() => setConfirmandoExclusao(u.id)}
-                                    className="px-2.5 py-1.5 border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600 font-bold rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-300 disabled:hover:text-slate-500"
+                                    className="px-2 py-1.5 border border-slate-300 text-slate-500 hover:border-rose-300 hover:text-rose-600 font-bold rounded-lg flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-300 disabled:hover:text-slate-500"
                                     title={bloqueado ? 'Administradores não podem ser excluídos por aqui' : 'Excluir conta'}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" /> Excluir
@@ -1012,7 +1133,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ onShowToast, usu
                                     <button
                                       type="button"
                                       onClick={abrirTransferencia}
-                                      className="px-2.5 py-1.5 border border-amber-200 text-amber-700 hover:bg-amber-50 font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                                      className="col-span-2 px-2 py-1.5 border border-amber-200 text-amber-700 hover:bg-amber-50 font-bold rounded-lg flex items-center justify-center gap-1 text-center leading-tight whitespace-normal cursor-pointer"
                                       title="Passar a propriedade do aplicativo para outro Administrador"
                                     >
                                       <ArrowLeftRight className="w-3.5 h-3.5" /> Transferir propriedade

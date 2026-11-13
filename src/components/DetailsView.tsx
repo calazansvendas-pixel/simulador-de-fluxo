@@ -1815,29 +1815,11 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     : '';
 
   // Dynamic key delivery dates from product policy or selected unit phase
-  let deliveryText = '';
-  if (hasUnitSelected && matchingRow) {
-    const isPhase2 = String(fase).includes('2');
-    if (isPhase2 && currentProd.deliveryDatePhase2) {
-      deliveryText = formatDateMonthYear(currentProd.deliveryDatePhase2);
-    } else if (!isPhase2 && currentProd.deliveryDatePhase1) {
-      deliveryText = formatDateMonthYear(currentProd.deliveryDatePhase1);
-    } else if (currentProd.deliveryDate) {
-      deliveryText = formatDateMonthYear(currentProd.deliveryDate);
-    } else {
-      deliveryText = formatDeliveryText(
-        currentProd.deliveryDatePhase1,
-        currentProd.deliveryDatePhase2,
-        currentProd.deliveryDate
-      );
-    }
-  } else {
-    deliveryText = formatDeliveryText(
-      currentProd.deliveryDatePhase1,
-      currentProd.deliveryDatePhase2,
-      currentProd.deliveryDate
-    );
-  }
+  const deliveryText = entregaChaves || formatDeliveryText(
+    currentProd.deliveryDatePhase1,
+    currentProd.deliveryDatePhase2,
+    currentProd.deliveryDate
+  );
 
   // Check if sales table exists, is active, and is not expired
   const hasTable = Boolean(

@@ -2123,16 +2123,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     recalcularFluxoPosMeses(posAlvo, preencherObra);
   };
 
-  const deliveryText = currentProd.deliveryDate 
-    ? formatDeliveryText(currentProd.deliveryDate)
-    : (fase.includes('2') && currentProd.deliveryDatePhase2)
-      ? formatDeliveryText(currentProd.deliveryDatePhase2)
-      : currentProd.deliveryDatePhase1
-        ? formatDeliveryText(currentProd.deliveryDatePhase1)
-        : '';
-
-  // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
-  // Sem Torre + Unidade não dá para saber a fase do imóvel, então não mostra data nenhuma.
+  // Data de entrega das chaves (política do produto): com Torre + Unidade usa a data da FASE da unidade
+  // (mesma do badge amarelo e do início do Pós-Obra); sem unidade, lista as etapas cadastradas.
   const entregaChaves = hasUnitSelected
     ? formatDateMonthYear(
         fase.includes('2')
@@ -2140,6 +2132,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           : (currentProd.deliveryDatePhase1 || currentProd.deliveryDate)
       )
     : '';
+  const deliveryText = entregaChaves || formatDeliveryText(
+    currentProd.deliveryDatePhase1,
+    currentProd.deliveryDatePhase2,
+    currentProd.deliveryDate
+  );
 
   const hasTable = dbUnitsEfetivos.length > 0;
 
@@ -2525,6 +2522,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             isOpen={isPdfModalOpen}
             onClose={() => setIsPdfModalOpen(false)}
             pdfSettings={pdfSettings}
+            comprometimentoPorSerieVisivel={telaSettings.mostrarComprometimentoPorSerie ?? true}
             product={currentProd}
             condition={currentCond}
             simulationData={simulationData}
@@ -3636,6 +3634,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           isOpen={isPdfModalOpen}
           onClose={() => setIsPdfModalOpen(false)}
           pdfSettings={pdfSettings}
+          comprometimentoPorSerieVisivel={telaSettings.mostrarComprometimentoPorSerie ?? true}
           product={currentProd}
           condition={currentCond}
           simulationData={simulationData}

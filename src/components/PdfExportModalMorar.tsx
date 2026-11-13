@@ -31,6 +31,9 @@ interface PdfExportModalMorarProps {
   isOpen: boolean;
   onClose: () => void;
   pdfSettings: PdfExportSettings;
+  // Visibilidade do quadro "Comprometimento por Série" na TELA para o cargo logado (padrão: true). Se for false,
+  // o cargo não pode ligar o gráfico no PDF; se for true, o estado inicial do interruptor do modal é ligado.
+  comprometimentoPorSerieVisivel?: boolean;
   product: Product;
   condition: CommercialCondition;
   simulationData: SimulationData;
@@ -98,6 +101,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   isOpen,
   onClose,
   pdfSettings,
+  comprometimentoPorSerieVisivel = true,
   product,
   condition,
   simulationData,
@@ -155,6 +159,11 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
 }) => {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Interruptor do cabeçalho: liga/desliga o gráfico "Comprometimento por Série" na folha A4 e no PDF baixado.
+  // O teto continua sendo as configurações do Administrador (PDF Bloco 2 e visibilidade na tela do cargo).
+  const [exibirComprometimento, setExibirComprometimento] = useState<boolean>(true);
+  const comprometimentoPermitido = pdfSettings.mostrarBloco2 && comprometimentoPorSerieVisivel;
+  const mostrarComprometimento = comprometimentoPermitido && exibirComprometimento;
 
   if (!isOpen) return null;
 
@@ -294,7 +303,23 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+            <label
+              className={`flex items-center gap-2 text-[11px] font-semibold text-slate-700 ${comprometimentoPermitido ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
+              title={comprometimentoPermitido ? 'Mostrar ou ocultar o gráfico na folha e no PDF' : 'Este gráfico está oculto para o seu cargo nas configurações do Administrador'}
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={mostrarComprometimento}
+                disabled={!comprometimentoPermitido}
+                onClick={() => setExibirComprometimento(v => !v)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${mostrarComprometimento ? 'bg-[#006B3F]' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-xs transition-transform ${mostrarComprometimento ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              </button>
+              <span className="leading-tight">Exibir Comprometimento por Série</span>
+            </label>
             <button
               type="button"
               onClick={handleDownloadPdf}
@@ -610,7 +635,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                 )}
 
                 {/* GRÁFICO: COMPROMETIMENTO POR SÉRIE (PARCELA / RENDA) */}
-                {pdfSettings.mostrarBloco2 && (
+                {mostrarComprometimento && (
                 <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-1.5 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
