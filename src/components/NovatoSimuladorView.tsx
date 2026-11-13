@@ -660,7 +660,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
                 <div className="space-y-1.5 text-xs">
                   {faixasObra
                     .map(f => ({ ...f, valor: saldoProSolutoRestante <= 0 ? 0 : (Number(f.valor) || 0) }))
-                    .filter(f => (f.qtd > 0 && (f.valor > 0 || (itbiObraValor || 0) > 0)))
+                    .filter(f => f.qtd > 0 && f.valor > 0.009)
                     .map((f, idx) => (
                       <div key={idx} className="flex justify-between items-center bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100">
                         <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
@@ -696,7 +696,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
                   <div className="space-y-1.5 text-xs">
                     {faixasPos
                       .map(f => ({ ...f, valor: saldoProSolutoRestante <= 0 ? 0 : (Number(f.valor) || 0) }))
-                      .filter(f => (f.qtd > 0 && (f.valor > 0 || (itbiPosValor || 0) > 0)))
+                      .filter(f => f.qtd > 0 && f.valor > 0.009)
                       .map((f, idx) => (
                         <div key={idx} className="flex justify-between items-center bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100">
                           <span className="text-slate-600 font-semibold text-[11px]">{f.qtd}X de:</span>
