@@ -27,6 +27,7 @@ import { FichaMorarProdutoGrid } from './FichaMorarProdutoGrid';
 import { PainelFinanciamento } from './PainelFinanciamento';
 import { EmptySimulationNotice } from './EmptySimulationNotice';
 import { FluxoEntradaConstrutora } from './FluxoEntradaConstrutora';
+import { larguraMinimaBarra, rotuloBarraDireita } from './RotuloBarra';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from 'recharts';
 
 import { imoveisService } from '../services/imoveisService';
@@ -244,6 +245,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // (dez/2026 + 33 meses = setembro, 2029). Um campo que o usuário digita à mão deixa de ser
   // recalculado; a Pós-Obra continua seguindo a data de Obra que estiver na tela.
   const datasManuaisRef = useRef({ obra: false, pos: false, itbi: false });
+  // Memória do "ITBI no Ato" digitado pelo corretor (ver handleToggleFirstHome): a intenção original e
+  // o último valor que a memória aplicou na tela.
+  const itbiNoAtoBaseRef = useRef<number>(0);
+  const itbiNoAtoAplicadoRef = useRef<number>(0);
+  const lembrarItbiNoAto = (valor: number) => {
+    itbiNoAtoBaseRef.current = valor;
+    itbiNoAtoAplicadoRef.current = valor;
+  };
   const [itbiTotalManual, setItbiTotalManual] = useState<number | null>(null);
 
   // Nada neste bloco é editável pela tela — a quantidade de parcelas do ITBI
@@ -559,9 +568,40 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   //
   // Por isso aqui é aplicado o MESMO reset já usado ao trocar de torre/unidade:
   // é o que o app entende por "refazer todo o cálculo".
+  //
+  // EXCEÇÃO — memória do "ITBI no Ato": o valor que o corretor digitou (ou ajustou com +/−) é a
+  // intenção dele (itbiNoAtoBaseRef) e NÃO some ao alternar "Com Desc." / "Sem Desc.". O que é
+  // exibido/aplicado é a intenção limitada ao teto do modo atual (Com Desc. costuma ter teto menor),
+  // mas a intenção em si fica guardada — voltar para "Sem Desc." restaura o valor original (ex.:
+  // 17.500 -> 15.000 -> 17.500). Só digitar outro valor, a seta de restaurar (↺) ou "Limpar" a zeram.
   const handleToggleFirstHome = () => {
-    setIsFirstHomeLocal(prev => !prev);
+    // Se o valor na tela não é o último que esta memória aplicou, outra coisa o mudou (Limpar,
+    // troca de unidade, recálculo do motor): a intenção passa a ser o que está na tela.
+    let base = itbiNoAtoBaseRef.current;
+    if (Math.abs(valAtoITBI - itbiNoAtoAplicadoRef.current) > 0.005) base = valAtoITBI;
+
+    const novoPrimeiroImovel = !isFirstHomeLocal;
+    const novoItbiTabela = (hasUnitSelected && matchingRow)
+      ? (novoPrimeiroImovel
+          ? Number(matchingRow.itbi_primeiro_imovel || matchingRow.itbi_total || 0)
+          : Number(matchingRow.itbi_segundo_imovel || matchingRow.itbi_total || matchingRow.itbi_primeiro_imovel || 0))
+      : 0;
+    const tetoNovoModo = isPagamentoAVistaEnabled
+      ? 0
+      : (itbiTotalManual !== null
+          ? itbiTotalManual
+          : (hasUnitSelected ? (novoItbiTabela > 0 ? novoItbiTabela : price * 0.0441) : 0));
+    const aplicado = Math.round(Math.min(base, tetoNovoModo) * 100) / 100;
+
+    itbiNoAtoBaseRef.current = base;
+    itbiNoAtoAplicadoRef.current = aplicado;
+
+    setIsFirstHomeLocal(!isFirstHomeLocal);
     resetarAjustesManuais();
+    if (aplicado > 0) {
+      setValAtoITBI(aplicado);
+      setItbiAtoManualFloor(aplicado);
+    }
   };
 
   // Seletor "1º imóvel" do painel lateral: mesmo fluxo do toggle (ITBI com/sem desconto, rateio
@@ -1945,6 +1985,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // ao mudar a Qtd. Meses) partem dele, nunca de zero, mas também nunca de
     // um valor auto-sugerido anterior que porventura esteja maior na tela.
     setItbiAtoManualFloor(finalVal > 0 ? finalVal : null);
+    lembrarItbiNoAto(finalVal);
 
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
@@ -2091,7 +2132,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
     return (
-      <text x={x} y={y} fill="#ffffff" textAnchor="middle" dominantBaseline="central" fontSize="9" fontWeight="normal">
+      <text x={x} y={y} fill="#ffffff" textAnchor="middle" dominantBaseline="central" fontSize="11" fontWeight="normal">
         {payload.label}
       </text>
     );
@@ -2391,6 +2432,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           onITBIChange={(novoVal) => {
             setValAtoITBI(novoVal);
             setItbiAtoManualFloor(novoVal > 0 ? novoVal : null);
+            lembrarItbiNoAto(novoVal);
             // Reavalia imediatamente o risco (comprometimento de renda) com o
             // novo ITBI pago no Ato invocando a MESMA rotina global de
             // distribuição automática usada para reequilibrar uma proposta
@@ -2972,7 +3014,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         cx="50%"
                         cy="50%"
                         innerRadius={0}
-                        outerRadius={64}
+                        outerRadius="90%"
                         stroke="#ffffff"
                         strokeWidth={2}
                         startAngle={270}
@@ -3005,11 +3047,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 </div>
               </div>
 
-              {/* GRÁFICO 2: VOLUME FINANCEIRO POR FASE (R$) */}
+              {/* GRÁFICO 2: VOLUME FINANCEIRO POR FASE */}
               <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3 shadow-2xs">
                 <div className="text-center">
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Volume Financeiro por Fase (R$)
+                    Volume Financeiro por Fase
                   </h4>
                   <p className="text-[10px] text-slate-500 mt-0.5">
                     Distribuição em R$ do Pró-Soluto sobre a Base Líquida com ITBI
@@ -3025,7 +3067,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         cx="50%"
                         cy="50%"
                         innerRadius={0}
-                        outerRadius={64}
+                        outerRadius="90%"
                         stroke="#ffffff"
                         strokeWidth={2}
                         startAngle={270}
@@ -3163,6 +3205,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               // recalculagens (ex.: ao mudar a Qtd. Meses) partem dele, nunca
               // de zero, mas também nunca de uma sugestão automática anterior.
               setItbiAtoManualFloor(novoVal > 0 ? novoVal : null);
+              lembrarItbiNoAto(novoVal);
               // Reavalia imediatamente o risco (comprometimento de renda) com o
               // novo ITBI pago no Ato invocando a MESMA rotina global de
               // distribuição automática usada para reequilibrar uma proposta
@@ -3550,13 +3593,13 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <BarChart data={barData} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" width={50} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <YAxis dataKey="name" type="category" width={50} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'normal' }} axisLine={false} tickLine={false} />
                     <RechartsTooltip content={<CustomBarTooltip />} cursor={{ fill: '#f1f5f9' }} />
-                    <Bar dataKey="percRendaRaw" fill="#4f46e5" radius={[0, 4, 4, 0]} barSize={24}>
+                    <Bar dataKey="percRendaRaw" fill="#4f46e5" radius={[0, 4, 4, 0]} barSize={24} minPointSize={larguraMinimaBarra}>
                       {barData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={['#312e81', '#3730a3', '#4338ca', '#4f46e5', '#6366f1', '#818cf8'][index % 6]} />
                       ))}
-                      <LabelList dataKey="labelFormatado" fill="#FFFFFF" fontSize={11} fontWeight="bold" position="insideRight" offset={10} />
+                      <LabelList dataKey="labelFormatado" content={rotuloBarraDireita(11)} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>

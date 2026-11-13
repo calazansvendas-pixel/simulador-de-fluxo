@@ -14,6 +14,7 @@ import { telaVisibilidadeService } from '../services/telaVisibilidadeService';
 import { PdfExportModal } from './PdfExportModal';
 import { EmptySimulationNotice } from './EmptySimulationNotice';
 import { FluxoEntradaConstrutora } from './FluxoEntradaConstrutora';
+import { larguraMinimaBarra, rotuloBarraDireita } from './RotuloBarra';
 import { PmCampoEditavel } from './PmCampoEditavel';
 import { MiniSwitch } from './MiniSwitch';
 import { MonthStepper } from './MonthStepper';
@@ -1696,7 +1697,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
       if (isSolo) {
         return (
-          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill={clampedPct > 0 ? primaryTextColor : secondaryTextColor} fontSize="9" fontWeight="normal">
+          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill={clampedPct > 0 ? primaryTextColor : secondaryTextColor} fontSize="11" fontWeight="normal">
             {clampedPct > 0 ? '100.0%' : '0.0%'}
           </text>
         );
@@ -1714,8 +1715,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       if (isPrimary && value < 14) {
         return (
           <g>
-            <rect x={x - 16} y={y - 6} width="32" height="12" rx="4" fill={colorPrimary} opacity="0.95" />
-            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#ffffff" fontSize="7" fontWeight="normal">
+            <rect x={x - 20} y={y - 7} width="40" height="14" rx="4" fill={colorPrimary} opacity="0.95" />
+            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#ffffff" fontSize="9" fontWeight="normal">
               {labelText}
             </text>
           </g>
@@ -1723,7 +1724,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       }
 
       return (
-        <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={isPrimary ? primaryTextColor : secondaryTextColor} fontSize="9" fontWeight="normal">
+        <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={isPrimary ? primaryTextColor : secondaryTextColor} fontSize="11" fontWeight="normal">
           {labelText}
         </text>
       );
@@ -1739,7 +1740,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               cx="50%"
               cy="50%"
               innerRadius={0}
-              outerRadius={64}
+              outerRadius="90%"
               stroke="#ffffff"
               strokeWidth={2}
               startAngle={90}
@@ -2498,12 +2499,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                   <BarChart data={pmComprometimentoData} layout="vertical" margin={{ top: 5, right: 46, left: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" width={56} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16}>
+                    <YAxis dataKey="name" type="category" width={56} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'normal' }} axisLine={false} tickLine={false} />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16} minPointSize={larguraMinimaBarra}>
                       {pmComprometimentoData.map((entry, idx) => (
                         <Cell key={`pm-comp-${idx}`} fill={entry.base === 'Renda' ? '#0284c7' : '#7c3aed'} />
                       ))}
-                      <LabelList dataKey="value" formatter={(v: number) => `${v.toFixed(2)}%`} fill="#334155" fontSize={10} fontWeight="bold" position="right" offset={6} />
+                      <LabelList dataKey="value" content={rotuloBarraDireita(10, (v) => `${v.toFixed(2)}%`)} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>

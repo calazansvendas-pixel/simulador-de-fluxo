@@ -5,6 +5,7 @@ import { formatCurrency, formatDateBr } from '../utils/formatters';
 import { waitForStyledPaint, captureStyledCanvas, inlineLiveStylesheets } from '../utils/pdfExport';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
+import { larguraMinimaBarra, rotuloBarraDireita } from './RotuloBarra';
 import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, Cell, LabelList } from 'recharts';
 import logoMorar from '../assets/brand';
 
@@ -732,12 +733,12 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         <BarChart data={pmComprometimentoData} layout="vertical" margin={{ top: 5, right: 42, left: 5, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                           <XAxis type="number" hide />
-                          <YAxis dataKey="name" type="category" width={48} tick={{ fontSize: 9, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                          <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={13} isAnimationActive={false}>
+                          <YAxis dataKey="name" type="category" width={48} tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'normal' }} axisLine={false} tickLine={false} />
+                          <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={13} minPointSize={larguraMinimaBarra} isAnimationActive={false}>
                             {pmComprometimentoData.map((entry, idx) => (
                               <Cell key={`pm-comp-pdf-${idx}`} fill={entry.base === 'Renda' ? '#0284c7' : '#7c3aed'} />
                             ))}
-                            <LabelList dataKey="value" formatter={(v: number) => `${v.toFixed(2)}%`} fill="#334155" fontSize={9} fontWeight="bold" position="right" offset={5} />
+                            <LabelList dataKey="value" content={rotuloBarraDireita(9, (v) => `${v.toFixed(2)}%`)} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
