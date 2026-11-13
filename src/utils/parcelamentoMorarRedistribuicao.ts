@@ -321,44 +321,74 @@ function nucleoRedistribuicao(ctx: PmContexto, chave: string, novo: number, avis
 }
 
 /**
- * Resolve o modal: força a diferença no destino escolhido (mesmo travado ou acima do teto) e fecha no centavo.
- * "jogar" soma no destino; "descontar" retira do destino (até o piso dele) e, se ele não tiver o bastante,
- * o campo de origem fica com a variação menor.
+ * Resolve o modal "para onde jogar / de onde descontar" com ATRIBUIÇÃO DIRETA, sem passar por teto, rateio
+ * ou fechamento automático:
+ *  - parte do estado ATUAL (snapshot de antes do modal), não do plano parcial calculado ao abrir o modal —
+ *    esse plano enchia as parcelas abertas até o teto recalculado com o Sinal novo (o teto da Chaves sobe
+ *    quando o Desconto do Ato Premiado cai) e era daí que vinha o "vazamento" na Parcela Chaves;
+ *  - aplica no campo de origem o valor pedido e joga 100% da diferença no destino escolhido;
+ *  - todos os blocos que NÃO são origem nem destino ficam idênticos ao centavo;
+ *  - o destino pode passar do teto da política (fica vermelho): foi escolha explícita do usuário.
+ * Semestrais: total = soma atual + diferença; base = floor(total / N) nas N−1 primeiras e o resto na última.
+ * Só se o destino não conseguir receber tudo (sem saldo para descontar, ou centavo que uma série de parcela
+ * × meses não fecha), o resíduo volta para o próprio campo de origem; o Ato só entra como último recurso.
  */
 export function aplicarDestinoParcelamentoMorar(
   ctx: PmContexto, valores: Record<string, number>, origem: string,
-  modo: 'jogar' | 'descontar', diferenca: number, destino: PmDestino
+  _modo: 'jogar' | 'descontar', _diferenca: number, destino: PmDestino
 ): { valores: Record<string, number>; aviso?: string } {
-  const v = { ...valores };
-  const pisoDe = (k: string) => ctx.blocos.find(b => b.chave === k)?.piso ?? 0;
-  let movido = diferenca;
-  let aviso: string | undefined;
+  const bloco = (k: string) => ctx.blocos.find(b => b.chave === k);
+  const outros = ctx.blocos.filter(b => b.chave !== 'ato');
 
+  // 1. Snapshot do estado atual + valor pedido no campo de origem
+  const v: Record<string, number> = Object.fromEntries(ctx.blocos.map(b => [b.chave, b.chave === 'ato' ? r2(b.valor) : realizado(b, b.valor)]));
+  if (origem in valores) v[origem] = origem === 'ato' ? r2(valores[origem]) : realizado(bloco(origem), valores[origem]);
+
+  const somaOutros = () => outros.reduce((t, b) => t + v[b.chave], 0);
+  const gap = () => r2(ctx.totalPara(v.ato) - v.ato - somaOutros()); // > 0 falta distribuir; < 0 sobrou
+
+  // Absorve o gap atual num único bloco (respeitando o piso dele); devolve se fechou exato.
+  const absorver = (k: string): boolean => {
+    const b = bloco(k);
+    if (!b) return false;
+    if (k === 'ato') {
+      for (let i = 0; i < 12; i++) {
+        const g = gap();
+        if (Math.abs(g) < 0.005) return true;
+        const novo = r2(Math.max(b.piso, v.ato + g));
+        if (Math.abs(novo - v.ato) < 0.005) return false;
+        v.ato = novo;
+      }
+      return Math.abs(gap()) < 0.005;
+    }
+    const g = gap();
+    if (Math.abs(g) < 0.005) return true;
+    const alvo = Math.max(b.piso, v[k] + g);
+    v[k] = b.meses && b.meses > 0 ? r2((Math.round((alvo / b.meses) * 100) / 100) * b.meses) : r2(alvo);
+    return Math.abs(gap()) < 0.005;
+  };
+
+  // 2. 100% da diferença no destino escolhido
   if (destino === 'semestrais') {
     const sems = ctx.blocos.filter(b => ehSemestral(b.chave) && b.chave !== origem);
-    if (modo === 'jogar') {
-      const cada = Math.floor((diferenca / Math.max(1, sems.length)) * 100) / 100;
-      sems.forEach((b, i) => { v[b.chave] = r2(v[b.chave] + (i === sems.length - 1 ? r2(diferenca - cada * (sems.length - 1)) : cada)); });
-    } else {
-      const unidades = sems.map(b => ({ chaves: [b.chave], valor: v[b.chave], teto: Infinity, piso: 0 }));
-      const faltou = reduzirAtePiso(unidades, diferenca);
-      gravarUnidades(unidades, v);
-      movido = r2(diferenca - faltou);
+    const n = sems.length;
+    if (n > 0) {
+      const somaAtual = sems.reduce((t, b) => t + v[b.chave], 0);
+      const total = r2(Math.max(0, somaAtual + gap()));
+      const base = Math.floor((total / n) * 100) / 100;
+      const resto = r2(total - base * n);
+      sems.forEach((b, i) => { v[b.chave] = i === n - 1 ? r2(base + resto) : base; });
     }
-  } else if (modo === 'jogar') {
-    v[destino] = r2((v[destino] ?? 0) + diferenca);
   } else {
-    movido = Math.min(diferenca, Math.max(0, (v[destino] ?? 0) - pisoDe(destino)));
-    v[destino] = r2((v[destino] ?? 0) - movido);
+    absorver(destino);
   }
 
-  // "descontar" sem saldo suficiente no destino: a origem varia só o que foi possível
-  if (modo === 'descontar' && movido < diferenca - 0.004) {
-    const falta = r2(diferenca - movido);
-    aviso = 'O campo escolhido não tinha saldo suficiente: a alteração foi aplicada só até onde deu.';
-    v[origem] = r2(origem === 'ato' ? v[origem] - falta : v[origem] - falta);
+  // 3. Resíduo que o destino não recebeu: volta para a origem; o Ato só como último recurso.
+  let aviso: string | undefined;
+  if (Math.abs(gap()) >= 0.005) {
+    if (Math.abs(gap()) >= 0.5) aviso = 'O campo escolhido não tinha saldo suficiente: a alteração foi aplicada só até onde deu.';
+    if (origem !== destino) absorver(origem);
+    if (Math.abs(gap()) >= 0.005 && origem !== 'ato' && destino !== 'ato') absorver('ato');
   }
-
-  const protegidos = [origem, destino, ...(destino === 'semestrais' ? ctx.blocos.filter(b => ehSemestral(b.chave)).map(b => b.chave) : [])];
-  return { valores: fecharNoCentavo(ctx, v, protegidos, false), aviso };
+  return { valores: v, aviso };
 }

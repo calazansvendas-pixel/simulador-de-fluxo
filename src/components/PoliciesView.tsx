@@ -223,6 +223,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [pmPassoSemestralStr, setPmPassoSemestralStr] = useState<string>('R$ 500,00');
   const [pmPassoChavesStr, setPmPassoChavesStr] = useState<string>('R$ 1.000,00');
   const [pmPassoAtoStr, setPmPassoAtoStr] = useState<string>('R$ 1.000,00');
+  const [pmPassoPosObraStr, setPmPassoPosObraStr] = useState<string>('R$ 100,00');
 
   // Estado das torres habilitadas para simulação nesta política
   const [torresHabilitadas, setTorresHabilitadas] = useState<string[]>([]);
@@ -585,6 +586,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     const pmPassoSemestral = source.pmPassoSemestral !== undefined ? source.pmPassoSemestral : 500;
     const pmPassoChaves = source.pmPassoChaves !== undefined ? source.pmPassoChaves : 1000;
     const pmPassoAto = source.pmPassoAto !== undefined ? source.pmPassoAto : 1000;
+    const pmPassoPosObra = source.pmPassoPosObra !== undefined ? source.pmPassoPosObra : 100;
 
     const parsedSinal = source.sinalMinimo !== undefined ? parseCurrency(source.sinalMinimo) : 2000;
     const formattedSinal = formatCurrency(parsedSinal);
@@ -662,6 +664,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     setPmPassoSemestralStr(formatCurrency(pmPassoSemestral));
     setPmPassoChavesStr(formatCurrency(pmPassoChaves));
     setPmPassoAtoStr(formatCurrency(pmPassoAto));
+    setPmPassoPosObraStr(formatCurrency(pmPassoPosObra));
     setDescontoAVistaStr(formatDecimalBR(descontoAVista, 1, 2));
 
     setPolicyText(source.policy || '');
@@ -744,6 +747,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const pmPassoSemestral = lerPasso(pmPassoSemestralStr, 500);
   const pmPassoChaves = lerPasso(pmPassoChavesStr, 1000);
   const pmPassoAto = lerPasso(pmPassoAtoStr, 1000);
+  const pmPassoPosObra = lerPasso(pmPassoPosObraStr, 100);
+  // Micro-botões + / − do card "Passo dos Botões": somam/subtraem o incremento, nunca abaixo de R$ 0,00.
+  const ajustarPassoPm = (valor: string, setValor: (v: string) => void, padrao: number, incremento: number, direcao: 1 | -1) => {
+    setValor(formatCurrency(Math.max(0, Math.round((lerPasso(valor, padrao) + direcao * incremento) * 100) / 100)));
+  };
 
   // Reúne os valores atualmente em edição no formulário como um objeto de
   // parâmetros de política de crédito — usado para gravar tanto na condição
@@ -811,6 +819,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmPassoSemestral,
       pmPassoChaves,
       pmPassoAto,
+      pmPassoPosObra,
       descontoAVistaPct: parseDecimal(descontoAVistaStr, 0),
       policy: policyText
     };
@@ -1183,6 +1192,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       pmPassoSemestral,
       pmPassoChaves,
       pmPassoAto,
+      pmPassoPosObra,
       descontoAVistaPct: parsedDescontoAVista,
       policy: policyText
     };
@@ -2836,27 +2846,49 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                     <p className="font-semibold text-slate-700 text-[11px]">Passo dos Botões (+ / −) no Simulador</p>
                     <p className="text-[10px] text-slate-500 leading-tight">De quanto em quanto o valor sobe ou desce a cada clique na ficha. Com R$ 0,00 os botões daquele campo ficam desativados.</p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     {([
-                      ['Passo do Ato / Sinal (R$)', pmPassoAtoStr, setPmPassoAtoStr, 'R$ 1.000,00'],
-                      ['Passo da Mensal de Obra (R$)', pmPassoMensalStr, setPmPassoMensalStr, 'R$ 100,00'],
-                      ['Passo das Intermediárias Semestrais (R$)', pmPassoSemestralStr, setPmPassoSemestralStr, 'R$ 500,00'],
-                      ['Passo da Parcela Chaves (R$)', pmPassoChavesStr, setPmPassoChavesStr, 'R$ 1.000,00']
-                    ] as [string, string, (v: string) => void, string][]).map(([rotulo, valor, setValor, padrao]) => (
-                      <div key={rotulo}>
-                        <div className="flex justify-between items-center mb-1 gap-2">
-                          <label className="block font-bold text-slate-800 text-[11px]">{rotulo}</label>
-                          <span className="text-[10px] text-slate-500 font-bold shrink-0">Padrão: {padrao}</span>
+                      ['Passo do Ato / Sinal (R$)', pmPassoAtoStr, setPmPassoAtoStr, 1000, 100],
+                      ['Passo da Mensal de Obra (R$)', pmPassoMensalStr, setPmPassoMensalStr, 100, 50],
+                      ['Passo das Intermediárias Semestrais (R$)', pmPassoSemestralStr, setPmPassoSemestralStr, 500, 50],
+                      ['Passo da Parcela Chaves (R$)', pmPassoChavesStr, setPmPassoChavesStr, 1000, 100],
+                      ['Passo do Pós-Obra (R$)', pmPassoPosObraStr, setPmPassoPosObraStr, 100, 50]
+                    ] as [string, string, (v: string) => void, number, number][]).map(([rotulo, valor, setValor, padrao, incremento]) => (
+                      <div key={rotulo} className="flex flex-col">
+                        <label className="block font-bold text-slate-800 text-[11px] leading-tight min-h-[28px]">{rotulo}</label>
+                        <span className="text-[10px] text-slate-500 font-bold mb-1">Padrão: {formatCurrency(padrao)}</span>
+                        <div className="flex items-stretch rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:bg-white focus-within:border-morar-600">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={valor}
+                            onFocus={(e) => e.target.select()}
+                            onChange={(e) => setValor(e.target.value)}
+                            onBlur={() => setValor(formatCurrency(lerPasso(valor, padrao)))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            className="flex-1 min-w-0 pl-3 pr-1.5 py-2 bg-transparent font-semibold text-slate-900 text-xs text-center focus:outline-none"
+                          />
+                          <div className="flex flex-col w-5 h-auto shrink-0 border-l border-[#E5E8E6] overflow-hidden rounded-r-lg">
+                            <button
+                              type="button"
+                              onClick={() => ajustarPassoPm(valor, setValor, padrao, incremento, 1)}
+                              title={`Aumentar ${formatCurrency(incremento)}`}
+                              aria-label={`Aumentar ${rotulo}`}
+                              className="flex-1 flex items-center justify-center hover:bg-slate-100 text-slate-600 hover:text-[#006B3F] transition-colors cursor-pointer"
+                            >
+                              <Plus size={10} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => ajustarPassoPm(valor, setValor, padrao, incremento, -1)}
+                              title={`Diminuir ${formatCurrency(incremento)}`}
+                              aria-label={`Diminuir ${rotulo}`}
+                              className="flex-1 flex items-center justify-center border-t border-[#E5E8E6] hover:bg-slate-100 text-slate-600 hover:text-[#006B3F] transition-colors cursor-pointer"
+                            >
+                              <Minus size={10} />
+                            </button>
+                          </div>
                         </div>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={valor}
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => setValor(e.target.value)}
-                          onBlur={() => setValor(formatCurrency(lerPasso(valor, parseCurrency(padrao))))}
-                          className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 text-center focus:outline-none focus:border-morar-600 text-xs"
-                        />
                       </div>
                     ))}
                   </div>

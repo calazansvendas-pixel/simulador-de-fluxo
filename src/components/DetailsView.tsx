@@ -847,6 +847,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const pmPassoSemestral = currentCond?.pmPassoSemestral ?? 500;
   const pmPassoChaves = currentCond?.pmPassoChaves ?? 1000;
   const pmPassoAto = currentCond?.pmPassoAto ?? 1000;
+  const pmPassoPosObra = currentCond?.pmPassoPosObra ?? 100;
 
   // ===================== CADEADOS + EQUALIZAÇÃO PROPORCIONAL =====================
   // Blocos do fluxo (valor TOTAL de cada um). O total a fechar é o que o motor já distribui hoje
@@ -923,6 +924,16 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   };
 
   // porPasso = clique em − / +: se o passo inteiro passar do limite possível, encosta no limite exato (centavos).
+  // Pós-Obra acima da política: total acima do % máx. pró-soluto do imóvel ou parcela acima do limite de renda.
+  const pmPosExcede = (() => {
+    const qtd = pm.qtdParcelasPosObra;
+    if (qtd <= 0) return false;
+    const capRendaParcela = income > 0 ? income * ((currentCond?.riscoRendaPct ?? 40) / 100) : 0;
+    const totalAcima = pm.valorPosObraTotal > pmTetoBlocoPara('pos', pmValorUtilizado) + 0.01;
+    const parcelaAcima = capRendaParcela > 0 && pm.valorPosObraParcela > capRendaParcela + 0.01;
+    return totalAcima || parcelaAcima;
+  })();
+
   const pmEditarBloco = (chave: string, novoTotal: number, porPasso = false) => {
     const res = porPasso
       ? redistribuirPorPasso(pmContexto(), chave, novoTotal, pmMsgPisoSinal)
@@ -3091,7 +3102,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         label="Valor da Parcela"
                         tipo="moeda"
                         minimo={currentCond?.pmParcelaMinimaPosObra ?? 200}
-                        passo={pmPassoMensal}
+                        passo={pmPassoPosObra}
+                        alerta={pmPosExcede}
                         travado={!!pmLocks['pos']}
                         onToggleTrava={() => pmAlternarTrava('pos')}
                         disabled={pmObraReduzida || pm.qtdParcelasPosObra <= 0}
@@ -3101,7 +3113,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       />
                       <div className="w-[120px] shrink-0">
                         <label className="block text-center text-[10px] font-bold text-slate-500 uppercase mb-1 whitespace-nowrap">Valor Total</label>
-                        <div className="w-full h-9 flex items-center justify-center bg-white px-1 rounded-lg border border-slate-200 font-bold tabular-nums text-slate-900 text-xs whitespace-nowrap">
+                        <div className={`w-full h-9 flex items-center justify-center px-1 rounded-lg border font-bold tabular-nums text-xs whitespace-nowrap ${pmPosExcede ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-white border-slate-200 text-slate-900'}`}>
                           {formatCurrency(pm.valorPosObraTotal)}
                         </div>
                       </div>
