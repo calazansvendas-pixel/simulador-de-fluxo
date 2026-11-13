@@ -1232,6 +1232,120 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const isParcelamentoMorarCondition = activeCondObj
     ? getConditionKind(activeCondObj.name) === 'parcelamento-morar'
     : false;
+
+  // Bloco "Limites da 1ª e 2ª Mensal (30 e 60 dias)" — compartilhado entre o layout padrão e o do Parcelamento Morar.
+  const blocoLimitesMensais = (
+    <div className="pt-3 border-t border-morar-100/80">
+      <div className="bg-white p-3 rounded-xl border border-slate-200/80 max-w-xl space-y-3">
+        <div>
+          <p className="font-semibold text-slate-700 text-[11px]">Limites da 1ª e 2ª Mensal (30 e 60 dias)</p>
+          <p className="text-[10px] text-slate-500 leading-tight">Deixe em branco para não aplicar teto por aquele critério. Se ambos forem preenchidos, vale o menor valor.</p>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] font-extrabold text-slate-500 uppercase">1ª Mensal (30 dias)</p>
+            <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
+              <span className="text-[10px] font-bold text-slate-600">Habilitar 1ª Mensal</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={habilitar1Mensal}
+                onClick={() => setHabilitar1Mensal(v => !v)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar1Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar1Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+            </label>
+          </div>
+          <div className={`grid grid-cols-2 gap-3 ${habilitar1Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
+        <div>
+          <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={!habilitar1Mensal}
+              placeholder="sem teto"
+              value={m1RendaStr}
+              onChange={(e) => setM1RendaStr(e.target.value)}
+              onBlur={() => { const v = optPct(m1RendaStr); setM1RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+              className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+            />
+            <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={!habilitar1Mensal}
+              placeholder="sem teto"
+              value={m1ImovelStr}
+              onChange={(e) => setM1ImovelStr(e.target.value)}
+              onBlur={() => { const v = optPct(m1ImovelStr); setM1ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+              className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+            />
+            <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+          </div>
+        </div>
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] font-extrabold text-slate-500 uppercase">2ª Mensal (60 dias)</p>
+            <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
+              <span className="text-[10px] font-bold text-slate-600">Habilitar 2ª Mensal</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={habilitar2Mensal}
+                onClick={() => setHabilitar2Mensal(v => !v)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar2Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar2Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+            </label>
+          </div>
+          <div className={`grid grid-cols-2 gap-3 ${habilitar2Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
+        <div>
+          <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={!habilitar2Mensal}
+              placeholder="sem teto"
+              value={m2RendaStr}
+              onChange={(e) => setM2RendaStr(e.target.value)}
+              onBlur={() => { const v = optPct(m2RendaStr); setM2RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+              className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+            />
+            <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={!habilitar2Mensal}
+              placeholder="sem teto"
+              value={m2ImovelStr}
+              onChange={(e) => setM2ImovelStr(e.target.value)}
+              onBlur={() => { const v = optPct(m2ImovelStr); setM2ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
+              className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
+            />
+            <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
+          </div>
+        </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
   // Comissão Apartada é compartilhada pelas duas variantes ("Sinal c/ Banco
   // Direto" e "Sinal c/ Morar") — os campos de % e parcelas padrão aparecem
   // em ambas, cada uma dentro do seu próprio layout de tela.
@@ -2689,6 +2803,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                   </div>
                 </div>
 
+                {blocoLimitesMensais}
+
                 <p className="text-[10px] text-slate-500 px-1 leading-relaxed">
                   A quantidade de meses de obra (parcelas mensais lineares) é calculada automaticamente a partir da data de hoje e da previsão de entrega (habite-se) do empreendimento — assim como as intermediárias semestrais, sempre em Junho e Dezembro. Os valores e quantidades podem ser ajustados manualmente na ficha do cliente; esta política define apenas as sugestões iniciais, os pisos de parcela mínima e o vencimento da parcela de chaves.
                 </p>
@@ -2959,117 +3075,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                   </div>
                 </div>
 
-                {/* TETOS DA 1ª E 2ª MENSAL (30 E 60 DIAS) */}
-                <div className="pt-3 border-t border-morar-100/80">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/80 max-w-xl space-y-3">
-                    <div>
-                      <p className="font-semibold text-slate-700 text-[11px]">Limites da 1ª e 2ª Mensal (30 e 60 dias)</p>
-                      <p className="text-[10px] text-slate-500 leading-tight">Deixe em branco para não aplicar teto por aquele critério. Se ambos forem preenchidos, vale o menor valor.</p>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">1ª Mensal (30 dias)</p>
-                        <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
-                          <span className="text-[10px] font-bold text-slate-600">Habilitar 1ª Mensal</span>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={habilitar1Mensal}
-                            onClick={() => setHabilitar1Mensal(v => !v)}
-                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar1Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                          >
-                            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar1Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                          </button>
-                        </label>
-                      </div>
-                      <div className={`grid grid-cols-2 gap-3 ${habilitar1Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
-                    <div>
-                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          disabled={!habilitar1Mensal}
-                          placeholder="sem teto"
-                          value={m1RendaStr}
-                          onChange={(e) => setM1RendaStr(e.target.value)}
-                          onBlur={() => { const v = optPct(m1RendaStr); setM1RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
-                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
-                        />
-                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          disabled={!habilitar1Mensal}
-                          placeholder="sem teto"
-                          value={m1ImovelStr}
-                          onChange={(e) => setM1ImovelStr(e.target.value)}
-                          onBlur={() => { const v = optPct(m1ImovelStr); setM1ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
-                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
-                        />
-                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
-                      </div>
-                    </div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-[10px] font-extrabold text-slate-500 uppercase">2ª Mensal (60 dias)</p>
-                        <label className="flex items-center gap-2 cursor-pointer select-none normal-case">
-                          <span className="text-[10px] font-bold text-slate-600">Habilitar 2ª Mensal</span>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={habilitar2Mensal}
-                            onClick={() => setHabilitar2Mensal(v => !v)}
-                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${habilitar2Mensal ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                          >
-                            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${habilitar2Mensal ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                          </button>
-                        </label>
-                      </div>
-                      <div className={`grid grid-cols-2 gap-3 ${habilitar2Mensal ? '' : 'opacity-50 pointer-events-none'}`}>
-                    <div>
-                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo da Renda</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          disabled={!habilitar2Mensal}
-                          placeholder="sem teto"
-                          value={m2RendaStr}
-                          onChange={(e) => setM2RendaStr(e.target.value)}
-                          onBlur={() => { const v = optPct(m2RendaStr); setM2RendaStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
-                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
-                        />
-                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-600 mb-1 text-[10px]">% Máximo do Imóvel</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          disabled={!habilitar2Mensal}
-                          placeholder="sem teto"
-                          value={m2ImovelStr}
-                          onChange={(e) => setM2ImovelStr(e.target.value)}
-                          onBlur={() => { const v = optPct(m2ImovelStr); setM2ImovelStr(v !== undefined ? formatDecimalBR(v, 2, 2) : ''); }}
-                          className="w-full pl-2 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-center focus:outline-none focus:border-morar-600 text-xs"
-                        />
-                        <span className="absolute right-1.5 font-bold text-slate-400 text-[10px] pointer-events-none">%</span>
-                      </div>
-                    </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                {blocoLimitesMensais}
 
                 {/* COMISSÃO APARTADA — só na condição "Sinal c/ Banco Direto (Comissão Apartada)" */}
                 {isComissaoApartadaCondition && (
