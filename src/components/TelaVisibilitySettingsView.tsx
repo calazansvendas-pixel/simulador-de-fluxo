@@ -67,6 +67,17 @@ export const TelaVisibilitySettingsView: React.FC<TelaVisibilitySettingsViewProp
   }, []);
 
   const activeMeta = KIND_META.find(m => m.kind === activeKind)!;
+  // Condições em que existe o gráfico controlado pela chave "Comprometimento por Série": só "Sinal c/
+  // Morar" (e Comissão Apartada) e "Parcelamento Morar". Nas demais o toggle seria enganoso, então some.
+  const temChaveComprometimento = ['sinal-morar', 'sinal-morar-comissao-apartada', 'parcelamento-morar'].includes(activeKind);
+  const ehParcelamentoMorar = activeKind === 'parcelamento-morar';
+  // Em "Sinal c/ Morar" o gráfico de comprometimento saiu do Bloco 2 (agora tem chave própria abaixo),
+  // então o texto do Bloco 2 na TELA descreve só o que sobra. (O PDF segue usando blocosMeta.ts como está.)
+  const ehSinalMorar = activeKind === 'sinal-morar' || activeKind === 'sinal-morar-comissao-apartada';
+  const bloco2Titulo = ehSinalMorar ? 'Bloco 2 — Fluxo de Entrada e Parcelas' : activeMeta.bloco2.title;
+  const bloco2Descricao = ehSinalMorar
+    ? 'Fluxo de entrada c/ construtora e parcelas. Hoje este switch não oculta nenhum quadro nesta condição na tela.'
+    : activeMeta.bloco2.description;
   const activeSettings: TelaVisibilitySettings = todasConfiguracoes[activeCargo]?.[activeKind] ?? DEFAULT_TELA_VISIBILITY_SETTINGS;
 
   const trocarCargo = (cargo: Cargo) => {
@@ -176,8 +187,8 @@ export const TelaVisibilitySettingsView: React.FC<TelaVisibilitySettingsViewProp
               disabled={!podeEditar}
             />
             <SettingRow
-              title={activeMeta.bloco2.title}
-              description={activeMeta.bloco2.description}
+              title={bloco2Titulo}
+              description={bloco2Descricao}
               checked={activeSettings.mostrarBloco2}
               onChange={() => updateSetting('mostrarBloco2', !activeSettings.mostrarBloco2)}
               disabled={!podeEditar}
@@ -196,6 +207,17 @@ export const TelaVisibilitySettingsView: React.FC<TelaVisibilitySettingsViewProp
               onChange={() => updateSetting('mostrarBloco4', !activeSettings.mostrarBloco4)}
               disabled={!podeEditar}
             />
+            {temChaveComprometimento && (
+              <SettingRow
+                title={ehParcelamentoMorar ? 'Percentuais de Comprometimento' : 'Comprometimento por Série (Parcela / Renda)'}
+                description={ehParcelamentoMorar
+                  ? 'Exibe o gráfico de barras com o percentual de cada componente (sinal, mensais, intermediárias, chaves e pós-obra) sobre o imóvel e a renda. Soma-se ao Bloco 4: só aparece com os dois ligados.'
+                  : 'Exibe o gráfico de barras horizontais com o percentual de comprometimento da renda em cada série e no ITBI.'}
+                checked={activeSettings.mostrarComprometimentoPorSerie ?? true}
+                onChange={() => updateSetting('mostrarComprometimentoPorSerie', !(activeSettings.mostrarComprometimentoPorSerie ?? true))}
+                disabled={!podeEditar}
+              />
+            )}
             <SettingRow
               title="Rateio de ITBI e Parcela Bruta nas Séries"
               description="Exibe o acréscimo de '+ ITBI: R$ ...' e o valor total da 'Parcela Bruta: R$ .../mês' abaixo de cada linha de série nas fases de Obra e Pós-Obra."

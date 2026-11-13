@@ -327,6 +327,10 @@ export interface TelaVisibilitySettings {
   // Rateio de "+ ITBI" e "Parcela Bruta" abaixo de cada série de Obra/Pós-Obra (FichaMorar).
   // Padrão: true (visível) quando ausente/undefined.
   mostrarRateioItbiParcelaBruta?: boolean;
+  // Quadro "Comprometimento por Série (Parcela / Renda)" (FichaMorar), independente dos blocos 1-4.
+  // Em configurações antigas, sem o campo, herda o valor do Bloco 2 (o que já controlava esse gráfico).
+  // Padrão: true (visível) quando ausente/undefined.
+  mostrarComprometimentoPorSerie?: boolean;
 }
 
 export type TelaVisibilitySettingsByKind = Record<PdfConditionKind, TelaVisibilitySettings>;

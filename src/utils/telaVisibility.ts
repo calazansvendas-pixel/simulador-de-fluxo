@@ -10,6 +10,7 @@ export const DEFAULT_TELA_VISIBILITY_SETTINGS: TelaVisibilitySettings = {
   mostrarBloco3: true,
   mostrarBloco4: true,
   mostrarRateioItbiParcelaBruta: true,
+  mostrarComprometimentoPorSerie: true,
 };
 
 export const DEFAULT_TELA_VISIBILITY_SETTINGS_BY_KIND: TelaVisibilitySettingsByKind = {
@@ -72,7 +73,7 @@ export function aplicarHerancaHierarquicaDeVisibilidade(
   configsPorCargo: Partial<Record<Cargo, TelaVisibilitySettings>>,
   cadeia: Cargo[]
 ): TelaVisibilitySettings {
-  const blocos = ['mostrarBloco1', 'mostrarBloco2', 'mostrarBloco3', 'mostrarBloco4', 'mostrarRateioItbiParcelaBruta'] as const;
+  const blocos = ['mostrarBloco1', 'mostrarBloco2', 'mostrarBloco3', 'mostrarBloco4', 'mostrarRateioItbiParcelaBruta', 'mostrarComprometimentoPorSerie'] as const;
   const efetivo = { ...DEFAULT_TELA_VISIBILITY_SETTINGS };
   const [cargoAtual] = cadeia;
   for (const bloco of blocos) {

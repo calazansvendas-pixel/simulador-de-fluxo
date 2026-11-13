@@ -2777,23 +2777,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <span className="text-slate-600">Sinal Total (s/ ITBI):</span>
                     <strong className="text-amber-700 font-bold">{formatCurrency(sinalTotalSemITBIEfetivo)}</strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 mt-1">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
                     <span className="text-slate-600">Sinal Líquido:</span>
                     <strong className="text-amber-800 font-black">{formatCurrency(sinalLiquidoExibido)}</strong>
                   </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">ITBI / Registro Total:</span>
+                    <strong className="text-slate-800 font-semibold">{formatCurrency(despCartoriasEfetivas)}</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-600">Total com ITBI:</span>
+                    <strong className="text-[#006B3F] font-bold">{formatCurrency(sinalTotalComITBIEfetivo)}</strong>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            {/* TOTAIS COM ITBI E DISTRIBUIÇÃO */}
-            <div className="space-y-1.5 pt-1 text-xs">
-              <div className="flex justify-between items-center px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200/80">
-                <span className="text-slate-700 font-medium">ITBI / Registro Total:</span>
-                <strong className="text-slate-700 font-medium">{formatCurrency(despCartoriasEfetivas)}</strong>
-              </div>
-              <div className="flex justify-between items-center px-3 py-1.5 bg-emerald-50/60 rounded-lg border border-emerald-100">
-                <span className="text-emerald-900 font-semibold">Total com ITBI:</span>
-                <strong className="text-emerald-800 font-semibold">{formatCurrency(sinalTotalComITBIEfetivo)}</strong>
               </div>
             </div>
 
@@ -3587,7 +3583,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               para logo abaixo de "Comissão a Pagar", na coluna da direita
               (antes ficava ao final da coluna da esquerda). Mesmo componente,
               mesmos dados — só a posição no grid. */}
-          {hasUnitSelected && telaSettings.mostrarBloco2 && (
+          {hasUnitSelected && (telaSettings.mostrarComprometimentoPorSerie ?? true) && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-800 uppercase text-center mb-4 tracking-wide">Comprometimento por Série (Parcela / Renda)</h4>
               <div className="h-64">

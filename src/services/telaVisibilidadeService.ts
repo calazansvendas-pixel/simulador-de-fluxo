@@ -30,6 +30,8 @@ interface TelaVisibilityRow {
   mostrar_bloco4: boolean;
   // Ausente em documentos gravados antes deste campo existir (lido como true).
   mostrar_rateio_itbi_parcela_bruta?: boolean;
+  // Ausente em documentos antigos: em Sinal c/ Morar herda mostrar_bloco2 (que antes controlava esse gráfico).
+  mostrar_comprometimento_por_serie?: boolean;
 }
 
 function rowParaSettings(row: TelaVisibilityRow): TelaVisibilitySettings {
@@ -38,7 +40,11 @@ function rowParaSettings(row: TelaVisibilityRow): TelaVisibilitySettings {
     mostrarBloco2: row.mostrar_bloco2,
     mostrarBloco3: row.mostrar_bloco3,
     mostrarBloco4: row.mostrar_bloco4,
-    mostrarRateioItbiParcelaBruta: row.mostrar_rateio_itbi_parcela_bruta ?? true
+    mostrarRateioItbiParcelaBruta: row.mostrar_rateio_itbi_parcela_bruta ?? true,
+    // Só as duas variantes de "Sinal c/ Morar" tinham esse gráfico atrelado ao Bloco 2; nas demais
+    // (inclusive Parcelamento Morar, onde a chave se soma ao Bloco 4) o padrão é visível.
+    mostrarComprometimentoPorSerie: row.mostrar_comprometimento_por_serie
+      ?? ((row.condicao === 'sinal-morar' || row.condicao === 'sinal-morar-comissao-apartada') ? row.mostrar_bloco2 : true)
   };
 }
 
@@ -108,6 +114,7 @@ export const telaVisibilidadeService = {
         mostrar_bloco3: settings.mostrarBloco3,
         mostrar_bloco4: settings.mostrarBloco4,
         mostrar_rateio_itbi_parcela_bruta: settings.mostrarRateioItbiParcelaBruta ?? true,
+        mostrar_comprometimento_por_serie: settings.mostrarComprometimentoPorSerie ?? true,
         atualizado_em: new Date().toISOString()
       });
       return { success: true };

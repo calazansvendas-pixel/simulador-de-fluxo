@@ -2493,7 +2493,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           )}
 
           {/* GRÁFICO: PERCENTUAIS DE COMPROMETIMENTO POR GRUPO (SINAL, MENSAIS, INTERMEDIÁRIAS, CHAVES, PÓS-OBRA) */}
-          {pmComprometimentoData.length > 0 && telaSettings.mostrarBloco4 && (
+          {pmComprometimentoData.length > 0 && telaSettings.mostrarBloco4 && (telaSettings.mostrarComprometimentoPorSerie ?? true) && (
             <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2">
               <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1.5">
                 Percentuais de Comprometimento

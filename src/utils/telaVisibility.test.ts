@@ -107,7 +107,9 @@ describe('aplicarHerancaHierarquicaDeVisibilidade', () => {
       mostrarBloco1: true,  // Gerente true && Corretor true
       mostrarBloco2: false, // Gerente true && Corretor false
       mostrarBloco3: false, // Gerente false veta, ignora Corretor true (Regra do NÃO)
-      mostrarBloco4: false  // ambos false
+      mostrarBloco4: false, // ambos false
+      mostrarRateioItbiParcelaBruta: true,
+      mostrarComprometimentoPorSerie: true
     });
   });
 
