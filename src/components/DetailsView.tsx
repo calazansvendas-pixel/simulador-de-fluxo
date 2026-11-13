@@ -701,10 +701,13 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // sempre executando evita qualquer risco de regressão no fluxo já testado
   // do Banco Direto: nada no bloco original precisou ser alterado ou
   // condicionado para este motor novo existir.
-  const isPhase2ParaEntrega = hasUnitSelected && matchingRow ? String(fase).includes('2') : false;
-  const deliveryDateRaw = isPhase2ParaEntrega && currentProd?.deliveryDatePhase2
-    ? currentProd.deliveryDatePhase2
-    : (currentProd?.deliveryDatePhase1 || currentProd?.deliveryDate || '');
+  // FONTE ÚNICA da data de entrega (Política do produto): fase da unidade selecionada (Torre + Unidade);
+  // o campo legado único só entra como fallback. O badge de chaves, o PDF, o início do Pós-Obra e o
+  // vencimento da Parcela Chaves (esta última menos os "meses antes" da política) partem desta data.
+  const isPhase2ParaEntrega = hasUnitSelected && String(fase).includes('2');
+  const deliveryDateRaw = (isPhase2ParaEntrega
+    ? (currentProd?.deliveryDatePhase2 || currentProd?.deliveryDate)
+    : (currentProd?.deliveryDatePhase1 || currentProd?.deliveryDate)) || '';
   const hojeRef = currentDate || new Date().toISOString().split('T')[0];
   const pmMesesObraAuto = hasUnitSelected ? monthsBetweenDates(hojeRef, deliveryDateRaw) : 0;
   // Qtd. Meses da Mensal de Obra é editável, mas só para DIMINUIR em relação à
@@ -1813,13 +1816,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   // Badge do painel lateral: só mês/ano (ex.: "Fev/2026") da fase da unidade selecionada.
   // Sem Torre + Unidade não dá para saber a fase do imóvel, então não mostra data nenhuma.
-  const entregaChaves = hasUnitSelected
-    ? formatDateMonthYear(
-        String(fase).includes('2')
-          ? (currentProd.deliveryDatePhase2 || currentProd.deliveryDate)
-          : (currentProd.deliveryDatePhase1 || currentProd.deliveryDate)
-      )
-    : '';
+  const entregaChaves = hasUnitSelected ? formatDateMonthYear(deliveryDateRaw) : '';
 
   // Dynamic key delivery dates from product policy or selected unit phase
   const deliveryText = entregaChaves || formatDeliveryText(
@@ -2876,7 +2873,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     <div>
                       <span className={`block text-[10px] font-bold uppercase ${pmChavesEnabled ? 'text-amber-700' : 'text-slate-500'}`}>Parcela Chaves</span>
                       {pmChavesEnabled && chavesVencimentoStr && (
-                        <span className="block text-[9.5px] text-amber-600 font-semibold mt-0.5">{chavesVencimentoStr}</span>
+                        <span className="block text-[9.5px] text-amber-600 font-semibold mt-0.5">
+                          {chavesVencimentoStr}
+                          {pmChavesMesesAntes > 0 && entregaChaves ? ` · ${pmChavesMesesAntes} ${pmChavesMesesAntes === 1 ? 'mês' : 'meses'} antes da entrega (${entregaChaves})` : ''}
+                        </span>
                       )}
                     </div>
                   </label>
