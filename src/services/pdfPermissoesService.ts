@@ -26,6 +26,7 @@ interface PdfSettingsRow {
   mostrar_bloco2: boolean;
   mostrar_bloco3: boolean;
   mostrar_bloco4: boolean;
+  mostrar_comissao_apartada?: boolean; // ausente em documentos antigos: vale true
 }
 
 function rowParaSettings(row: PdfSettingsRow): PdfExportSettings {
@@ -37,7 +38,8 @@ function rowParaSettings(row: PdfSettingsRow): PdfExportSettings {
     mostrarBloco1: row.mostrar_bloco1,
     mostrarBloco2: row.mostrar_bloco2,
     mostrarBloco3: row.mostrar_bloco3,
-    mostrarBloco4: row.mostrar_bloco4
+    mostrarBloco4: row.mostrar_bloco4,
+    mostrarComissaoApartada: row.mostrar_comissao_apartada ?? true
   };
 }
 
@@ -87,6 +89,7 @@ export const pdfPermissoesService = {
         mostrar_bloco2: settings.mostrarBloco2,
         mostrar_bloco3: settings.mostrarBloco3,
         mostrar_bloco4: settings.mostrarBloco4,
+        mostrar_comissao_apartada: settings.mostrarComissaoApartada ?? true,
         atualizado_em: new Date().toISOString()
       });
       return { success: true };

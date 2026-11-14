@@ -258,6 +258,15 @@ export const PdfExportSettingsView: React.FC<PdfExportSettingsViewProps> = ({ on
               onChange={() => updateSetting('mostrarBloco4', !activeSettings.mostrarBloco4)}
               disabled={!podeEditar}
             />
+            {activeKind.endsWith('comissao-apartada') && (
+              <SettingRow
+                title="Quadro de Comissão Apartada"
+                description="Exibe na ficha o valor da Comissão Apartada e o detalhe de suas parcelas. Desligado, o quadro é omitido da pré-visualização e do PDF."
+                checked={activeSettings.mostrarComissaoApartada ?? true}
+                onChange={() => updateSetting('mostrarComissaoApartada', !(activeSettings.mostrarComissaoApartada ?? true))}
+                disabled={!podeEditar}
+              />
+            )}
           </div>
 
           {podeEditar && (

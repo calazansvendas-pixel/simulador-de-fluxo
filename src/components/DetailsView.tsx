@@ -119,7 +119,34 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
   const [isFirstHomeLocal, setIsFirstHomeLocal] = useState<boolean>(simulationData.isFirstHome ?? true);
 
-  const [valAtoManual, setValAtoManual] = useState<number | null>(null);
+  const [valAtoManual, setValAtoManualRaw] = useState<number | null>(null);
+  // CADEADO DO ATO (IMÓVEL) — todas as condições comerciais. Travado: o valor do Ato fica congelado e
+  // nenhum recálculo (ITBI, prazos, descontos...) consegue alterá-lo; os demais blocos absorvem a
+  // variação. Limpar/restaurar (null) destrava junto. Ref espelha o estado porque vários recálculos
+  // rodam no mesmo evento, antes de o estado novo chegar.
+  const [atoTravado, setAtoTravado] = useState<boolean>(false);
+  const atoTravadoRef = useRef<boolean>(false);
+  const atoTravadoValorRef = useRef<number>(0);
+  const setValAtoManual = (v: number | null) => {
+    if (v === null) {
+      atoTravadoRef.current = false;
+      setAtoTravado(false);
+      setValAtoManualRaw(null);
+      return;
+    }
+    if (atoTravadoRef.current) return; // Ato travado: nenhum recálculo automático o altera
+    setValAtoManualRaw(v);
+  };
+  // Valor de Ato que o motor deve respeitar quando travado (undefined = sem trava).
+  const atoManualTravado = (): number | undefined => (atoTravadoRef.current ? atoTravadoValorRef.current : undefined);
+  const alternarTravaAtoGeral = () => {
+    if (atoTravadoRef.current) { setValAtoManual(null); return; } // destrava: volta ao Ato calculado
+    const atual = atoImovelDigitado;
+    atoTravadoValorRef.current = atual;
+    atoTravadoRef.current = true;
+    setAtoTravado(true);
+    setValAtoManualRaw(atual);
+  };
   const [atoInputText, setAtoInputText] = useState<string>('');
   const [isEditingAto, setIsEditingAto] = useState<boolean>(false);
   // Pgtº à vista (botão de cabeçalho, igual ao do Sinal c/ Morar): aplica o
@@ -236,7 +263,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Cadeados do fluxo do Parcelamento Morar: 'ato' | 'mensal' | 'sem-<idx>' | 'chaves' | 'pos' → true = travado.
   const [pmLocks, setPmLocks] = useState<Record<string, boolean>>({});
   // Diminuição sem margem automática: aguarda o corretor escolher para onde vai a diferença.
-  const [pmDestinoPendente, setPmDestinoPendente] = useState<{ origem: string; valores: Record<string, number>; diferenca: number; modo: 'jogar' | 'descontar' } | null>(null);
+  const [pmDestinoPendente, setPmDestinoPendente] = useState<{ origem: string; valores: Record<string, number>; diferenca: number; modo: 'jogar' | 'descontar'; travar?: boolean } | null>(null);
   // Data de cada intermediária semestral, editável individualmente (índice ->
   // "YYYY-MM"). Quando não há override, usa a data sugerida automaticamente.
   const [pmSemestralDatasManual, setPmSemestralDatasManual] = useState<Record<number, string>>({});
@@ -756,9 +783,11 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     pmSemestralValorManual[idx] !== undefined ? pmSemestralValorManual[idx] : null
   ));
 
+  // Teto de parcelas do Pós-Obra: o configurado na Política de Crédito (Qtd. Parcelas Pós-Obra; fallback 12).
+  const pmMaxPosObraMeses = Math.max(0, currentCond?.pmQtdParcelasPosObra ?? 12);
   const pmPosObraQtd = pmObraReduzida
     ? 0
-    : (pmQtdPosObraManual !== null ? pmQtdPosObraManual : (currentCond?.pmQtdParcelasPosObra ?? 12));
+    : Math.min(pmMaxPosObraMeses, pmQtdPosObraManual !== null ? pmQtdPosObraManual : pmMaxPosObraMeses);
 
   // Datas de início: a 1ª mensal de obra vence no mês seguinte à venda; a 1ª
   // parcela pós-obra vence no mês seguinte à entrega (habite-se).
@@ -790,7 +819,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // separado, e pmIsAVistaActive aponta direto pro mesmo estado explícito.
   const pmIsAVistaActive = isPagamentoAVistaAtivoManual;
 
-  const pm = calcularParcelamentoMorar({
+  const pmParams: Parameters<typeof calcularParcelamentoMorar>[0] = {
     price,
     renda: income,
     // Esta condição não trabalha com subsídio nem FGTS — apenas financiamento
@@ -824,7 +853,18 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     mensaisAntecipadas: pmMensaisAntecipadas,
     chavesHabilitada: pmIsAVistaActive ? false : pmChavesEnabled,
     atoPremiadoPct: currentCond?.atoPremiadoPct
-  });
+  };
+  const pm = calcularParcelamentoMorar(pmParams);
+  // Ato SUGERIDO PADRÃO: o que o sistema calcula ao abrir a unidade/condição — mesmo motor, sem nenhuma
+  // edição manual (Ato e parcelas no automático da Política de Crédito).
+  const pmSugerido = isParcelamentoMorar ? calcularParcelamentoMorar({
+    ...pmParams,
+    valAtoManual: null,
+    posObraValorManual: pmIsAVistaActive ? 0 : null,
+    chavesValorManual: pmIsAVistaActive ? 0 : null,
+    semestraisValoresManuais: pmIsAVistaActive ? Array(pmSemestraisQtdEfetiva).fill(0) : [],
+    mensalObraValorManual: pmIsAVistaActive ? 0 : null
+  }) : pm;
   // "Sinal Total" no mesmo sentido do Bloco 1 do Banco Direto: o que falta do
   // valor do imóvel antes de descontar o Ato em si (Ato + este saldo = tudo
   // que precisa ser pago fora do Ato: mensais de obra + semestrais + chaves).
@@ -917,10 +957,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   });
 
   // Grava todos os blocos ativos e o Ato de uma vez e fecha o cadeado de quem foi editado.
-  const pmAplicarValores = (valores: Record<string, number>, travar: string) => {
+  const pmAplicarValores = (valores: Record<string, number>, travar: string, fecharCadeado = true) => {
     pmBlocos.filter(b => b.ativo && b.chave !== 'ato').forEach(b => pmAplicarValorBloco(b.chave, valores[b.chave] ?? b.valor));
     pmGravarAto(valores.ato ?? pm.atoEfetivo);
-    setPmLocks(prev => ({ ...prev, [travar]: true }));
+    setPmLocks(prev => ({ ...prev, [travar]: fecharCadeado }));
   };
 
   // porPasso = clique em − / +: se o passo inteiro passar do limite possível, encosta no limite exato (centavos).
@@ -934,17 +974,17 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     return totalAcima || parcelaAcima;
   })();
 
-  const pmEditarBloco = (chave: string, novoTotal: number, porPasso = false) => {
+  const pmEditarBloco = (chave: string, novoTotal: number, porPasso = false, travar = true) => {
     const res = porPasso
       ? redistribuirPorPasso(pmContexto(), chave, novoTotal, pmMsgPisoSinal)
       : redistribuirParcelamentoMorar(pmContexto(), chave, novoTotal, pmMsgPisoSinal);
     if (res.aviso) onShowToast?.(res.aviso);
     if (res.tipo === 'bloqueado') return;
     if (res.tipo === 'modal') {
-      setPmDestinoPendente({ origem: chave, valores: res.valores, diferenca: res.diferenca, modo: res.modo });
+      setPmDestinoPendente({ origem: chave, valores: res.valores, diferenca: res.diferenca, modo: res.modo, travar });
       return;
     }
-    pmAplicarValores(res.valores, chave);
+    pmAplicarValores(res.valores, chave, travar);
   };
 
   // Resolve o modal: força a diferença no destino escolhido e aplica tudo junto (Ato incluso).
@@ -954,7 +994,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmDestinoPendente(null);
     const res = aplicarDestinoParcelamentoMorar(pmContexto(), pend.valores, pend.origem, pend.modo, pend.diferenca, destino);
     if (res.aviso) onShowToast?.(res.aviso);
-    pmAplicarValores(res.valores, pend.origem);
+    pmAplicarValores(res.valores, pend.origem, pend.travar !== false);
   };
 
   // Limpar o campo (null) devolve o bloco ao automático e abre o cadeado dele.
@@ -968,6 +1008,30 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       const idx = Number(chave.slice(4));
       setPmSemestralValorManual(prev => { const n = { ...prev }; delete n[idx]; return n; });
     }
+  };
+
+  // ↺ do Ato: volta ao Ato sugerido padrão (sem override manual, cadeado do Ato aberto).
+  //  - Nenhuma parcela travada: limpa as edições do Ato e das parcelas — o motor recalcula tudo pela política
+  //    e chega exatamente ao fluxo sugerido.
+  //  - Há parcelas travadas: elas ficam como estão; o Ato vai para o sugerido e a diferença é redistribuída
+  //    entre as de cadeado aberto (se não couber, abre o modal "para onde jogar / de onde descontar").
+  const pmAtoSugerido = pmSugerido.atoEfetivo;
+  const pmAtoNoSugerido = Math.abs(pm.atoEfetivo - pmAtoSugerido) < 0.01;
+  const pmRestaurarAto = () => {
+    const travadas = pmBlocos.filter(b => b.ativo && b.chave !== 'ato' && pmLocks[b.chave]);
+    if (travadas.length === 0) {
+      setPmLocks({});
+      setValAtoManual(null);
+      setPmMensalObraValorManual(null);
+      setPmSemestralValorManual({});
+      setPmChavesValorManual(null);
+      setPmPosObraValorManual(null);
+      onShowToast?.('Ato restaurado para o valor sugerido.');
+      return;
+    }
+    setPmLocks(prev => ({ ...prev, ato: false }));
+    if (pmAtoNoSugerido) { setValAtoManual(null); return; }
+    pmEditarBloco('ato', pmAtoSugerido, false, false);
   };
 
   const pmAlternarTrava = (chave: string) => {
@@ -1303,7 +1367,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     ? resolverTetoAtoComDescontoEComissao(Math.max(0, price - subsidy), isAtoPremiadoEnabled, pctAtoPremiadoCond, isComissaoApartada, pctComissaoApartadaCond, precoTabelaOriginal)
     : 0;
 
-  const atoImovelDigitadoBruto = (valAtoManual !== null && valAtoManual >= atoMinimoCalculado)
+  const atoImovelDigitadoBruto = (valAtoManual !== null && (atoTravado || valAtoManual >= atoMinimoCalculado))
     ? valAtoManual
     : atoMinimoCalculado;
 
@@ -2748,8 +2812,11 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               if (!isParcelamentoMorar) { setValAtoManual(novoVal); return; }
               if (novoVal === null) pmLimparBloco('ato'); else pmEditarBloco('ato', novoVal, porPasso);
             }}
-            travadoAto={!!pmLocks['ato']}
-            onToggleTravaAto={isParcelamentoMorar ? () => pmAlternarTrava('ato') : undefined}
+            travadoAto={isParcelamentoMorar ? !!pmLocks['ato'] : atoTravado}
+            atoTravadoBloqueiaEdicao={!isParcelamentoMorar}
+            atoNoSugerido={isParcelamentoMorar ? pmAtoNoSugerido : (valAtoManual === null || Math.abs(atoImovelDigitado - atoMinimoCalculado) < 0.01)}
+            onRestaurarAto={isParcelamentoMorar ? pmRestaurarAto : () => setValAtoManual(null)}
+            onToggleTravaAto={isParcelamentoMorar ? () => pmAlternarTrava('ato') : alternarTravaAtoGeral}
             stepAto={isParcelamentoMorar ? pmPassoAto : currentCond?.stepAtoImovel}
             stepItbi={currentCond?.stepItbiAto}
             onShowToast={onShowToast}
@@ -3091,10 +3158,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                         label="Qtd. Meses"
                         tipo="inteiro"
                         value={pmPosObraQtd}
+                        maximo={pmMaxPosObraMeses}
+                        tituloMaximo={`Limite máximo de ${pmMaxPosObraMeses} parcelas Pós-Obra pela Política de Crédito`}
                         onCommit={(q) => {
                           // + no Pós-Obra com a Obra reduzida: a Obra volta ao prazo máximo e o Pós-Obra segue normal
                           if ((q ?? 0) > 0 && pmObraReduzida) setPmMesesObraManual(null);
-                          setPmQtdPosObraManual(q);
+                          setPmQtdPosObraManual(q === null ? null : Math.min(pmMaxPosObraMeses, q));
                         }}
                         onShowToast={onShowToast}
                       />

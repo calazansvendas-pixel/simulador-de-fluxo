@@ -15,6 +15,7 @@ export const DEFAULT_PDF_EXPORT_SETTINGS: PdfExportSettings = {
   mostrarBloco2: true,
   mostrarBloco3: true,
   mostrarBloco4: true,
+  mostrarComissaoApartada: true,
 };
 
 export const DEFAULT_PDF_EXPORT_SETTINGS_BY_KIND: PdfExportSettingsByKind = {

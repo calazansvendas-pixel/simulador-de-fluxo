@@ -11,6 +11,7 @@ interface PmCampoEditavelProps {
   tipo?: 'moeda' | 'inteiro';
   minimo?: number; // piso — só se aplica a campos do tipo "moeda"
   maximo?: number; // teto — só se aplica a campos do tipo "inteiro" (stepper)
+  tituloMaximo?: string; // tooltip do + desabilitado ao atingir o teto (tipo "inteiro")
   disabled?: boolean;
   onShowToast?: (msg: string) => void;
   colorClass?: string;
@@ -34,6 +35,7 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
   tipo = 'moeda',
   minimo = 0,
   maximo,
+  tituloMaximo,
   disabled = false,
   onShowToast,
   colorClass = 'text-slate-900',
@@ -82,7 +84,7 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
     }
     onCommit(novo, true);
   };
-  const botao = `w-7 h-9 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer disabled:opacity-50 ${alerta ? 'border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
+  const botao = `w-6 h-7 mb-1 flex items-center justify-center rounded-lg border shrink-0 cursor-pointer disabled:opacity-50 ${alerta ? 'border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
 
   if (tipo === 'inteiro') {
     return (
@@ -95,6 +97,7 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
             total={value}
             onChange={onCommit}
             max={maximo}
+            tituloMaximo={tituloMaximo}
             disabled={disabled}
             colorClass={`bg-white border-slate-200 ${colorClass}`}
             solto
@@ -107,10 +110,10 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
   // Título centralizado só sobre o input (largura fixa), sem contar os botões −, + e o cadeado.
   return (
     <div className="flex items-end justify-center gap-1">
-      <div className="flex items-end gap-1">
+      <div className="flex items-end gap-0.5">
         {passo > 0 && (
           <button type="button" disabled={disabled} aria-label={`Diminuir ${label}`} onClick={() => ajustar(-1)} className={botao}>
-            <Minus className="w-3 h-3" />
+            <Minus className="w-2.5 h-2.5" />
           </button>
         )}
         <div className="w-[120px] shrink-0">
@@ -141,7 +144,7 @@ export const PmCampoEditavel: React.FC<PmCampoEditavelProps> = ({
         </div>
         {passo > 0 && (
           <button type="button" disabled={disabled} aria-label={`Aumentar ${label}`} onClick={() => ajustar(1)} className={botao}>
-            <Plus className="w-3 h-3" />
+            <Plus className="w-2.5 h-2.5" />
           </button>
         )}
         {onToggleTrava && (

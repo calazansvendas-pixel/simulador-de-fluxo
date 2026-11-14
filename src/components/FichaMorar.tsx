@@ -181,7 +181,37 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // Estados dos Blocos de Pagamento Morar
   const [dataAto, setDataAto] = useState<string>('agosto, 2026');
-  const [valAtoManual, setValAtoManual] = useState<number | null>(null);
+  const [valAtoManual, setValAtoManualRaw] = useState<number | null>(null);
+  // CADEADO DO ATO (IMÓVEL) — todas as condições comerciais. Travado: o valor do Ato fica congelado e
+  // nenhum recálculo (ITBI, prazos, descontos...) consegue alterá-lo; os demais blocos absorvem a
+  // variação. Limpar/restaurar (null) destrava junto. Ref espelha o estado porque vários recálculos
+  // rodam no mesmo evento, antes de o estado novo chegar.
+  const [atoTravado, setAtoTravado] = useState<boolean>(false);
+  const atoTravadoRef = useRef<boolean>(false);
+  const atoTravadoValorRef = useRef<number>(0);
+  const setValAtoManual = (v: number | null) => {
+    if (v === null) {
+      atoTravadoRef.current = false;
+      setAtoTravado(false);
+      setValAtoManualRaw(null);
+      return;
+    }
+    if (atoTravadoRef.current) return; // Ato travado: nenhum recálculo automático o altera
+    setValAtoManualRaw(v);
+  };
+  // Valor de Ato que o motor deve respeitar quando travado (undefined = sem trava).
+  const atoManualTravado = (): number | undefined => (atoTravadoRef.current ? atoTravadoValorRef.current : undefined);
+  const alternarTravaAto = () => {
+    if (atoTravadoRef.current) {
+      setValAtoManual(null); // destrava e volta ao Ato calculado pelo motor
+      aplicarDistribuicaoOficialMorar();
+      return;
+    }
+    atoTravadoValorRef.current = valorAtoEfetivo;
+    atoTravadoRef.current = true;
+    setAtoTravado(true);
+    setValAtoManualRaw(valorAtoEfetivo);
+  };
   const [atoInputText, setAtoInputText] = useState<string>('');
   const [isEditingAto, setIsEditingAto] = useState<boolean>(false);
 
@@ -1040,17 +1070,28 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // encurtar/alongar de 1x até o teto da política (maxParcelasITBI). As parcelas correm em
   // paralelo ao fluxo desde o 1º mês: as primeiras caem na Obra e o que passar vai para a Pós.
   const parcelasITBIPadrao = (totalParcObra + totalParcPos) > 0 ? (totalParcObra + totalParcPos) : 33;
+  // PISO do prazo do ITBI = prazo atual do fluxo da construtora (Obra + Pós): o ITBI acompanha o fluxo
+  // quando ele diminui e só pode ser ALONGADO (nunca encurtado abaixo do fluxo) — a parcela do ITBI
+  // diminui e o risco no fluxo da construtora não aumenta.
+  const pisoPrazoITBI = Math.min(maxParcelasITBIPolitica, Math.max(1, totalParcObra + totalParcPos));
   const parcelasITBIEfetivas = Math.min(
     maxParcelasITBIPolitica,
-    Math.max(1, Math.round(parcelasITBIManual ?? parcelasITBIPadrao))
+    Math.max(pisoPrazoITBI, Math.round(parcelasITBIManual ?? parcelasITBIPadrao))
   );
-  const itbiObraTotalMeses = totalParcObra > 0 ? Math.min(parcelasITBIEfetivas, totalParcObra) : parcelasITBIEfetivas;
+  // Parte do ITBI que cai na Obra: com a Obra reduzida (e sem Pós no fluxo), o stepper de Obra do ITBI pode
+  // crescer até o prazo máximo de Obra da política; do contrário (ou com Pós), vai até o prazo do fluxo.
+  const itbiObraFluxo = totalParcObra > 0 ? Math.min(totalParcObra, maxParcelasITBIPolitica) : 0;
+  const itbiObraMax = totalParcObra > 0
+    ? (totalParcPos > 0
+        ? itbiObraFluxo
+        : Math.max(itbiObraFluxo, Math.min(currentCond?.mesesObra ?? 33, maxParcelasITBIPolitica)))
+    : maxParcelasITBIPolitica;
+  const itbiObraTotalMeses = totalParcObra > 0 ? Math.min(parcelasITBIEfetivas, itbiObraMax) : parcelasITBIEfetivas;
   const itbiPosTotalMeses = parcelasITBIEfetivas - itbiObraTotalMeses;
   const itbiTotalMeses = parcelasITBIEfetivas;
   // Limites dos steppers de Obra / Pós-Obra do card "Correção IGPM+1%": Obra vem sempre antes de
   // Pós-Obra e só quando as parcelas de Obra estão cheias (itbiObraMax) entram parcelas na Pós;
   // juntas nunca passam do teto da política (maxParcelasITBIPolitica).
-  const itbiObraMax = totalParcObra > 0 ? Math.min(totalParcObra, maxParcelasITBIPolitica) : maxParcelasITBIPolitica;
   const itbiObraCheia = itbiObraTotalMeses >= itbiObraMax;
   const itbiPosDisponivel = Math.max(0, maxParcelasITBIPolitica - itbiObraMax);
   // Quantos meses de uma série coincidem com meses de ITBI (as parcelas do ITBI ocupam os
@@ -1060,6 +1101,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const qtd = Number(faixas[indice]?.qtd) || 0;
     return Math.max(0, Math.min(qtd, itbiMesesDaFase - antes));
   };
+
+  // Séries de OBRA exibidas: cada série ocupa uma janela de meses do cronograma (capacidade de cada balde:
+  // S1 = meses 1..12, S2 = 13..24, ...). Uma série aparece quando tem parcela da construtora OU parcela de
+  // ITBI de Obra naquela janela — se o ITBI dura mais que o fluxo da construtora, as séries seguintes
+  // continuam aparecendo com a construtora em R$ 0,00 e o badge "+ Nx ITBI" com a parcela do ITBI.
+  const serieObraItbiMeses = faixasObra.map((_, i) => {
+    const inicio = serieMesesCapacidades.slice(0, i).reduce((a, b) => a + b, 0);
+    const fim = inicio + (serieMesesCapacidades[i] ?? 0);
+    return Math.max(0, Math.min(itbiObraTotalMeses, fim) - inicio);
+  });
 
   const itbiCalculadoMes = (hasUnitSelected && itbiTotalMeses > 0 && saldoITBI > 0)
     ? Math.round((saldoITBI / itbiTotalMeses) * 100) / 100
@@ -1295,7 +1346,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // CURVA OFICIAL MORAR DE DISTRIBUIÇÃO AUTOMÁTICA
   // Calcula dinamicamente as séries por teto de renda, extração do ITBI e fechamento do ato residual
-  const aplicarDistribuicaoOficialMorar = (overrides?: { atoITBI?: number }) => {
+  // overrides.parcelasITBI: null = prazo padrão (sem override manual); número = prazo explícito.
+  const aplicarDistribuicaoOficialMorar = (overrides?: { atoITBI?: number; parcelasITBI?: number | null }) => {
     if (!hasUnitSelected || (sinalTotalSemITBIEfetivo <= 0 && price <= 0)) return;
 
     const mesesObraPadrao = currentCond?.mesesObra ?? 33;
@@ -1326,13 +1378,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       percentualRiscoPos: posObraGlobalParam,
       mesesObra: mesesObraParam,
       mesesPos: mesesPosParam,
-      parcelasITBI: parcelasITBIManual ?? undefined,
+      parcelasITBI: overrides && 'parcelasITBI' in overrides ? (overrides.parcelasITBI ?? undefined) : (parcelasITBIManual ?? undefined),
       maxParcelasITBI: maxParcelasITBIPolitica,
       tetoRendaMensalPct: currentCond?.riscoRendaPct,
       globalSeriesPct: globalPct,
       serieMesesCapacidades: serieMesesCapacidades,
       sinalMinimo: sinalMinimoVal,
       atoITBI: overrides?.atoITBI !== undefined ? overrides.atoITBI : (itbiAtoManualFloor ?? 0),
+      atoManual: atoManualTravado(),
       isAtoPremiadoEnabled,
       atoPremiadoPct: pctAtoPremiadoCond,
       isComissaoApartada,
@@ -1423,7 +1476,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       sinalMinimo: sinalMinimoVal,
       atoITBI: atoITBIParam,
       isAtoPremiadoEnabled: atoPremiadoAtivo,
-      atoManual: atoValor,
+      atoManual: atoManualTravado() ?? atoValor,
       atoPremiadoPct: pctAtoPremiadoCond,
       isComissaoApartada,
       pctComissaoApartada: pctComissaoApartadaCond
@@ -1683,7 +1736,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // só a sugestão automática pinada por uma recalculagem anterior, livre
     // para ser substituída de novo.
     const atoFoiDigitadoPeloUsuario = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01;
-    const atoManualParam = atoFoiDigitadoPeloUsuario ? valAtoManual : undefined;
+    const atoManualParam = atoManualTravado() ?? (atoFoiDigitadoPeloUsuario ? valAtoManual : undefined);
 
     // Aplica o resultado do motor no Ato (Imóvel): se o corretor não tinha
     // digitado nada, aceita a sugestão livremente, como sempre. Se tinha, só
@@ -1840,7 +1893,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // da sugestão automática atual foi digitado de propósito pelo corretor —
     // preserva esse valor (só o motor pode elevá-lo, se a política exigir).
     const atoFoiDigitadoPeloUsuario = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01;
-    const atoManualParam = atoFoiDigitadoPeloUsuario ? valAtoManual : undefined;
+    const atoManualParam = atoManualTravado() ?? (atoFoiDigitadoPeloUsuario ? valAtoManual : undefined);
 
     setItbiObraValorManual(null);
     setItbiPosValorManual(null);
@@ -1906,11 +1959,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     }
   };
 
-  // Altera o prazo do ITBI (1x até maxParcelasITBI). Recalcula o fluxo com a trava mês a mês: se
+  // Altera o prazo do ITBI (do prazo do fluxo da construtora até maxParcelasITBI). Recalcula o fluxo com a trava mês a mês: se
   // parcela do fluxo + ITBI estourar o teto de renda de algum mês, o excedente do ITBI migra para
   // o ITBI no Ato (nunca consolida fluxo fora do risco da política).
   const handleParcelasITBIChange = (novoN: number) => {
-    const n = Math.min(maxParcelasITBIPolitica, Math.max(1, Math.round(novoN)));
+    const n = Math.min(maxParcelasITBIPolitica, Math.max(pisoPrazoITBI, Math.round(novoN)));
     setParcelasITBIManual(n);
     if (!hasUnitSelected) return;
 
@@ -1944,7 +1997,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       atoITBI: itbiAtoManualFloor ?? 0,
       isAtoPremiadoEnabled,
       atoPremiadoPct: pctAtoPremiadoCond,
-      atoManual: atoFoiDigitadoPeloUsuario ? (valAtoManual as number) : undefined,
+      atoManual: atoManualTravado() ?? (atoFoiDigitadoPeloUsuario ? (valAtoManual as number) : undefined),
       isComissaoApartada,
       pctComissaoApartada: pctComissaoApartadaCond
     });
@@ -1978,7 +2031,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // zera a Pós automaticamente (não existe parcela de ITBI na Pós com meses de Obra ainda em aberto);
   // aumentar vai até o máximo de meses de Obra (e do teto da política).
   const handleItbiObraChange = (novaObra: number) => {
-    const obra = Math.min(itbiObraMax, Math.max(1, Math.round(novaObra)));
+    const obra = Math.min(itbiObraMax, Math.max(itbiObraFluxo, Math.round(novaObra)));
     if (obra === itbiObraTotalMeses) return;
     handleParcelasITBIChange(obra);
   };
@@ -1989,11 +2042,34 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // "+" na Pós => Obra 28 + Pós 1 (29x). Pós 0 com a Obra incompleta não muda nada; com a Pós > 0
   // a Obra já está cheia, então só a Pós varia.
   const handleItbiPosChange = (novaPos: number) => {
-    const pos = Math.min(itbiPosDisponivel, Math.max(0, Math.round(novaPos)));
+    const pos = Math.min(itbiPosDisponivel, Math.max(totalParcPos, Math.round(novaPos)));
     if (pos === 0 && !itbiObraCheia) return;
     const n = (pos > 0 ? itbiObraMax : itbiObraTotalMeses) + pos;
     if (n === parcelasITBIEfetivas) return;
     handleParcelasITBIChange(n);
+  };
+
+  // ↺ do card "Correção IGPM+1%": volta Obra/Pós do ITBI e o ITBI Pago no Ato à sugestão da política.
+  // Está "alterado" quando há prazo do ITBI mexido nos steppers ou ITBI no Ato digitado à mão.
+  const itbiAlteradoDoPadrao = parcelasITBIManual !== null || itbiAtoManualFloor !== null;
+  useEffect(() => {
+    if (parcelasITBIManual !== null && parcelasITBIManual < pisoPrazoITBI) setParcelasITBIManual(null);
+  }, [parcelasITBIManual, pisoPrazoITBI]);
+  const restaurarItbiPadrao = () => {
+    if (!itbiAlteradoDoPadrao) return;
+    // Um Ato (Imóvel) digitado pelo corretor não faz parte deste reset: é preservado.
+    const atoDigitado = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01 ? valAtoManual : null;
+    setParcelasITBIManual(null);
+    setItbiAtoManualFloor(null);
+    setIsEditingAtoITBI(false);
+    setIsManualObra(false);
+    setIsManualPos(false);
+    aplicarDistribuicaoOficialMorar({ atoITBI: 0, parcelasITBI: null });
+    if (atoDigitado !== null) {
+      setValAtoManual(atoDigitado);
+      setAtoInputText(formatCurrency(atoDigitado));
+    }
+    onShowToast?.('ITBI e parcelas restaurados ao padrão sugerido.');
   };
 
   const handleFinishITBIEdit = (rawText: string) => {
@@ -2572,6 +2648,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             dataITBI={dataITBI}
             valorITBI={despCartoriasEfetivas}
             itbiObraQtd={itbiObraTotalMeses}
+            serieObraItbiMeses={serieObraItbiMeses}
             itbiObraValor={itbiParcelaObraValor}
             itbiPosQtd={itbiPosTotalMeses}
             itbiPosValor={itbiParcelaPosValor}
@@ -2878,6 +2955,20 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={restaurarItbiPadrao}
+                  disabled={!itbiAlteradoDoPadrao}
+                  title={itbiAlteradoDoPadrao ? 'Restaurar ITBI e parcelas ao padrão sugerido' : 'ITBI e parcelas já estão no padrão sugerido'}
+                  aria-label="Restaurar ITBI e parcelas ao padrão sugerido"
+                  className={`p-1 rounded-full border transition-colors ${
+                    itbiAlteradoDoPadrao
+                      ? 'text-[#006B3F] bg-emerald-50 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                      : 'text-slate-400 border-slate-200 opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={handleToggleFirstHome}
                   className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors cursor-pointer ${
                     isFirstHomeLocal
@@ -2945,8 +3036,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <MonthStepper
                       total={itbiObraTotalMeses}
                       onChange={handleItbiObraChange}
-                      min={1}
+                      min={itbiObraFluxo}
                       max={itbiObraMax}
+                      tituloMinimo="O prazo mínimo do ITBI acompanha o prazo do fluxo de obra"
                       unitLabel="parcela de Obra"
                       colorClass="bg-[#E5F3EB]/70 border-[#006B3F]/20 text-[#006B3F]"
                     />
@@ -2970,8 +3062,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <MonthStepper
                       total={itbiPosTotalMeses}
                       onChange={handleItbiPosChange}
-                      min={0}
+                      min={totalParcPos}
                       max={itbiPosDisponivel}
+                      tituloMinimo="O prazo mínimo do ITBI acompanha o prazo do fluxo de pós-obra"
                       unitLabel="parcela de Pós-Obra"
                       colorClass="bg-[#E5F3EB]/70 border-[#006B3F]/20 text-[#006B3F]"
                     />
@@ -3199,7 +3292,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             valorAtoMaximo={isComissaoApartada
               ? Math.max(0, Math.round((valorAtoMaximoCalculado - comissaoApartadaValor) * 100) / 100)
               : valorAtoMaximoCalculado}
+            travadoAto={atoTravado}
+            onToggleTravaAto={alternarTravaAto}
+            atoTravadoBloqueiaEdicao
             onAtoChange={(novoVal) => {
+              if (atoTravadoRef.current && novoVal !== null) return;
               if (novoVal === null) {
                 setValAtoManual(null);
                 setAtoInputText(formatCurrency(atoSugeridoResidual));
@@ -3303,14 +3400,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             <div className="space-y-2 text-xs">
               {faixasObra
                 .map((faixa, originalIndex) => ({ faixa, originalIndex }))
-                .filter(({ faixa }) => {
+                .filter(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
                   const meses = Number(faixa.qtd) || 0;
-                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados.
-                  return meses > 0 && valorLiquido > 0.009;
+                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados —
+                  // salvo quando há parcelas de ITBI de Obra naquela janela (série só de ITBI).
+                  return (meses > 0 && valorLiquido > 0.009) || (serieObraItbiMeses[originalIndex] ?? 0) > 0;
                 })
-                .map(({ faixa, originalIndex }, index) => {
-                  const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
+                .map(({ faixa: faixaOriginal, originalIndex }, index) => {
+                  const fluxoQtd = Number(faixaOriginal.qtd) || 0;
+                  const soITBI = fluxoQtd <= 0;
+                  // Série só de ITBI: o contador é da CONSTRUTORA (0 X de R$ 0,00); os meses do ITBI ficam no badge abaixo.
+                  const faixa = faixaOriginal;
+                  const valorLiquido = soITBI ? 0 : (saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0));
                   const subtotalSerie = (Number(faixa.qtd) || 0) * valorLiquido;
                   const parcelaBrutaComITBI = valorLiquido + itbiParcelaObraValor;
                   const displayIndex = (faixa as any).serieIndex !== undefined ? (faixa as any).serieIndex + 1 : originalIndex + 1;
@@ -3332,13 +3434,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         <div className="col-span-1 sm:col-span-5">
                           <div
                             className={`w-full px-2 py-1 rounded border font-bold text-right text-xs cursor-not-allowed ${
-                              valorLiquido < PARCELA_MINIMA_POLITICA
+                              (valorLiquido > 0.009 && valorLiquido < PARCELA_MINIMA_POLITICA) && !soITBI
                                 ? 'border-rose-400 bg-rose-50/40 ring-1 ring-red-200 text-rose-700'
                                 : 'border-slate-200 bg-slate-100 text-slate-700'
                             }`}
-                            title={valorLiquido < PARCELA_MINIMA_POLITICA
-                              ? 'Parcela abaixo do mínimo de R$ 200,00'
-                              : 'Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas.'}
+                            title={soITBI
+                              ? 'Fora do prazo do fluxo da construtora — nesses meses só corre a parcela do ITBI.'
+                              : (valorLiquido > 0.009 && valorLiquido < PARCELA_MINIMA_POLITICA)
+                                ? 'Parcela abaixo do mínimo de R$ 200,00'
+                                : 'Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas.'}
                           >
                             {valorLiquido > 0 ? formatCurrency(valorLiquido) : 'R$ 0,00'}
                           </div>
@@ -3354,7 +3458,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
                       {/* DETALHE DO RATEIO DO ITBI + PARCELA BRUTA (qtd. de parcelas de ITBI desta série) */}
                       {(telaSettings.mostrarRateioItbiParcelaBruta ?? true) && (() => {
-                        const nx = itbiMesesNaSerie(faixasObra, originalIndex, itbiObraTotalMeses);
+                        const nx = serieObraItbiMeses[originalIndex] ?? 0;
                         if (nx <= 0) return null;
                         return (
                           <div className="flex items-center justify-between text-[10px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-slate-100">
@@ -3413,7 +3517,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               {totalParcPos === 0 && itbiPosTotalMeses === 0 && (
                 <div className="py-3 px-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-center">
                   <p className="text-[11px] text-slate-500 font-medium">
-                    Período Pós-Obra inativo (0 meses). Fluxo de parcelas e ITBI 100% concentrados na Obra.
+                    {totalParcObra > 0 && itbiObraTotalMeses > totalParcObra
+                      ? `Período Pós-Obra inativo (0 meses). O ITBI se estende por mais ${itbiObraTotalMeses - totalParcObra} ${itbiObraTotalMeses - totalParcObra === 1 ? 'mês' : 'meses'} além do fluxo da construtora.`
+                      : 'Período Pós-Obra inativo (0 meses). Fluxo de parcelas e ITBI 100% concentrados na Obra.'}
                   </p>
                 </div>
               )}
@@ -3448,11 +3554,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         <div className="col-span-1 sm:col-span-5">
                           <div
                             className={`w-full px-2 py-1 rounded border font-bold text-right text-xs cursor-not-allowed ${
-                              valorLiquido < PARCELA_MINIMA_POLITICA
+                              (valorLiquido > 0.009 && valorLiquido < PARCELA_MINIMA_POLITICA)
                                 ? 'border-rose-400 bg-rose-50/40 ring-1 ring-red-200 text-rose-700'
                                 : 'border-slate-200 bg-slate-100 text-slate-700'
                             }`}
-                            title={valorLiquido < PARCELA_MINIMA_POLITICA
+                            title={(valorLiquido > 0.009 && valorLiquido < PARCELA_MINIMA_POLITICA)
                               ? 'Parcela abaixo do mínimo de R$ 200,00'
                               : 'Valor calculado automaticamente pelo aplicativo — não editável. Para mudar, ajuste a quantidade de parcelas.'}
                           >
@@ -3687,6 +3793,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           dataITBI={dataITBI}
           valorITBI={despCartoriasEfetivas}
           itbiObraQtd={itbiObraTotalMeses}
+          serieObraItbiMeses={serieObraItbiMeses}
           itbiObraValor={itbiParcelaObraValor}
           itbiPosQtd={itbiPosTotalMeses}
           itbiPosValor={itbiParcelaPosValor}

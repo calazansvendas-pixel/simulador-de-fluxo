@@ -82,6 +82,9 @@ interface PdfExportModalMorarProps {
   dataITBI: string;
   valorITBI: number;
   itbiObraQtd: number;
+  // Meses de ITBI de Obra em cada série (janela de meses de cada balde). Quando o ITBI dura mais que o fluxo
+  // da construtora, séries só de ITBI aparecem com a construtora em R$ 0,00.
+  serieObraItbiMeses?: number[];
   itbiObraValor: number;
   itbiPosQtd: number;
   itbiPosValor: number;
@@ -144,6 +147,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   dataITBI,
   valorITBI,
   itbiObraQtd,
+  serieObraItbiMeses,
   itbiObraValor,
   itbiPosQtd,
   itbiPosValor,
@@ -684,7 +688,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   </div>
 
                   {/* COMISSÃO APARTADA — só na condição "Sinal c/ Morar (Comissão Apartada)" */}
-                  {comissaoApartadaValor > 0 && (
+                  {comissaoApartadaValor > 0 && (pdfSettings.mostrarComissaoApartada ?? true) && (
                     <div className="flex items-center justify-between flex-wrap bg-fuchsia-50 px-3 py-2 rounded-lg border border-fuchsia-100 text-xs">
                       <span className="font-bold text-fuchsia-700">Comissão Apartada ({comissaoApartadaParcelasQtd}x):</span>
                       <strong className="text-fuchsia-800 font-black text-xs sm:text-sm">
@@ -718,8 +722,10 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   </div>
 
                   <div className="space-y-1.5 text-xs">
-                    {faixasObra.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f }) => f.qtd > 0 && (f.valor || 0) > 0.009).map(({ f, originalIdx }, idx) => {
-                      const nx = itbiMesesNaSerie(faixasObra, originalIdx, itbiObraQtd);
+                    {faixasObra.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f, originalIdx }) => (f.qtd > 0 && (f.valor || 0) > 0.009) || (serieObraItbiMeses?.[originalIdx] ?? 0) > 0).map(({ f: fOrig, originalIdx }, idx) => {
+                      // Série só de ITBI: contador da construtora 0 X de R$ 0,00 (os meses do ITBI vão no badge).
+                      const f = fOrig.qtd > 0 ? fOrig : { ...fOrig, qtd: 0, valor: 0 };
+                      const nx = serieObraItbiMeses ? (serieObraItbiMeses[originalIdx] ?? 0) : itbiMesesNaSerie(faixasObra, originalIdx, itbiObraQtd);
                       return (
                         <div key={idx} className="bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100 space-y-1">
                           <div className="flex justify-between items-center">

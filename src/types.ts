@@ -317,6 +317,9 @@ export interface PdfExportSettings {
   mostrarBloco2: boolean; // Fluxo de Entrada c/ Construtora
   mostrarBloco3: boolean; // Parcelamento (nome varia por condição)
   mostrarBloco4: boolean; // Gráfico / Indicadores de Risco (nome varia por condição)
+  // Quadro "Comissão Apartada" (valor e parcelas) nas fichas em PDF das condições com comissão apartada.
+  // Padrão: true (visível) quando ausente — documentos antigos do Firestore não têm o campo.
+  mostrarComissaoApartada?: boolean;
 }
 
 export type PdfExportSettingsByKind = Record<PdfConditionKind, PdfExportSettings>;

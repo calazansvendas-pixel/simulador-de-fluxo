@@ -22,17 +22,26 @@ interface AjusteRapidoProps {
   onMais: () => void;
   onMenos: () => void;
   tituloRestaurar: string;
+  desabilitarMaisMenos?: boolean;
+  restaurarAtivo?: boolean; // true: valor diferente do sugerido (↺ em destaque); false: já no sugerido (↺ discreto)
 }
 
 // Moldura do campo em UMA linha (altura compacta): [↺ restaurar sugerido] [campo] [+ / − empilhados].
-const AjusteRapido: React.FC<AjusteRapidoProps> = ({ children, onRestaurar, onMais, onMenos, tituloRestaurar }) => (
+const AjusteRapido: React.FC<AjusteRapidoProps> = ({ children, onRestaurar, onMais, onMenos, tituloRestaurar, restaurarAtivo, desabilitarMaisMenos }) => (
   <div className="flex items-center gap-1 mt-1.5 w-full min-w-0">
     <button
       type="button"
       onClick={onRestaurar}
       title={tituloRestaurar}
       aria-label={tituloRestaurar}
-      className="p-0.5 text-slate-400 hover:text-emerald-700 shrink-0 transition-colors cursor-pointer"
+      disabled={restaurarAtivo === false}
+      className={`p-0.5 shrink-0 rounded transition-colors ${
+        restaurarAtivo === undefined
+          ? 'text-slate-400 hover:text-emerald-700 cursor-pointer'
+          : restaurarAtivo
+            ? 'text-[#006B3F] bg-emerald-50 hover:bg-emerald-100 cursor-pointer'
+            : 'text-slate-300 opacity-60 cursor-default'
+      }`}
     >
       <RotateCcw size={11} />
     </button>
@@ -41,18 +50,20 @@ const AjusteRapido: React.FC<AjusteRapidoProps> = ({ children, onRestaurar, onMa
       <button
         type="button"
         onClick={onMais}
+        disabled={desabilitarMaisMenos}
         title="Aumentar"
         aria-label="Aumentar"
-        className="flex-1 flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+        className="flex-1 flex items-center justify-center hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Plus size={9} />
       </button>
       <button
         type="button"
         onClick={onMenos}
+        disabled={desabilitarMaisMenos}
         title="Diminuir"
         aria-label="Diminuir"
-        className="flex-1 flex items-center justify-center border-t border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+        className="flex-1 flex items-center justify-center border-t border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Minus size={9} />
       </button>
@@ -79,6 +90,10 @@ export interface FluxoEntradaConstrutoraProps {
   stepItbi?: number;
   // Cadeado do Ato (Parcelamento Morar): travado = fora da redistribuição automática.
   travadoAto?: boolean;
+  // true: com o Ato travado, +/− e a digitação ficam desabilitados (condições sem redistribuição por cadeados).
+  atoTravadoBloqueiaEdicao?: boolean;
+  atoNoSugerido?: boolean; // Ato já está no valor sugerido padrão (↺ fica discreto/desabilitado)
+  onRestaurarAto?: () => void; // ↺ do Ato: restaura o valor sugerido padrão (padrão: onAtoChange(null))
   onToggleTravaAto?: () => void;
   onShowToast?: (msg: string) => void;
   // Alternância Parcelado / À Vista (opcional — só usada no fluxo Sinal c/ Morar,
@@ -119,6 +134,9 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
   onAtoChange,
   stepAto = STEP_AJUSTE_PADRAO,
   travadoAto = false,
+  atoTravadoBloqueiaEdicao = false,
+  atoNoSugerido,
+  onRestaurarAto,
   onToggleTravaAto,
   stepItbi = STEP_AJUSTE_PADRAO,
   onShowToast,
@@ -238,7 +256,9 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
 
   // Ajuste rápido (+/-) do Ato (Imóvel): respeita piso (mínimo da política) e teto, e reaproveita o
   // mesmo onAtoChange da digitação manual — então o fluxo, o saldo e o sinal líquido recalculam igual.
+  const atoCongelado = travadoAto && atoTravadoBloqueiaEdicao;
   const ajustarAto = (direcao: 1 | -1) => {
+    if (atoCongelado) return;
     if (stepAto <= 0) { onShowToast?.('O passo do Ato (Imóvel) está em R$ 0,00 nas Políticas — ajuste lá para usar os botões + e −.'); return; }
     let novo = proximoValorComPasso(valorAto, stepAto, direcao);
     if (valorAtoMinimo > 0 && novo < valorAtoMinimo) novo = valorAtoMinimo;
@@ -331,7 +351,7 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
                   type="button"
                   onClick={onToggleTravaAto}
                   aria-pressed={travadoAto}
-                  title={travadoAto ? 'Destravar o Ato: volta a absorver a diferença do fluxo' : 'Travar o valor do Ato'}
+                  title={travadoAto ? 'Destravar valor do Ato (Imóvel)' : 'Travar valor do Ato (Imóvel)'}
                   className={`ml-auto mr-1 w-5 h-5 flex items-center justify-center shrink-0 cursor-pointer ${travadoAto ? 'text-[#006B3F]' : 'text-slate-400 hover:text-slate-600'}`}
                 >
                   {travadoAto ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
@@ -353,10 +373,12 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
               )}
             </div>
             <AjusteRapido
-              onRestaurar={() => { setIsEditingAto(false); onAtoChange(null); }}
+              onRestaurar={() => { setIsEditingAto(false); if (onRestaurarAto) onRestaurarAto(); else onAtoChange(null); }}
               onMais={() => ajustarAto(1)}
               onMenos={() => ajustarAto(-1)}
-              tituloRestaurar="Restaurar o Ato sugerido pelo sistema"
+              desabilitarMaisMenos={atoCongelado}
+              tituloRestaurar={atoNoSugerido ? 'O Ato já está no valor sugerido' : 'Restaurar Ato para o valor sugerido'}
+              restaurarAtivo={atoNoSugerido === undefined ? undefined : !atoNoSugerido}
             >
               <input
                 id="input-fluxo-ato-imovel"
@@ -368,7 +390,8 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
                   e.target.select();
                 }}
                 onChange={(e) => setAtoInputText(e.target.value)}
-                onBlur={(e) => handleFinishAtoEdit(e.target.value)}
+                readOnly={atoCongelado}
+                onBlur={(e) => { if (!atoCongelado) handleFinishAtoEdit(e.target.value); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     handleFinishAtoEdit(atoInputText);
