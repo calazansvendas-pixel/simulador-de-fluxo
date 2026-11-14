@@ -196,6 +196,13 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
       return;
     }
 
+    // Com o Pgtº à vista ativo, o piso/teto exibidos são os do à vista: o valor vai cru para o pai, que
+    // primeiro sai do à vista e só então valida piso/teto sobre o fluxo normal.
+    if (isPagamentoAVistaActive) {
+      onAtoChange(rawText.trim() === '' || parsed === 0 ? null : parsed);
+      return;
+    }
+
     // Se o usuário apagou tudo ou deixou 0
     if (rawText.trim() === '' || parsed === 0) {
       // Se há um piso obrigatório sugerido, restabelece o piso
@@ -268,8 +275,9 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
     if (atoCongelado) return;
     if (stepAto <= 0) { onShowToast?.('O passo do Ato (Imóvel) está em R$ 0,00 nas Políticas — ajuste lá para usar os botões + e −.'); return; }
     let novo = proximoValorComPasso(valorAto, stepAto, direcao);
-    if (valorAtoMinimo > 0 && novo < valorAtoMinimo) novo = valorAtoMinimo;
-    if (valorAtoMaximo > 0 && novo > valorAtoMaximo) novo = valorAtoMaximo;
+    // Com o à vista ativo, os limites são validados pelo pai já no fluxo normal (ver handleFinishAtoEdit).
+    if (!isPagamentoAVistaActive && valorAtoMinimo > 0 && novo < valorAtoMinimo) novo = valorAtoMinimo;
+    if (!isPagamentoAVistaActive && valorAtoMaximo > 0 && novo > valorAtoMaximo) novo = valorAtoMaximo;
     novo = Math.round(novo * 100) / 100;
     setIsEditingAto(false);
     if (Math.abs(novo - valorAto) < 0.005) return;

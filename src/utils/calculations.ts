@@ -1904,7 +1904,7 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
   }
 
   const atoMaximoPossivel = Math.max(0, price - recursos - descontoAtoPremiado);
-  const atoEfetivo = Math.min(atoAposAntecipadas, atoMaximoPossivel);
+  let atoEfetivo = Math.min(atoAposAntecipadas, atoMaximoPossivel);
 
   // RATEIO PROPORCIONAL entre Mensal de Obra e Pós-Obra: até aqui, os dois vinham
   // sempre do próprio teto individual (mensalObraCapRenda / "natural" do pós-obra,
@@ -1960,6 +1960,31 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
   if (antecipadasRestante > 0) {
     valorMensalObraTotal = Math.max(0, valorMensalObraTotal - antecipadasRestante);
     valorMensalObra = nMensaisObra > 0 ? valorMensalObraTotal / nMensaisObra : 0;
+  }
+
+  // TRUNCAMENTO das parcelas AUTOMÁTICAS (Mensal de Obra e Pós-Obra): a parcela é cortada para baixo em
+  // 2 casas (nunca arredondada para cima), e o total do bloco passa a ser exatamente parcela × meses — assim
+  // parcela × meses nunca ultrapassa o teto da política por centavos de arredondamento. Os centavos cortados
+  // vão para o Ato (bloco residual); com o Ato digitado pelo corretor, vão para a Parcela de Chaves automática
+  // (se houver), para não mexer no valor que ele informou.
+  const truncar2 = (v: number) => Math.floor(v * 100 + 1e-6) / 100;
+  let centavosTruncados = 0;
+  if (!mensalObraIsManual && nMensaisObra > 0) {
+    const parcela = truncar2(valorMensalObra);
+    centavosTruncados += valorMensalObraTotal - parcela * nMensaisObra;
+    valorMensalObra = parcela;
+    valorMensalObraTotal = parcela * nMensaisObra;
+  }
+  if (!posObraIsManual && qtdParcelasPosObra > 0) {
+    const parcela = truncar2(valorPosObraParcela);
+    centavosTruncados += valorPosObraTotal - parcela * qtdParcelasPosObra;
+    valorPosObraParcela = parcela;
+    valorPosObraTotal = parcela * qtdParcelasPosObra;
+  }
+  if (centavosTruncados > 0.00001) {
+    const atoDigitado = p.valAtoManual !== null && p.valAtoManual !== undefined && p.valAtoManual >= sinalMinimoCalculado;
+    if (atoDigitado && chavesHabilitada && !chavesIsManual) valorChaves += centavosTruncados;
+    else atoEfetivo += centavosTruncados;
   }
 
   const saldoAPagarDireto = valorMensalObraTotal + totalSemestrais + valorChaves + valorPosObraTotal;

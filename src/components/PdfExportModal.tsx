@@ -43,6 +43,8 @@ interface PdfExportModalProps {
   descontoConstrutora?: number;
   // Carta na Manga concedida (só aparece quando > 0).
   cartaNaManga?: number;
+  // Desconto à Vista aplicado (0 quando o Pgtº à vista está desligado) — mesmo padrão do PDF do Sinal c/ Morar.
+  descontoAVista?: number;
   evaluation: number;
   deliveryText: string;
   income: number;
@@ -112,6 +114,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   precoTabelaOriginal,
   descontoConstrutora = 0,
   cartaNaManga = 0,
+  descontoAVista = 0,
   evaluation,
   deliveryText,
   income,
@@ -685,6 +688,12 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                         <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
                           <span className="text-slate-600 pr-2">Carta na Manga para o Cliente:</span>
                           <strong className="text-amber-700 font-semibold shrink-0">{fmt(cartaNaManga)}</strong>
+                        </div>
+                      )}
+                      {descontoAVista > 0 && (
+                        <div className="flex justify-between items-center py-0.5 border-b border-[rgba(226,232,240,0.4)]">
+                          <span className="text-slate-600">Desconto à Vista:</span>
+                          <strong className="text-amber-700 font-semibold">{fmt(descontoAVista)}</strong>
                         </div>
                       )}
                       <div className="flex justify-between items-center py-0.5">

@@ -1731,10 +1731,20 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const pendente = atoPendenteAposVistaRef.current;
     if (pendente === undefined) return;
     atoPendenteAposVistaRef.current = undefined;
-    setValAtoManual(pendente);
+    // Piso/teto do fluxo NORMAL (valores brutos, já sem o à vista).
+    const piso = Math.max(sinalMinimoVal, atoSugeridoResidual);
+    let valor = pendente;
+    if (piso > 0 && valor < piso - 0.01) {
+      onShowToast?.(`O valor informado é inferior ao piso mínimo (${formatCurrency(piso)}). Valor ajustado.`);
+      valor = piso;
+    } else if (valorAtoMaximoCalculado > 0 && valor > valorAtoMaximoCalculado + 0.01) {
+      onShowToast?.(`O valor informado excede o saldo total. O Ato foi ajustado para ${formatCurrency(valorAtoMaximoCalculado)}.`);
+      valor = valorAtoMaximoCalculado;
+    }
+    setValAtoManual(valor);
     setAtoEditadoPeloUsuario(true);
-    setAtoInputText(formatCurrency(pendente));
-    recalcularSeriesParaAtoManual(pendente);
+    setAtoInputText(formatCurrency(valor));
+    recalcularSeriesParaAtoManual(valor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPagamentoAVistaEnabled]);
 
@@ -2424,7 +2434,35 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Salva (ou atualiza, se já havia sido salva automaticamente) a simulação.
   // `silencioso` evita toast e o estado de "Salvando..." do botão — usado
   // pelo salvamento automático em segundo plano.
-  const persistirSimulacao = async (silencioso: boolean) => {
+  // Salvamento blindado contra concorrência: só uma gravação por vez. Um auto-save que chega durante outra
+  // gravação fica marcado e roda de novo ao final (com os dados mais recentes); o "Salvar" manual espera a
+  // gravação em curso terminar e então grava. O id do registro só é adotado se a unidade/condição ainda for
+  // a mesma de quando a gravação começou — senão a próxima gravação criaria/atualizaria o registro errado.
+  const salvandoRef = useRef<Promise<void> | null>(null);
+  const salvarDeNovoRef = useRef<boolean>(false);
+  const persistirRef = useRef<(silencioso: boolean) => Promise<void>>(async () => {});
+  const persistirSimulacao = async (silencioso: boolean): Promise<void> => {
+    if (!currentProd) return;
+    if (salvandoRef.current) {
+      if (silencioso) { salvarDeNovoRef.current = true; return; }
+      await salvandoRef.current;
+      return persistirRef.current(false);
+    }
+    const gravacao = gravarSimulacao(silencioso, autoSaveKeyRef.current);
+    salvandoRef.current = gravacao;
+    try {
+      await gravacao;
+    } finally {
+      salvandoRef.current = null;
+      if (salvarDeNovoRef.current) {
+        salvarDeNovoRef.current = false;
+        void persistirRef.current(true);
+      }
+    }
+  };
+  persistirRef.current = persistirSimulacao;
+
+  const gravarSimulacao = async (silencioso: boolean, chaveNoDisparo: string) => {
     if (!currentProd) return;
     const dadosCompletos = montarDadosCompletos();
     if (!silencioso) setIsSavingSimulation(true);
@@ -2441,7 +2479,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
       if (res.success) {
         const novoId = (res.data as any[])?.[0]?.id;
-        if (novoId) autoSavedIdRef.current = novoId;
+        if (novoId && autoSaveKeyRef.current === chaveNoDisparo) autoSavedIdRef.current = novoId;
         if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Firestore com sucesso!`);
       } else if (!silencioso) {
         onShowToast(`Proposta registrada: ${res.error || 'Aviso de sincronização'}`);
@@ -3394,9 +3432,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             onToggleAtoPremiado={handleToggleAtoPremiado}
             isPagamentoAVistaActive={isPagamentoAVistaEnabled}
             onTogglePagamentoAVista={handleTogglePagamentoAVista}
+            // Botão "À Vista" pequeno do card do Ato: só traz o saldo do Pró-Soluto para o Ato (financiamento e
+            // descontos normais mantidos, sem ligar o Pgtº à vista geral). Com o Pgtº à vista ligado, volta ao fluxo normal.
             isAVistaActive={isAVistaActive}
             onToggleAVista={(ativo) => {
-              if (sairDoAVistaPeloAto(null)) return; // com o Pgtº à vista ligado: volta ao fluxo normal
+              if (sairDoAVistaPeloAto(null)) return;
               if (ativo) {
                 destravarAtoSemLimpar();
                 // Traz o Pró-Soluto inteiro para o Ato (Imóvel), zerando as parcelas —
@@ -3404,7 +3444,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 // para o valor exato que zera o Pró-Soluto (sem tocar Financiamento/FGTS),
                 // já considerando o desconto do Ato Premiado quando ativo.
                 setValAtoManual(atoAVistaTarget);
-                setAtoEditadoPeloUsuario(true);
+                setAtoEditadoPeloUsuario(true); // acende o ↺ do Ato em verde
                 setAtoInputText(formatCurrency(atoAVistaTarget));
                 recalcularSeriesParaAtoManual(atoAVistaTarget);
               } else {

@@ -344,6 +344,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     setPmQtdPosObraManual(null);
     setPmPosObraValorManual(null);
     setComissaoParcelasManual(null); setComissaoTravadas({});
+    // Descontos voltam ao padrão da Política da NOVA condição (mesmo com a unidade mantida).
+    setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
+    setCartaNaManga(0);
+    setCartaNaMangaAtiva(false);
     if (currentProd && !soCondicaoMudou) {
       onUnitSelectChange(currentProd.id, { torre: '', unidade: '' });
     }
@@ -1776,12 +1780,38 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Qualquer ação no Ato (Imóvel) — ↺, Parcelado/À Vista, digitação ou +/− — com o "À Vista Ativo" ligado
   // desliga o pagamento à vista: zera o Desconto à Vista, restaura os descontos padrão da política e o
   // Ato volta ao cálculo normal. Retorna true quando desligou (o chamador decide se aplica um valor novo).
-  const sairDoAVistaPeloAto = (): boolean => {
+  // Um valor digitado/ajustado fica pendente e só é validado (piso/teto) e aplicado no render seguinte,
+  // já com o fluxo normal (preço, descontos e financiamento sem o à vista).
+  const atoPendenteAposVistaRef = useRef<number | undefined>(undefined);
+  const sairDoAVistaPeloAto = (novoVal: number | null = null): boolean => {
     if (!isPagamentoAVistaAtivoManual) return false;
+    atoPendenteAposVistaRef.current = novoVal === null ? undefined : novoVal;
     handleTogglePagamentoAVistaDetails(false);
     onShowToast?.('Pagamento à vista desativado: o Ato voltou ao fluxo normal.');
     return true;
   };
+
+  useEffect(() => {
+    if (isPagamentoAVistaAtivoManual) return;
+    const pendente = atoPendenteAposVistaRef.current;
+    if (pendente === undefined) return;
+    atoPendenteAposVistaRef.current = undefined;
+    if (isParcelamentoMorar) {
+      // Mesmo caminho de uma edição normal do Ato no Parcelamento Morar (piso do Sinal e redistribuição).
+      pmEditarBloco('ato', pendente);
+      return;
+    }
+    if (atoMinimoCalculado > 0 && pendente < atoMinimoCalculado - 0.01) {
+      onShowToast?.(`O valor informado (${formatCurrency(pendente)}) é inferior ao piso mínimo (${formatCurrency(atoMinimoCalculado)}). Valor ajustado.`);
+      setValAtoManual(atoMinimoCalculado);
+    } else if (atoMaximoPossivel > 0 && pendente > atoMaximoPossivel + 0.01) {
+      onShowToast?.(`O valor informado excede o saldo total. O Ato foi ajustado para ${formatCurrency(atoMaximoPossivel)}.`);
+      setValAtoManual(atoMaximoPossivel);
+    } else {
+      setValAtoManual(pendente);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPagamentoAVistaAtivoManual]);
 
   // Função para resetar exclusivamente o Fluxo de Pagamento (Quadros 2 e 3)
   const handleToggleDescontoVistaDetails = (ligado: boolean) => {
@@ -2151,7 +2181,35 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Salva (ou atualiza, se já havia sido salva automaticamente) a simulação.
   // `silencioso` evita toast e o estado de "Salvando..." do botão — usado
   // pelo salvamento automático em segundo plano.
-  const persistirSimulacao = async (silencioso: boolean) => {
+  // Salvamento blindado contra concorrência: só uma gravação por vez. Um auto-save que chega durante outra
+  // gravação fica marcado e roda de novo ao final (com os dados mais recentes); o "Salvar" manual espera a
+  // gravação em curso terminar e então grava. O id do registro só é adotado se a unidade/condição ainda for
+  // a mesma de quando a gravação começou — senão a próxima gravação criaria/atualizaria o registro errado.
+  const salvandoRef = useRef<Promise<void> | null>(null);
+  const salvarDeNovoRef = useRef<boolean>(false);
+  const persistirRef = useRef<(silencioso: boolean) => Promise<void>>(async () => {});
+  const persistirSimulacao = async (silencioso: boolean): Promise<void> => {
+    if (!currentProd) return;
+    if (salvandoRef.current) {
+      if (silencioso) { salvarDeNovoRef.current = true; return; }
+      await salvandoRef.current;
+      return persistirRef.current(false);
+    }
+    const gravacao = gravarSimulacao(silencioso, autoSaveKeyRef.current);
+    salvandoRef.current = gravacao;
+    try {
+      await gravacao;
+    } finally {
+      salvandoRef.current = null;
+      if (salvarDeNovoRef.current) {
+        salvarDeNovoRef.current = false;
+        void persistirRef.current(true);
+      }
+    }
+  };
+  persistirRef.current = persistirSimulacao;
+
+  const gravarSimulacao = async (silencioso: boolean, chaveNoDisparo: string) => {
     if (!currentProd) return;
     const dadosCompletos = montarDadosCompletos();
     if (!silencioso) setIsSavingSimulation(true);
@@ -2168,7 +2226,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
       if (res.success) {
         const novoId = (res.data as any[])?.[0]?.id;
-        if (novoId) autoSavedIdRef.current = novoId;
+        if (novoId && autoSaveKeyRef.current === chaveNoDisparo) autoSavedIdRef.current = novoId;
         if (!silencioso) onShowToast(`Proposta de ${simulationData.clientName || 'simulação'} salva no Firestore com sucesso!`);
       } else if (!silencioso) {
         onShowToast(`Proposta registrada: ${res.error || 'Aviso de sincronização'}`);
@@ -2834,10 +2892,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             onAtoChange={(novoVal, porPasso) => {
               // Mexer no Ato com o "À Vista Ativo" ligado desliga o pagamento à vista (descontos e
               // financiamento voltam ao padrão da política) e aplica o valor sobre o fluxo normal.
-              if (sairDoAVistaPeloAto()) {
-                if (novoVal !== null) { if (isParcelamentoMorar) pmGravarAto(novoVal); else setValAtoManual(novoVal); }
-                return;
-              }
+              if (sairDoAVistaPeloAto(novoVal)) return;
               if (!isParcelamentoMorar) { setValAtoManual(novoVal); return; }
               if (novoVal === null) pmLimparBloco('ato'); else pmEditarBloco('ato', novoVal, porPasso);
             }}
@@ -2875,12 +2930,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             // "Ato (Imóvel)" não precisa de um segundo botão separado ali).
             isPagamentoAVistaActive={isPagamentoAVistaAtivoManual}
             onTogglePagamentoAVista={handleTogglePagamentoAVistaDetails}
+            // Botão "À Vista" pequeno do card do Ato: só traz o saldo do Pró-Soluto para o Ato (financiamento e
+            // descontos normais mantidos, sem ligar o Pgtº à vista geral nem o Desconto à Vista). O ↺ do Ato fica
+            // verde (Ato fora do sugerido). Com o Pgtº à vista ligado, volta ao fluxo normal.
             isAVistaActive={isParcelamentoMorar ? undefined : isAVistaActive}
             onToggleAVista={isParcelamentoMorar ? undefined : (ativo) => {
-              // Mesmo mecanismo de um Ato (Imóvel) digitado manualmente — só que o valor
-              // é calculado automaticamente para o ponto exato que quita o Pró-Soluto,
-              // sem tocar preço nem ITBI, ou desfeito para voltar ao fluxo parcelado.
-              if (sairDoAVistaPeloAto()) return; // com o Pgtº à vista ligado: volta ao fluxo normal
+              if (sairDoAVistaPeloAto()) return;
               if (ativo) destravarAtoSemLimpar();
               setValAtoManual(ativo ? atoAVistaTarget : null);
             }}
@@ -3437,7 +3492,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           price={price}
           precoTabelaOriginal={precoTabelaLista}
           descontoConstrutora={descontoConstrutora}
-            cartaNaManga={cartaNaMangaEfetiva}
+          cartaNaManga={cartaNaMangaEfetiva}
+          descontoAVista={valorDescontoAVista}
           evaluation={evaluation}
           deliveryText={deliveryText}
           income={income}
