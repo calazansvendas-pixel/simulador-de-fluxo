@@ -34,9 +34,15 @@ export type PmDestino = 'ato' | 'mensal' | 'semestrais' | 'chaves' | 'pos';
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const ehSemestral = (k: string) => k.startsWith('sem-');
 
-/** Valor que o motor realmente produz: séries mensais guardam a parcela com 2 casas. */
+/**
+ * Valor que o motor realmente produz: séries mensais guardam a parcela com 2 casas. A parcela é TRUNCADA
+ * (nunca arredondada para cima): um bloco cheio até o teto da política (ex.: 5% = R$ 14.590,1745 em 12x)
+ * fica em 12 × R$ 1.215,84 = R$ 14.590,08 — dentro do teto —, e não em 12 × R$ 1.215,85 = R$ 14.590,20,
+ * que passaria do limite e pintaria o bloco de vermelho. Os centavos que sobram vão para o fechamento
+ * (Ato absorvedor, ou o destino escolhido no modal).
+ */
 function realizado(b: PmBloco | undefined, v: number): number {
-  if (b?.meses && b.meses > 0) return r2(r2(v / b.meses) * b.meses);
+  if (b?.meses && b.meses > 0) return r2((Math.floor((v / b.meses) * 100 + 1e-6) / 100) * b.meses);
   return r2(v);
 }
 

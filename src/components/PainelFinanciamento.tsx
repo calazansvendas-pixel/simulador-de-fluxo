@@ -12,6 +12,8 @@ interface PainelFinanciamentoProps {
   cartaNaManga?: number;
   cartaNaMangaMax?: number;
   onCartaNaMangaChange?: (valor: number) => void;
+  // Pagamento à vista ativo: a Carta na Manga não acumula com o Desconto à Vista (campo bloqueado).
+  bloqueadaAVista?: boolean;
 }
 
 const ativo = 'bg-white text-slate-900 shadow-sm';
@@ -26,10 +28,11 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
   onFirstHomeChange,
   cartaNaManga = 0,
   cartaNaMangaMax = 0,
-  onCartaNaMangaChange
+  onCartaNaMangaChange,
+  bloqueadaAVista = false
 }) => {
   const [travou, setTravou] = useState(false);
-  const desabilitada = !(cartaNaMangaMax > 0);
+  const desabilitada = !(cartaNaMangaMax > 0) || bloqueadaAVista;
   const aoDigitar = (txt: string) => {
     const centavos = parseInt(txt.replace(/\D/g, '') || '0', 10);
     let v = Math.round(centavos) / 100;
@@ -136,7 +139,7 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
                 placeholder="R$ 0,00"
                 onChange={(e) => aoDigitar(e.target.value)}
                 onBlur={() => setTravou(false)}
-                title={desabilitada ? 'Nenhuma Carta na Manga permitida para esta unidade' : undefined}
+                title={bloqueadaAVista ? 'Não acumula no Pgtº à vista' : (desabilitada ? 'Nenhuma Carta na Manga permitida para esta unidade' : undefined)}
                 className={`w-24 h-5 px-1.5 rounded bg-white border text-center text-xs font-bold focus:outline-none focus:text-slate-900 focus:border-[#006B3F]/25 focus:shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${cartaNaManga > 0 ? 'text-slate-900 border-[#006B3F]/25 shadow-2xs' : 'text-slate-500 border-[#E5E8E6]'}`}
               />
               <button
@@ -153,7 +156,7 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
           </div>
         </div>
         <p className={`text-[10px] font-medium text-right ${travou ? 'text-rose-600' : 'text-slate-400'}`}>
-          {desabilitada ? 'Sem Carta na Manga para esta unidade' : `Máx: ${formatCurrency(cartaNaMangaMax)}`}
+          {bloqueadaAVista ? 'Não acumula no Pgtº à vista' : (desabilitada ? 'Sem Carta na Manga para esta unidade' : `Máx: ${formatCurrency(cartaNaMangaMax)}`)}
         </p>
       </div>
     )}

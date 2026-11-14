@@ -256,7 +256,8 @@ export function isApenasFaseObra(
 
 /**
  * Condição efetiva para a UNIDADE: aplica a 2ª Fase da torre e, só no Sinal c/ Morar e variantes,
- * a regra "Apenas Fase Obra" (Torre + Tipologia) — zera meses e teto de risco da Pós-Obra, de modo
+ * a regra "Apenas Fase Obra" (Torre + Tipologia). (No Parcelamento Morar a mesma regra é aplicada no
+ * DetailsView zerando a quantidade de parcelas do Pós-Obra — ver pmApenasFaseObra.) — zera meses e teto de risco da Pós-Obra, de modo
  * que o motor concentra o saldo na Obra até o teto de risco e leva o excedente para o Ato.
  */
 export function resolveConditionForUnit(

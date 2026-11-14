@@ -201,6 +201,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   };
   // Valor de Ato que o motor deve respeitar quando travado (undefined = sem trava).
   const atoManualTravado = (): number | undefined => (atoTravadoRef.current ? atoTravadoValorRef.current : undefined);
+  // Pagamento à vista traz o saldo para o Ato: o cadeado precisa soltar antes (sem apagar o valor).
+  const destravarAtoSemLimpar = () => { atoTravadoRef.current = false; setAtoTravado(false); };
   const alternarTravaAto = () => {
     if (atoTravadoRef.current) {
       setValAtoManual(null); // destrava e volta ao Ato calculado pelo motor
@@ -536,14 +538,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const descontoConstrutoraRegra = hasUnitSelected
     ? resolverDescontoConstrutora(currentCond?.descontosConstrutora, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
     : 0;
-  const descontoConstrutora = descontoConstrutoraAtivo ? descontoConstrutoraRegra : 0;
+  // Pagamento à vista NÃO acumula: só o Desconto à Vista vale, sobre o Preço de Tabela cheio — Desconto
+  // Construtora e Carta na Manga ficam zerados enquanto ele estiver ativo (o Ato Premiado é desligado no botão).
+  const descontoConstrutora = descontoConstrutoraAtivo && !isPagamentoAVistaEnabled ? descontoConstrutoraRegra : 0;
   useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); setCartaNaManga(0); setCartaNaMangaAtiva(false); }, [selectedTorre, selectedUnidade, currentProd?.id]);
   const cartaNaMangaMax = hasUnitSelected
     ? resolverCartaNaMangaMaximo(currentCond?.cartasNaManga, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
     : 0;
   const cartaNaMangaDigitada = Math.min(cartaNaManga, cartaNaMangaMax);
   // Só entra nas contas com o interruptor ligado e valor > 0.
-  const cartaNaMangaEfetiva = cartaNaMangaAtiva && cartaNaMangaDigitada > 0 ? cartaNaMangaDigitada : 0;
+  const cartaNaMangaEfetiva = !isPagamentoAVistaEnabled && cartaNaMangaAtiva && cartaNaMangaDigitada > 0 ? cartaNaMangaDigitada : 0;
   // Carta na Manga soma-se ao Desconto Construtora no abatimento do preço-base (cascata completa).
   const precoTabelaOriginal = Math.max(0, Math.round((precoTabelaLista - descontoConstrutora - cartaNaMangaEfetiva) * 100) / 100);
   const handleCartaNaMangaChange = (valor: number) => {
@@ -1527,6 +1531,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // devido — nesse caso ele é limitado ao teto (mesmo ponto fixo usado pelo campo),
   // para o usuário nunca pagar mais do que realmente deve.
   const handleToggleAtoPremiado = (ativo: boolean) => {
+    // Pagamento à vista não acumula com o Ato Premiado (vale também para a tela simplificada).
+    if (ativo && isPagamentoAVistaEnabled) { onShowToast?.('Não acumula no Pgtº à vista: só o Desconto à Vista fica ativo.'); return; }
     setIsAtoPremiadoEnabled(ativo);
 
     // O Ato exibido pode ser (a) a nossa própria sugestão — o app grava o Ato
@@ -1596,6 +1602,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // `price`/`despCartoriasEfetivas`/`isAtoPremiadoEnabled`/`maxFinanc`/
   // `subsidy`/`fgts` (que só refletem o novo estado no próximo render).
   const handleTogglePagamentoAVista = (ativo: boolean, descontoLigado: boolean = padraoVistaLigado) => {
+    if (ativo) destravarAtoSemLimpar();
     setIsPagamentoAVistaEnabled(ativo);
     setDescontoVistaAtivo(ativo && descontoLigado);
 
@@ -1608,6 +1615,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setValAtoManual(null);
       setAtoInputText('');
       setIsManualObra(false);
+      setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
       setIsManualPos(false);
       if (onShowToast) {
         onShowToast('Pagamento à vista desativado. Preço de Tabela, ITBI, Financiamento, Subsídio, FGTS e Ato Premiado voltam ao normal.');
@@ -1615,14 +1623,17 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       return;
     }
 
-    if (!hasUnitSelected || precoTabelaOriginal <= 0) return;
+    if (!hasUnitSelected || precoTabelaLista <= 0) return;
 
     const descontoPct = descontoLigado ? (currentCond?.descontoAVistaPct ?? 0) : 0;
-    const precoComDesconto = Math.max(0, Math.round(precoTabelaOriginal * (1 - descontoPct / 100) * 100) / 100);
-    const valorDesconto = Math.round((precoTabelaOriginal - precoComDesconto) * 100) / 100;
+    const precoComDesconto = Math.max(0, Math.round(precoTabelaLista * (1 - descontoPct / 100) * 100) / 100);
+    const valorDesconto = Math.round((precoTabelaLista - precoComDesconto) * 100) / 100;
 
     setIsAtoPremiadoEnabled(false);
     setValAtoITBI(0);
+    setDescontoConstrutoraAtivo(false);
+    setCartaNaMangaAtiva(false);
+    setCartaNaManga(0);
     setItbiAtoManualFloor(null);
     setItbiAtoInputText('');
     setValAtoManual(precoComDesconto);
@@ -1699,6 +1710,28 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     }
   }, [sinalLiquidoTotalEfetivo, hasUnitSelected, isManualObra, isManualPos, valAtoManual, sinalMinimoVal, currentCond, income, despCartoriasEfetivas, itbiAtoManualFloor, price, evaluation, maxFinanc, subsidy, fgts, isAtoPremiadoEnabled, isComissaoApartada, pctComissaoApartadaCond]);
+
+  // Qualquer ação no Ato (Imóvel) — ↺, Parcelado/À Vista, digitação ou +/− — com o "À Vista Ativo" ligado
+  // desliga o pagamento à vista (Desconto à Vista zerado; Desconto Construtora, Ato Premiado, preço, ITBI e
+  // financiamento voltam ao padrão da política). Um valor digitado/ajustado fica pendente e só é aplicado no
+  // render seguinte, já sobre o fluxo normal (o cálculo das séries precisa do preço/financiamento normais).
+  const atoPendenteAposVistaRef = useRef<number | undefined>(undefined);
+  const sairDoAVistaPeloAto = (novoValBruto: number | null): boolean => {
+    if (!isPagamentoAVistaEnabled) return false;
+    atoPendenteAposVistaRef.current = novoValBruto === null ? undefined : novoValBruto;
+    handleTogglePagamentoAVista(false);
+    return true;
+  };
+  useEffect(() => {
+    if (isPagamentoAVistaEnabled) return;
+    const pendente = atoPendenteAposVistaRef.current;
+    if (pendente === undefined) return;
+    atoPendenteAposVistaRef.current = undefined;
+    setValAtoManual(pendente);
+    setAtoInputText(formatCurrency(pendente));
+    recalcularSeriesParaAtoManual(pendente);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPagamentoAVistaEnabled]);
 
   // Interruptor "Desconto à Vista" (só habilitado com o Pgtº à vista ativo): refaz a quitação com ou
   // sem o desconto da política.
@@ -2528,6 +2561,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             ? Math.max(0, Math.round((valorAtoMaximoCalculado - comissaoApartadaValor) * 100) / 100)
             : valorAtoMaximoCalculado}
           onAtoChange={(novoVal) => {
+            if (sairDoAVistaPeloAto(novoVal === null ? null : (isComissaoApartada
+              ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
+              : novoVal))) return;
             if (novoVal === null) {
               setValAtoManual(null);
               setAtoInputText(formatCurrency(atoSugeridoResidual));
@@ -2762,6 +2798,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           cartaNaManga={cartaNaMangaDigitada}
           cartaNaMangaMax={cartaNaMangaMax}
           onCartaNaMangaChange={handleCartaNaMangaChange}
+          bloqueadaAVista={isPagamentoAVistaEnabled}
         />
         </div>
 
@@ -2827,7 +2864,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                       ativo={isAtoPremiadoEnabled}
                       disabled={!hasUnitSelected || isPagamentoAVistaEnabled}
                       onToggle={() => handleToggleAtoPremiado(!isAtoPremiadoEnabled)}
-                      title={isPagamentoAVistaEnabled ? 'Desligado automaticamente enquanto o pagamento à vista está ativo' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
+                      title={isPagamentoAVistaEnabled ? 'Não acumula no Pgtº à vista' : (isAtoPremiadoEnabled ? 'Ato Premiado ativo — clique para desativar' : 'Ativar Ato Premiado')}
                     />
                     <strong className={isAtoPremiadoEnabled ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(isAtoPremiadoEnabled ? descontoAto : 0)}
@@ -2838,8 +2875,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={descontoConstrutoraAtivo}
-                      disabled={descontoConstrutoraRegra <= 0}
+                      aria-checked={descontoConstrutoraAtivo && !isPagamentoAVistaEnabled}
+                      disabled={descontoConstrutoraRegra <= 0 || isPagamentoAVistaEnabled}
                       onClick={() => {
                         // O Ato (Imóvel), o Ato Premiado e as séries ficam "congelados" no último valor
                         // calculado; ao ligar/desligar o desconto o preço-base muda, então descarta o
@@ -2854,14 +2891,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         setItbiObraValorManual(null);
                         setItbiPosValorManual(null);
                       }}
-                      title={descontoConstrutoraRegra <= 0
+                      title={isPagamentoAVistaEnabled ? 'Não acumula no Pgtº à vista' : descontoConstrutoraRegra <= 0
                         ? 'Nenhuma regra de Desconto Construtora para esta unidade'
                         : (descontoConstrutoraAtivo ? 'Desconto ativo — clique para desativar' : 'Desconto desativado — clique para ativar')}
-                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo ? 'bg-emerald-600/70 ring-1 ring-inset ring-emerald-700/20' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`relative inline-flex h-2.5 w-5 shrink-0 items-center rounded-full transition-colors ${descontoConstrutoraAtivo && !isPagamentoAVistaEnabled ? 'bg-emerald-600/70 ring-1 ring-inset ring-emerald-700/20' : 'bg-slate-300'} ${descontoConstrutoraRegra <= 0 || isPagamentoAVistaEnabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow-xs transition-transform ${descontoConstrutoraAtivo ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white shadow-xs transition-transform ${descontoConstrutoraAtivo && !isPagamentoAVistaEnabled ? 'translate-x-3' : 'translate-x-0.5'}`} />
                     </button>
-                    <strong className={descontoConstrutoraAtivo ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
+                    <strong className={descontoConstrutora > 0 ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(descontoConstrutora)}
                     </strong>
                   </div>
@@ -2869,9 +2906,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <span className="text-slate-600">Carta na Manga:</span>
                     <MiniSwitch
                       ativo={cartaNaMangaEfetiva > 0}
-                      disabled={cartaNaMangaDigitada <= 0}
+                      disabled={cartaNaMangaDigitada <= 0 || isPagamentoAVistaEnabled}
                       onToggle={handleToggleCartaNaManga}
-                      title={cartaNaMangaDigitada <= 0 ? 'Digite um valor de Carta na Manga para habilitar' : (cartaNaMangaEfetiva > 0 ? 'Carta na Manga ativa — clique para desativar' : 'Ativar Carta na Manga')}
+                      title={isPagamentoAVistaEnabled ? 'Não acumula no Pgtº à vista' : cartaNaMangaDigitada <= 0 ? 'Digite um valor de Carta na Manga para habilitar' : (cartaNaMangaEfetiva > 0 ? 'Carta na Manga ativa — clique para desativar' : 'Ativar Carta na Manga')}
                     />
                     <strong className={cartaNaMangaEfetiva > 0 ? 'text-emerald-600 font-bold' : 'text-slate-600 font-semibold'}>
                       {formatCurrency(cartaNaMangaEfetiva)}
@@ -3296,6 +3333,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             onToggleTravaAto={alternarTravaAto}
             atoTravadoBloqueiaEdicao
             onAtoChange={(novoVal) => {
+              // Com o "À Vista Ativo" ligado, ↺/digitação/+− desligam o à vista e o Ato volta ao fluxo normal.
+              if (sairDoAVistaPeloAto(novoVal === null ? null : (isComissaoApartada
+                ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
+                : novoVal))) return;
               if (atoTravadoRef.current && novoVal !== null) return;
               if (novoVal === null) {
                 setValAtoManual(null);
@@ -3345,7 +3386,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             onTogglePagamentoAVista={handleTogglePagamentoAVista}
             isAVistaActive={isAVistaActive}
             onToggleAVista={(ativo) => {
+              if (sairDoAVistaPeloAto(null)) return; // com o Pgtº à vista ligado: volta ao fluxo normal
               if (ativo) {
+                destravarAtoSemLimpar();
                 // Traz o Pró-Soluto inteiro para o Ato (Imóvel), zerando as parcelas —
                 // mesmo mecanismo de um Ato manual, só que calculado automaticamente
                 // para o valor exato que zera o Pró-Soluto (sem tocar Financiamento/FGTS),

@@ -275,7 +275,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     if (!prodWithConds) return;
     const updatedConditions = (prodWithConds.conditions || []).map(c => {
       const kind = getConditionKind(c.name);
-      if (c.id === activeConditionId || kind === 'sinal-morar' || kind === 'sinal-morar-comissao-apartada') {
+      const ativaEhParcelamentoMorar = getConditionKind(activeCondObj?.name) === 'parcelamento-morar';
+      if (c.id === activeConditionId || (!ativaEhParcelamentoMorar && (kind === 'sinal-morar' || kind === 'sinal-morar-comissao-apartada'))) {
         return { ...c, apenasFaseObra: novas };
       }
       return c;
@@ -1696,8 +1697,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
             )}
           </div>
 
-          {/* SEÇÃO: REGRA DE FASES POR TORRE × TIPOLOGIA (somente Sinal c/ Morar e variantes) */}
-          {(getConditionKind(activeCondObj?.name) === 'sinal-morar' || getConditionKind(activeCondObj?.name) === 'sinal-morar-comissao-apartada') && (
+          {/* SEÇÃO: REGRA DE FASES POR TORRE × TIPOLOGIA (Sinal c/ Morar e variantes, e Parcelamento Morar) */}
+          {(getConditionKind(activeCondObj?.name) === 'sinal-morar' || getConditionKind(activeCondObj?.name) === 'sinal-morar-comissao-apartada' || getConditionKind(activeCondObj?.name) === 'parcelamento-morar') && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
                 <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
