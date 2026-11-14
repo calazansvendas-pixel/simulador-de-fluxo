@@ -85,6 +85,8 @@ interface NovatoSimuladorViewProps {
   valorAtoMinimo: number;
   valorAtoMaximo: number;
   onAtoChange: (novoValor: number | null) => void;
+  // false: Pgtº à vista ligado ou Ato alterado pelo usuário → ↺ do Ato em verde (ativo).
+  atoNoSugerido?: boolean;
   // ITBI no Ato — mesmo bloco/comportamento do editor completo (ver
   // FluxoEntradaConstrutora.tsx, Card 2): valor já pago do ITBI/Registro
   // adiantado no Ato, com alternador "Com Desc./Sem Desc." (1º x 2º imóvel)
@@ -219,6 +221,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   valorAtoMinimo,
   valorAtoMaximo,
   onAtoChange,
+  atoNoSugerido = true,
   valAtoITBI,
   valorTotalITBI,
   isFirstHome,
@@ -293,6 +296,12 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   const handleFinishAtoEdit = (rawText: string) => {
     setIsEditingAto(false);
     const parsed = parseFlexible(rawText);
+
+    // Só entrou e saiu do campo, sem mudar o valor: não é uma edição.
+    if (rawText.trim() !== '' && valorAto > 0 && Math.abs(parsed - valorAto) < 0.005) {
+      setAtoInputText(formatCurrency(valorAto));
+      return;
+    }
 
     if (rawText.trim() === '' || parsed === 0) {
       if (valorAtoMinimo > 0) {
@@ -567,9 +576,25 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-slate-50 px-2.5 py-2 rounded-lg border border-morar-200 text-xs flex flex-col gap-1">
-                    <span className="font-bold text-slate-700 flex items-center gap-1">
-                      Ato: <Pencil className="w-2.5 h-2.5 text-morar-600" />
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-700 flex items-center gap-1">
+                        Ato: <Pencil className="w-2.5 h-2.5 text-morar-600" />
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setIsEditingAto(false); onAtoChange(null); }}
+                        disabled={atoNoSugerido}
+                        title={atoNoSugerido ? 'O Ato já está no valor sugerido' : 'Restaurar Ato para o valor sugerido'}
+                        aria-label={atoNoSugerido ? 'O Ato já está no valor sugerido' : 'Restaurar Ato para o valor sugerido'}
+                        className={`p-0.5 shrink-0 rounded transition-colors ${
+                          atoNoSugerido
+                            ? 'text-slate-300 opacity-60 cursor-default'
+                            : 'text-[#006B3F] bg-emerald-50 hover:bg-emerald-100 cursor-pointer'
+                        }`}
+                      >
+                        <RotateCcw size={11} />
+                      </button>
+                    </div>
                     <input
                       type="text"
                       inputMode="decimal"

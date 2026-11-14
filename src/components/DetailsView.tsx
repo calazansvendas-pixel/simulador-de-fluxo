@@ -2843,7 +2843,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
             }}
             travadoAto={isParcelamentoMorar ? !!pmLocks['ato'] : atoTravado}
             atoTravadoBloqueiaEdicao={!isParcelamentoMorar}
-            atoNoSugerido={isParcelamentoMorar ? pmAtoNoSugerido : (valAtoManual === null || Math.abs(atoImovelDigitado - atoMinimoCalculado) < 0.01)}
+            // ↺ em verde (ativo) com o Pgtº à vista ligado ou com o Ato fora do valor sugerido.
+            atoNoSugerido={!isPagamentoAVistaAtivoManual && (isParcelamentoMorar ? pmAtoNoSugerido : (valAtoManual === null || Math.abs(atoImovelDigitado - atoMinimoCalculado) < 0.01))}
             onRestaurarAto={() => { if (sairDoAVistaPeloAto()) return; if (isParcelamentoMorar) pmRestaurarAto(); else setValAtoManual(null); }}
             onToggleTravaAto={isParcelamentoMorar ? () => pmAlternarTrava('ato') : alternarTravaAtoGeral}
             stepAto={isParcelamentoMorar ? pmPassoAto : currentCond?.stepAtoImovel}

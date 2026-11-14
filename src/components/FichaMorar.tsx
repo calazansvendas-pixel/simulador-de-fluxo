@@ -189,8 +189,12 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const [atoTravado, setAtoTravado] = useState<boolean>(false);
   const atoTravadoRef = useRef<boolean>(false);
   const atoTravadoValorRef = useRef<number>(0);
+  // Ato alterado pelo usuário (digitação, + / − ou "À Vista" do card): acende o ↺ em verde. Volta a false
+  // sempre que o Ato retorna ao automático (null: ↺, Limpar, troca de unidade/condição, fim do à vista).
+  const [atoEditadoPeloUsuario, setAtoEditadoPeloUsuario] = useState<boolean>(false);
   const setValAtoManual = (v: number | null) => {
     if (v === null) {
+      setAtoEditadoPeloUsuario(false);
       atoTravadoRef.current = false;
       setAtoTravado(false);
       setValAtoManualRaw(null);
@@ -1728,6 +1732,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (pendente === undefined) return;
     atoPendenteAposVistaRef.current = undefined;
     setValAtoManual(pendente);
+    setAtoEditadoPeloUsuario(true);
     setAtoInputText(formatCurrency(pendente));
     recalcularSeriesParaAtoManual(pendente);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2560,6 +2565,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           valorAtoMaximo={isComissaoApartada
             ? Math.max(0, Math.round((valorAtoMaximoCalculado - comissaoApartadaValor) * 100) / 100)
             : valorAtoMaximoCalculado}
+          atoNoSugerido={!isPagamentoAVistaEnabled && !atoEditadoPeloUsuario}
           onAtoChange={(novoVal) => {
             if (sairDoAVistaPeloAto(novoVal === null ? null : (isComissaoApartada
               ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
@@ -2573,6 +2579,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
                 : novoVal;
               setValAtoManual(novoValBruto);
+              setAtoEditadoPeloUsuario(true);
               setAtoInputText(formatCurrency(novoValBruto));
               recalcularSeriesParaAtoManual(novoValBruto);
             }
@@ -3330,6 +3337,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               ? Math.max(0, Math.round((valorAtoMaximoCalculado - comissaoApartadaValor) * 100) / 100)
               : valorAtoMaximoCalculado}
             travadoAto={atoTravado}
+            // ↺ em verde (ativo) com o Pgtº à vista ligado ou com o Ato alterado pelo usuário.
+            atoNoSugerido={!isPagamentoAVistaEnabled && !atoEditadoPeloUsuario}
             onToggleTravaAto={alternarTravaAto}
             atoTravadoBloqueiaEdicao
             onAtoChange={(novoVal) => {
@@ -3351,6 +3360,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
                   : novoVal;
                 setValAtoManual(novoValBruto);
+                setAtoEditadoPeloUsuario(true);
                 setAtoInputText(formatCurrency(novoValBruto));
                 recalcularSeriesParaAtoManual(novoValBruto);
               }
@@ -3394,6 +3404,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 // para o valor exato que zera o Pró-Soluto (sem tocar Financiamento/FGTS),
                 // já considerando o desconto do Ato Premiado quando ativo.
                 setValAtoManual(atoAVistaTarget);
+                setAtoEditadoPeloUsuario(true);
                 setAtoInputText(formatCurrency(atoAVistaTarget));
                 recalcularSeriesParaAtoManual(atoAVistaTarget);
               } else {

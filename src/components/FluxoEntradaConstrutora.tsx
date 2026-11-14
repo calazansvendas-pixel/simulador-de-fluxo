@@ -189,6 +189,13 @@ export const FluxoEntradaConstrutora: React.FC<FluxoEntradaConstrutoraProps> = (
     setIsEditingAto(false);
     const parsed = parseFlexible(rawText);
 
+    // Só entrou e saiu do campo, sem mudar o valor: não é uma edição (não marca o Ato como alterado
+    // nem desliga o Pgtº à vista).
+    if (rawText.trim() !== '' && valorAto > 0 && Math.abs(parsed - valorAto) < 0.005) {
+      setAtoInputText(formatCurrency(valorAto));
+      return;
+    }
+
     // Se o usuário apagou tudo ou deixou 0
     if (rawText.trim() === '' || parsed === 0) {
       // Se há um piso obrigatório sugerido, restabelece o piso
