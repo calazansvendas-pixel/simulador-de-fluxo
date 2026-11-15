@@ -3010,6 +3010,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           entregaChaves={entregaChaves}
           clientName={simulationData.clientName}
           agency={simulationData.agency}
+          agencyPhone={simulationData.agencyPhone}
           onLimpar={handleResetFicha}
           onSaveSimulation={handleSaveSimulation}
           isSavingSimulation={isSavingSimulation}

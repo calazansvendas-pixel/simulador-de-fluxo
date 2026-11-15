@@ -305,6 +305,8 @@ export default function App({ perfil, onSair }: AppProps) {
   const agenciaPadrao = [perfil.imobiliaria, perfil.nomeCompleto].map(v => v?.trim()).filter(Boolean).join(' / ');
   const [simulationData, setSimulationData] = useState<SimulationData>({
     agency: agenciaPadrao,
+    agencyPhone: perfil.telefone || '',
+    corretorEmail: perfil.email || '',
     clientName: '',
     income: null,
     subsidy: null,
@@ -354,6 +356,8 @@ export default function App({ perfil, onSair }: AppProps) {
     // Redefinição completa do Formulário de Simulação, condições e seletores de Torre e Unidade
     setSimulationData({
       agency: agenciaPadrao,
+      agencyPhone: perfil.telefone || '',
+      corretorEmail: perfil.email || '',
       clientName: '',
       income: null,
       subsidy: null,
@@ -450,7 +454,34 @@ export default function App({ perfil, onSair }: AppProps) {
     setSelectedConditions(prev => ({ ...prev, [prodWithConds.id]: cond.id }));
 
     if (dados.simulation_data) {
-      setSimulationData(dados.simulation_data);
+      // Telefone/e-mail do corretor AUTOR da proposta — nunca os de quem só está visualizando:
+      //  1) campos gravados na própria simulação;
+      //  2) propostas antigas: se o autor é o usuário logado, o próprio cadastro; senão, busca o cadastro do autor
+      //     (perfis/{criado_por}; sem id, pelo nome do corretor + imobiliária). Sem cadastro/permissão: vazio.
+      const sd = dados.simulation_data as SimulationData;
+      const ehAutor = sim.criado_por === perfil.id;
+      const salvoTel = (sd.agencyPhone || '').trim();
+      const salvoEmail = (sd.corretorEmail || '').trim();
+      setSimulationData({
+        ...sd,
+        agencyPhone: salvoTel || (ehAutor ? (perfil.telefone || '') : ''),
+        corretorEmail: salvoEmail || (ehAutor ? (perfil.email || '') : '')
+      });
+      if (!ehAutor && (!salvoTel || !salvoEmail)) {
+        const nomeAgencia = (sd.agency || '').split('/');
+        authService.buscarContatoDoAutor({
+          criadoPor: sim.criado_por,
+          nome: sim.criado_por_nome || (nomeAgencia.length > 1 ? nomeAgencia[nomeAgencia.length - 1] : ''),
+          imobiliaria: sim.criado_por_imobiliaria || (nomeAgencia.length > 1 ? nomeAgencia[0] : '')
+        }).then(c => {
+          // só aplica se ainda é a mesma simulação (o usuário pode ter aberto outra enquanto a busca respondia)
+          setSimulationData(prev => prev.agency !== sd.agency ? prev : ({
+            ...prev,
+            agencyPhone: (prev.agencyPhone || '').trim() || c.telefone,
+            corretorEmail: (prev.corretorEmail || '').trim() || c.email
+          }));
+        });
+      }
     }
 
     if (cond && isMorarCondition(cond.name)) {

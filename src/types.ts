@@ -207,6 +207,11 @@ export interface Product {
 
 export interface SimulationData {
   agency: string;
+  // Telefone do corretor autor da proposta (vem do cadastro e é salvo junto da simulação, para a proposta reaberta
+  // — inclusive por um Administrador — mostrar o telefone do corretor que a criou).
+  agencyPhone?: string;
+  // E-mail do corretor autor da proposta — exibido SÓ no PDF exportado (mesma regra de autoria do telefone).
+  corretorEmail?: string;
   clientName: string;
   income?: number | null;
   subsidy?: number | null;

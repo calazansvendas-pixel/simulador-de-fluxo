@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Calendar, Download, Loader2, AlertCircle } from 'lucide-react';
+import { formatarTelefoneBR } from '../utils/telefone';
 import logoMorar from '../assets/brand';
 import { CommercialCondition, PdfExportSettings, Product, SimulationData } from '../types';
 import { formatCurrency, formatDateBr } from '../utils/formatters';
@@ -421,6 +422,12 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   {pdfSettings.mostrarImobiliaria && (
                     <span className="text-slate-600 font-medium">
                       Imobiliária: <strong className="text-slate-900 font-bold">{simulationData.agency?.trim() || 'Imobiliária Não Informada'}</strong>
+                      {formatarTelefoneBR(simulationData.agencyPhone) && (
+                        <span className="ml-2 whitespace-nowrap">· Tel.: <strong className="text-slate-900 font-bold">{formatarTelefoneBR(simulationData.agencyPhone)}</strong></span>
+                      )}
+                      {simulationData.corretorEmail?.trim() && (
+                        <span className="ml-1 break-all">· <strong className="text-slate-900 font-bold">{simulationData.corretorEmail.trim().toLowerCase()}</strong></span>
+                      )}
                     </span>
                   )}
                 </div>
