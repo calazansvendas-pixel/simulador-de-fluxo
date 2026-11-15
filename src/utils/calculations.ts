@@ -361,17 +361,23 @@ export function resolverDescontoEComissaoApartada(
     return { desconto: descontoTeto, comissao: comissaoTeto, net: Math.round(netTeto * 100) / 100 };
   }
 
-  // Hipótese 2 (5.000 <= Ato líquido < 50.000): net = (gross - preço*pctComissão) / (1 + pct*pctComissão)
-  const denomNet = 1 + pct * pctComissaoEfetiva;
+  // Hipótese 2 (5.000 <= Ato líquido < 50.000): gross = net + comissão e comissão = (preço - pct*net) * pctComissão
+  // => net = (gross - preço*pctComissão) / (1 - pct*pctComissão)
+  const denomNet = 1 - pct * pctComissaoEfetiva;
   const netAnalitico = denomNet > 0 ? (gross - precoTabela * pctComissaoEfetiva) / denomNet : 0;
   if (netAnalitico >= 5000 && netAnalitico < 50000) {
     let net = Math.round(netAnalitico * 100) / 100;
     let desconto = Math.round(net * pct * 100) / 100;
     let comissao = Math.max(0, Math.round((precoTabela - desconto) * pctComissaoEfetiva * 100) / 100);
-    // Ajuste de centavos fino para convergência perfeita
-    net = Math.round((gross - comissao) * 100) / 100;
-    desconto = Math.round(net * pct * 100) / 100;
-    comissao = Math.max(0, Math.round((precoTabela - desconto) * pctComissaoEfetiva * 100) / 100);
+    // Ajuste de centavos até o ponto fixo: desconto == 10% (pct) EXATO do Ato líquido exibido (gross - comissão)
+    for (let it = 0; it < 12; it++) {
+      const netIt = Math.round((gross - comissao) * 100) / 100;
+      const descIt = Math.round(netIt * pct * 100) / 100;
+      const comIt = Math.max(0, Math.round((precoTabela - descIt) * pctComissaoEfetiva * 100) / 100);
+      const estavel = descIt === desconto && comIt === comissao;
+      net = netIt; desconto = descIt; comissao = comIt;
+      if (estavel) break;
+    }
     net = Math.round((gross - comissao) * 100) / 100;
     return { desconto, comissao, net };
   }

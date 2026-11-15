@@ -79,3 +79,29 @@ describe('fechamento no Ato (Imóvel) — unidade 101 Torre A', () => {
     }
   });
 });
+
+describe('Ato Premiado = 10% exato do Ato (Imóvel) líquido — Torre A 101', () => {
+  const PRECO_101 = 375067.82 - 10000;
+  const FIN_101 = PRECO_101 - 1253.25 - 25698.99 - 106546.62;
+  const r = calculateMorarFlowEngine({
+    precoTabela: PRECO_101, avaliacaoBanco: 346000, itbiRegistro: 14876.42, renda: 7586.32,
+    financiamento: FIN_101, subsidio: 1253.25, fgts: 25698.99, percentualRiscoGeral: 17, percentualRiscoPos: 8,
+    mesesObra: 30, mesesPos: 0, tetoRendaMensalPct: 40, globalSeriesPct: [30, 25, 20, 15, 10, 5],
+    serieMesesCapacidades: [12, 12, 12, 12, 12, 12], sinalMinimo: 2000, atoITBI: 0, isAtoPremiadoEnabled: true,
+    atoPremiadoPct: 0.1, isComissaoApartada: true, pctComissaoApartada: 0.04, maxParcelasITBI: 72
+  } as any);
+  const atoLiquido = Math.round((r.atoResidual - r.comissaoApartadaValor) * 100) / 100;
+  const somaSeries = Math.round([...r.obraSeries, ...r.posSeries].reduce((t, s) => t + s.qtd * s.parcelaLiquida, 0) * 100) / 100;
+
+  it('Ato (Imóvel) R$ 43.473,80 e Ato Premiado R$ 4.347,38 (exatamente 10%)', () => {
+    expect(atoLiquido).toBe(43473.80);
+    expect(r.atoPremiado).toBe(4347.38);
+    expect(r.atoPremiado).toBe(Math.round(atoLiquido * 0.1 * 100) / 100);
+  });
+  it('Ato + séries = Sinal Líquido (R$ 87.770,42), comissão 14.428,82, e o Distribuído fecha', () => {
+    expect(r.comissaoApartadaValor).toBe(14428.82);
+    expect(somaSeries).toBe(44296.62);
+    expect(Math.round((atoLiquido + somaSeries) * 100) / 100).toBe(87770.42);
+    expect(Math.round(r.distribuidoTotal * 100) / 100).toBe(121423.04);
+  });
+});
