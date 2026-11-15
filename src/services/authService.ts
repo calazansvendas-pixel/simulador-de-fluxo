@@ -184,6 +184,36 @@ async function mudarSuperiorNoLote(batch: WriteBatch, id: string, novoSuperiorId
 }
 
 export const authService = {
+  // Telefone e e-mail REAIS do cadastro (perfis/{uid}) de quem criou uma proposta. Usado ao reabrir propostas antigas
+  // que não gravaram esses campos. Com `criadoPor` busca direto pelo id; sem ele (propostas muito antigas) tenta achar
+  // o perfil pelo nome do corretor (+ imobiliária) — só se houver UM único candidato. As regras do Firestore limitam a
+  // leitura (próprio perfil, Administrador e superiores): sem permissão ou sem cadastro, devolve vazio — NUNCA o contato de
+  // quem está apenas visualizando.
+  async buscarContatoDoAutor(ref: { criadoPor?: string | null; nome?: string | null; imobiliaria?: string | null }): Promise<{ telefone: string; email: string }> {
+    const vazio = { telefone: '', email: '' };
+    try {
+      if (ref.criadoPor) {
+        const snap = await getDoc(doc(db, 'perfis', ref.criadoPor));
+        if (!snap.exists()) return vazio;
+        const d = snap.data() as Partial<PerfilRow>;
+        return { telefone: d.telefone || '', email: d.email || '' };
+      }
+      const nome = (ref.nome || '').trim();
+      if (!nome) return vazio;
+      const res = await getDocs(query(collection(db, 'perfis'), where('nome_completo', '==', nome)));
+      const imob = (ref.imobiliaria || '').trim().toLowerCase();
+      let candidatos = res.docs.map(x => x.data() as Partial<PerfilRow>);
+      if (imob) {
+        const filtrados = candidatos.filter(p => (p.imobiliaria || '').trim().toLowerCase() === imob);
+        if (filtrados.length > 0) candidatos = filtrados;
+      }
+      if (candidatos.length !== 1) return vazio;
+      return { telefone: candidatos[0].telefone || '', email: candidatos[0].email || '' };
+    } catch {
+      return vazio;
+    }
+  },
+
   // Cria o usuário no Firebase Auth e grava o perfil (status 'pendente') nas
   // coleções `perfis` e `perfis_publicos`. As regras do Firestore só deixam a
   // própria pessoa criar o PRÓPRIO perfil, e sempre como pendente (impede

@@ -393,6 +393,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
               entregaChaves={entregaChaves}
               clientName={simulationData.clientName}
               agency={simulationData.agency}
+              agencyPhone={simulationData.agencyPhone}
               onLimpar={onLimpar}
               onSaveSimulation={onSaveSimulation}
               isSavingSimulation={isSavingSimulation}

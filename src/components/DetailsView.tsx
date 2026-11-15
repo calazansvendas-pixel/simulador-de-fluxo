@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { redistribuirParcelamentoMorar, redistribuirPorPasso, aplicarDestinoParcelamentoMorar, PmContexto, PmDestino } from '../utils/parcelamentoMorarRedistribuicao';
 import { PainelFinanciamento } from './PainelFinanciamento';
-import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
+import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins, Phone } from 'lucide-react';
+import { formatarTelefoneBR } from '../utils/telefone';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, NegociacaoSnapshot, PdfExportSettings, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
@@ -2554,9 +2555,17 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                 </span>
               )}
             </div>
-            <span className="text-slate-500 font-medium mt-2.5">
-              Imobiliária: <strong className="text-slate-900">{simulationData.agency?.trim() || 'Imobiliária Não Informada'}</strong>
-            </span>
+            <div className="flex items-center justify-between gap-2 w-full mt-2.5">
+              <span className="text-slate-500 font-medium min-w-0 truncate">
+                Imobiliária: <strong className="text-slate-900">{simulationData.agency?.trim() || 'Imobiliária Não Informada'}</strong>
+              </span>
+              {formatarTelefoneBR(simulationData.agencyPhone) && (
+                <span className="shrink-0 text-[11px] font-semibold text-slate-600 flex items-center gap-1 whitespace-nowrap" title="Telefone do corretor">
+                  <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                  {formatarTelefoneBR(simulationData.agencyPhone)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             <button

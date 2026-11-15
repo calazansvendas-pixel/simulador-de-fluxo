@@ -1,9 +1,12 @@
 import React from 'react';
-import { ArrowLeft, KeyRound, Loader2, Printer, RotateCcw, Save } from 'lucide-react';
+import { ArrowLeft, KeyRound, Loader2, Phone, Printer, RotateCcw, Save } from 'lucide-react';
+import { formatarTelefoneBR } from '../utils/telefone';
 
 interface FichaMorarActionBarProps {
   clientName?: string;
   agency?: string;
+  // Telefone do corretor (já salvo na simulação); exibido à direita, na mesma linha da Imobiliária.
+  agencyPhone?: string;
   onLimpar: () => void;
   onSaveSimulation: () => void;
   isSavingSimulation: boolean;
@@ -26,6 +29,7 @@ const actionButtonClass = 'px-2.5 py-1 rounded-lg text-[11px] font-semibold tran
 export const FichaMorarActionBar: React.FC<FichaMorarActionBarProps> = ({
   clientName,
   agency,
+  agencyPhone,
   onLimpar,
   onSaveSimulation,
   isSavingSimulation,
@@ -58,9 +62,31 @@ export const FichaMorarActionBar: React.FC<FichaMorarActionBarProps> = ({
         </span>
       )}
       {!vertical && <span className="text-slate-300">|</span>}
-      <span className={`text-slate-500 font-medium${vertical ? ' mt-2.5' : ''}`}>
-        Imobiliária: <strong className="text-slate-900">{agency?.trim() || 'Imobiliária Não Informada'}</strong>
-      </span>
+      {vertical ? (
+        <div className="flex items-center justify-between gap-2 w-full mt-2.5">
+          <span className="text-slate-500 font-medium min-w-0 truncate">
+            Imobiliária: <strong className="text-slate-900">{agency?.trim() || 'Imobiliária Não Informada'}</strong>
+          </span>
+          {formatarTelefoneBR(agencyPhone) && (
+            <span className="shrink-0 text-[11px] font-semibold text-slate-600 flex items-center gap-1 whitespace-nowrap" title="Telefone do corretor">
+              <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+              {formatarTelefoneBR(agencyPhone)}
+            </span>
+          )}
+        </div>
+      ) : (
+        <>
+          <span className="text-slate-500 font-medium">
+            Imobiliária: <strong className="text-slate-900">{agency?.trim() || 'Imobiliária Não Informada'}</strong>
+          </span>
+          {formatarTelefoneBR(agencyPhone) && (
+            <span className="text-[11px] font-semibold text-slate-600 flex items-center gap-1 whitespace-nowrap" title="Telefone do corretor">
+              <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+              {formatarTelefoneBR(agencyPhone)}
+            </span>
+          )}
+        </>
+      )}
     </div>
     <div className={vertical ? 'flex items-center gap-1.5 flex-wrap [&>button]:flex-1 [&>button]:justify-center' : 'flex items-center gap-1.5 shrink-0'}>
       {onBack && (
