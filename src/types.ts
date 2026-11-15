@@ -222,6 +222,30 @@ export interface SelectedUnit {
   unidade: string;
 }
 
+/**
+ * Snapshot COMPLETO da negociação de uma simulação salva (campo `negociacao_snapshot` do registro).
+ * É o que permite reabrir a proposta exatamente como o corretor deixou: edições do Ato, ITBI, descontos,
+ * Pgtº à vista, séries/prazos e (no Parcelamento Morar) cada override de bloco. Registros antigos não têm
+ * este campo — nesse caso a ficha abre só com os dados básicos (retrocompatível).
+ * `tela` diz qual ficha o gerou ('details' = DetailsView; 'ficha-morar' = FichaMorar, completa ou simplificada).
+ */
+export interface NegociacaoSnapshot {
+  versao: number;
+  tela: 'details' | 'ficha-morar';
+  [campo: string]: any;
+}
+
+/** Simulação salva a ser restaurada ao reabrir pela tela "Simulações Salvas" (consumida uma única vez pela ficha). */
+export interface SimulacaoReaberta {
+  /** id do registro no Firestore — o auto-save passa a ATUALIZAR esse registro (null = registro de outro usuário: salva como novo). */
+  id: string | null;
+  torre: string;
+  unidade: string;
+  snapshot: NegociacaoSnapshot | null;
+  /** Identifica cada reabertura (a mesma simulação pode ser reaberta mais de uma vez). */
+  nonce: number;
+}
+
 export type ActiveTab = 'simulator' | 'details' | 'ficha-morar' | 'ficha-morar-simplificada' | 'policies' | 'import-table' | 'saved-simulations' | 'pdf-settings' | 'tela-settings' | 'admin-panel';
 
 // ---------------------------------------------------------------------------

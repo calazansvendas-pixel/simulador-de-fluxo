@@ -4,7 +4,7 @@ import { redistribuirParcelamentoMorar, redistribuirPorPasso, aplicarDestinoParc
 import { PainelFinanciamento } from './PainelFinanciamento';
 import { ArrowLeft, RotateCcw, KeyRound, FileCheck2, Check, Coins, AlertTriangle, FileSpreadsheet, PieChart, Printer, ChevronDown, Save, Loader2, HandCoins } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
-import { ActiveTab, Cargo, CommercialCondition, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
+import { ActiveTab, Cargo, CommercialCondition, NegociacaoSnapshot, PdfExportSettings, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr } from '../utils/formatters';
 import { calculatePolicyRiskValues, ensureProductConditions, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, isApenasFaseObra, calcularParcelamentoMorar, calcularDescontoAtoPremiado, ATO_PREMIADO_PCT_PADRAO, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
@@ -19,6 +19,7 @@ import { FluxoEntradaConstrutora } from './FluxoEntradaConstrutora';
 import { larguraMinimaBarra, rotuloBarraDireita } from './RotuloBarra';
 import { PmCampoEditavel } from './PmCampoEditavel';
 import { MiniSwitch } from './MiniSwitch';
+import { AjusteAtoTravadoModal } from './AjusteAtoTravadoModal';
 import { MonthStepper } from './MonthStepper';
 import { ComissaoParcelasLista, ComissaoTravadas, parcelasComissaoDetalhe, parcelasComissaoIguais } from './ComissaoParcelas';
 import { imoveisService } from '../services/imoveisService';
@@ -39,6 +40,10 @@ interface DetailsViewProps {
   // Atualiza o estado global da simulação (App): usado pelos seletores de % financiado e 1º imóvel.
   onSimulationDataChange?: (data: SimulationData) => void;
   selectedUnits: Record<string, SelectedUnit>;
+  // Simulação salva reaberta por "Simulações Salvas": o snapshot da negociação é aplicado uma única vez, depois de
+  // montar torre/unidade/condição, e o auto-save passa a atualizar o mesmo registro.
+  simulacaoReaberta?: SimulacaoReaberta | null;
+  onSimulacaoReabertaConsumida?: () => void;
   onUnitSelectChange: (productId: string, unit: SelectedUnit) => void;
   onBackToSimulator: () => void;
   onNavigateToImport: (productId: string) => void;
@@ -60,6 +65,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   onSimulationDataChange,
   simulationData,
   selectedUnits,
+  simulacaoReaberta,
+  onSimulacaoReabertaConsumida,
   onUnitSelectChange,
   onBackToSimulator,
   onNavigateToImport,
@@ -143,7 +150,8 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const destravarAtoSemLimpar = () => { atoTravadoRef.current = false; setAtoTravado(false); };
   const alternarTravaAtoGeral = () => {
     if (atoTravadoRef.current) { setValAtoManual(null); return; } // destrava: volta ao Ato calculado
-    const atual = atoImovelDigitado;
+    // O cadeado congela o Ato EXIBIDO: o que o teto de risco das parcelas já havia empurrado para o Ato conta como parte dele.
+    const atual = atoImovelDigitado + (extraAtoPorTravaParcela || 0);
     atoTravadoValorRef.current = atual;
     atoTravadoRef.current = true;
     setAtoTravado(true);
@@ -2119,6 +2127,66 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   const [isSavingSimulation, setIsSavingSimulation] = useState<boolean>(false);
 
+  // Snapshot COMPLETO da negociação (campo `negociacao_snapshot`): tudo que o corretor pode editar nesta ficha,
+  // para a simulação reabrir exatamente como foi deixada. Só estados-fonte (overrides); o resto é recalculado.
+  const montarSnapshot = (): NegociacaoSnapshot => ({
+    versao: 1,
+    tela: 'details',
+    condicao_id: currentCond?.id || '',
+    credito: {
+      percentual_financiamento: Math.round((simulationData.finPercent ?? 0) * 100),
+      is_primeiro_imovel: simulationData.isFirstHome,
+      financiamento_estimado: displayMaxFinanc,
+      renda: baseRendaInformada,
+      subsidio: displaySubsidy,
+      fgts: displayFgts
+    },
+    descontos: {
+      construtora_ativo: descontoConstrutoraAtivo,
+      carta_na_manga_valor: cartaNaManga,
+      carta_na_manga_ativa: cartaNaMangaAtiva,
+      ato_premiado_ativo: isAtoPremiadoEnabled,
+      pagamento_avista_ativo: isPagamentoAVistaAtivoManual,
+      desconto_avista_ativo: descontoVistaAtivo
+    },
+    ato: {
+      ato_imovel_valor: isParcelamentoMorar ? pm.atoEfetivo : atoEfetivo,
+      valor_manual: valAtoManual,
+      is_ato_manual: valAtoManual !== null,
+      travado: atoTravado,
+      travado_valor: atoTravado ? atoTravadoValorRef.current : null
+    },
+    itbi: {
+      itbi_no_ato_valor: valAtoITBI,
+      piso_manual: itbiAtoManualFloor,
+      is_itbi_com_desconto: isFirstHomeLocal,
+      parcelas_itbi: null
+    },
+    parcelamento: {
+      qtd_mensais: qtdMensais,
+      primeira_mensal_30d: valParc2,
+      segunda_mensal_60d: valParc3
+    },
+    comissao: {
+      apartar_comissao: isComissaoApartada,
+      parcelas_manual: comissaoParcelasManual,
+      travadas: comissaoTravadas
+    },
+    pm: isParcelamentoMorar ? {
+      mensal_obra_valor: pmMensalObraValorManual,
+      meses_obra: pmMesesObraManual,
+      chaves_habilitada: pmChavesEnabled,
+      chaves_valor: pmChavesValorManual,
+      semestrais_habilitadas: pmSemestralIndividualEnabled,
+      semestrais_valores: pmSemestralValorManual,
+      semestrais_datas: pmSemestralDatasManual,
+      qtd_pos_obra: pmQtdPosObraManual,
+      pos_obra_valor: pmPosObraValorManual,
+      travas: pmLocks,
+      apenas_fase_obra: pmApenasFaseObra
+    } : null
+  });
+
   // Monta o snapshot completo da simulação no formato salvo em `simulacoes`.
   const montarDadosCompletos = (): Record<string, any> => {
     const dadosCompletos: Record<string, any> = {
@@ -2132,7 +2200,19 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       simulation_data: simulationData,
       cliente_nome: simulationData.clientName || 'Cliente Não Informado',
       renda: baseRendaInformada,
-      preco_tabela: price,
+      // Preço de Tabela BRUTO da unidade (os registros antigos guardavam aqui o preço já líquido) e o valor base
+      // negociado após Desconto Construtora, Carta na Manga e Desconto à Vista, cada um com seu valor e estado.
+      preco_tabela: precoTabelaLista,
+      preco_liquido: price,
+      desconto_construtora_valor: descontoConstrutora,
+      is_desconto_construtora_enabled: descontoConstrutoraAtivo && !isPagamentoAVistaAtivoManual,
+      desconto_avista_valor: valorDescontoAVista,
+      is_pagamento_avista_enabled: isPagamentoAVistaAtivoManual,
+      desconto_ato_valor: displayDescontoAto,
+      is_ato_premiado_applied: isAtoPremiadoEnabled,
+      carta_na_manga_valor: cartaNaMangaEfetiva,
+      is_carta_na_manga_enabled: cartaNaMangaEfetiva > 0,
+      negociacao_snapshot: montarSnapshot(),
       avaliacao_bancaria: evaluation,
       itbi_total: valorTotalITBI,
       financiamento_maximo: displayMaxFinanc,
@@ -2251,6 +2331,129 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   const isSimulationComplete = isIncomeValid && isFinancingValid && isSubsidyValid && isFgtsValid;
 
+  // ================= ATO TRAVADO × TETO DE RISCO DAS PARCELAS (Banco Direto) =================
+  // Quando a parcela bate no teto da política (risco do imóvel / % da renda) e não absorve o saldo, o excedente
+  // migra para o Ato (extraAtoPorTravaParcela). Com o cadeado do Ato FECHADO isso não pode acontecer em silêncio:
+  // abre o modal — jogar a diferença no Ato (destrava) ou cancelar (volta à Qtd. Mensais anterior).
+  // (Só excedentes relevantes — a partir de R$ 1,00 — abrem o modal; centavos de arredondamento da trava são ignorados.)
+  const excedenteSobTravaAto = (!isParcelamentoMorar && hasUnitSelected && atoTravado && extraAtoPorTravaParcela >= 1) ? extraAtoPorTravaParcela : 0;
+  const [ajusteTravaAto, setAjusteTravaAto] = useState<{ excedente: number; qtdAnterior: number } | null>(null);
+  const ultimaQtdSemExcessoRef = useRef<number>(qtdMensais);
+  const excessoDispensadoRef = useRef<string>('');
+  useEffect(() => {
+    if (excedenteSobTravaAto <= 0) {
+      ultimaQtdSemExcessoRef.current = qtdMensais;
+      excessoDispensadoRef.current = '';
+      return;
+    }
+    if (excessoDispensadoRef.current === `${qtdMensais}|${excedenteSobTravaAto}`) return;
+    setAjusteTravaAto(prev => prev ?? { excedente: excedenteSobTravaAto, qtdAnterior: ultimaQtdSemExcessoRef.current });
+  }, [excedenteSobTravaAto, qtdMensais]);
+  const confirmarAjusteTravaAto = () => {
+    const pend = ajusteTravaAto;
+    if (!pend) return;
+    setAjusteTravaAto(null);
+    destravarAtoSemLimpar(); // o excedente já entra no Ato (Imóvel) — o fluxo segue 100% fechado
+    onShowToast?.(`Cadeado do Ato (Imóvel) aberto: ${formatCurrency(pend.excedente)} somados ao Ato para o fluxo continuar 100% fechado.`);
+  };
+  const cancelarAjusteTravaAto = () => {
+    const pend = ajusteTravaAto;
+    setAjusteTravaAto(null);
+    if (!pend) return;
+    if (pend.qtdAnterior !== qtdMensais) {
+      setQtdMensais(pend.qtdAnterior);
+      onShowToast?.(`Alteração cancelada: Qtd. Mensais voltou para ${pend.qtdAnterior}x.`);
+    } else {
+      excessoDispensadoRef.current = `${qtdMensais}|${excedenteSobTravaAto}`;
+    }
+  };
+
+  // ================= HIDRATAÇÃO DE UMA SIMULAÇÃO SALVA REABERTA =================
+  // O App entrega a simulação reaberta (id + snapshot). A ficha aplica o snapshot UMA vez, só depois que torre e
+  // unidade salvas já estão selecionadas aqui (os efeitos de reset por unidade/condição rodam antes e este vem
+  // por último, então vence). Depois de aplicado, trocar de empreendimento/torre/unidade ou clicar em Limpar volta
+  // a resetar normalmente. O id do registro é associado ao auto-save: novas edições ATUALIZAM o mesmo registro.
+  const reabertaPendenteRef = useRef<SimulacaoReaberta | null>(simulacaoReaberta ?? null);
+  useEffect(() => {
+    if (!simulacaoReaberta) return;
+    reabertaPendenteRef.current = simulacaoReaberta;
+    onSimulacaoReabertaConsumida?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulacaoReaberta]);
+  useEffect(() => {
+    const pend = reabertaPendenteRef.current;
+    if (!pend || !currentProd) return;
+    if (pend.torre && !(selectedTorre === pend.torre && selectedUnidade === pend.unidade)) {
+      // Outra seleção não vazia (o usuário trocou de torre/unidade antes de a salva montar): descarta o snapshot.
+      if (selectedTorre || selectedUnidade) reabertaPendenteRef.current = null;
+      return;
+    }
+    reabertaPendenteRef.current = null;
+    autoSaveKeyRef.current = `${currentProd.id}|${currentCond?.id || ''}|${selectedTorre}|${selectedUnidade}`;
+    autoSavedIdRef.current = pend.id;
+    const s = pend.snapshot;
+    if (!s || s.tela !== 'details' || (s.condicao_id && s.condicao_id !== (currentCond?.id || ''))) return;
+
+    const num = (v: any, d = 0): number => (typeof v === 'number' && isFinite(v) ? v : d);
+    const numOuNull = (v: any): number | null => (typeof v === 'number' && isFinite(v) ? v : null);
+    const obj = (v: any): Record<string, any> => (v && typeof v === 'object' ? v : {});
+    const d = obj(s.descontos), a = obj(s.ato), i = obj(s.itbi), p = obj(s.parcelamento), c = obj(s.comissao);
+
+    setDescontoConstrutoraAtivo(!!d.construtora_ativo);
+    setCartaNaManga(num(d.carta_na_manga_valor));
+    setCartaNaMangaAtiva(!!d.carta_na_manga_ativa);
+    setIsAtoPremiadoEnabled(!!d.ato_premiado_ativo);
+    setIsPagamentoAVistaAtivoManual(!!d.pagamento_avista_ativo);
+    setDescontoVistaAtivo(!!d.desconto_avista_ativo);
+
+    // Ato (com o cadeado, se estava travado)
+    atoTravadoRef.current = false;
+    setValAtoManualRaw(numOuNull(a.valor_manual));
+    if (a.travado && numOuNull(a.travado_valor) !== null) {
+      atoTravadoValorRef.current = a.travado_valor;
+      atoTravadoRef.current = true;
+      setAtoTravado(true);
+    } else {
+      setAtoTravado(false);
+    }
+    setAtoInputText('');
+    setIsEditingAto(false);
+
+    setValAtoITBI(num(i.itbi_no_ato_valor));
+    setItbiAtoManualFloor(numOuNull(i.piso_manual));
+    setItbiInputText('');
+    setIsEditingITBI(false);
+    if (typeof i.is_itbi_com_desconto === 'boolean') setIsFirstHomeLocal(i.is_itbi_com_desconto);
+
+    if (numOuNull(p.qtd_mensais) !== null) setQtdMensais(p.qtd_mensais);
+    setValParc2(num(p.primeira_mensal_30d));
+    setParc2InputText('');
+    setValParc3(num(p.segunda_mensal_60d));
+    setParc3InputText('');
+
+    setComissaoParcelasManual(numOuNull(c.parcelas_manual));
+    setComissaoTravadas(obj(c.travadas) as ComissaoTravadas);
+
+    if (isParcelamentoMorar && s.pm) {
+      const m = obj(s.pm);
+      setPmMensalObraValorManual(numOuNull(m.mensal_obra_valor));
+      setPmMesesObraManual(numOuNull(m.meses_obra));
+      setPmChavesEnabled(m.chaves_habilitada !== false);
+      setPmChavesValorManual(numOuNull(m.chaves_valor));
+      setPmSemestralIndividualEnabled(obj(m.semestrais_habilitadas));
+      setPmSemestralValorManual(obj(m.semestrais_valores));
+      setPmSemestralDatasManual(obj(m.semestrais_datas));
+      setPmQtdPosObraManual(numOuNull(m.qtd_pos_obra));
+      setPmPosObraValorManual(numOuNull(m.pos_obra_valor));
+      setPmLocks(obj(m.travas));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTorre, selectedUnidade, currentProd?.id, simulacaoReaberta]);
+
+  // Snapshot serializado: qualquer edição da negociação (Ato, descontos, à vista, overrides do Parcelamento Morar...)
+  // dispara o auto-save, mesmo quando os totais exibidos não mudam.
+  const negociacaoSnapshotJson = JSON.stringify(montarSnapshot());
+
   // Salvamento automático: toda simulação completa (renda/financiamento/
   // subsídio/FGTS preenchidos e uma unidade selecionada) fica registrada em
   // Simulações Salvas, mesmo que a pessoa nunca clique em "Salvar Simulação".
@@ -2278,7 +2481,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
     currentProd?.id, currentCond?.id, selectedTorre, selectedUnidade, hasUnitSelected, isSimulationComplete,
     isParcelamentoMorar, simulationData, baseRendaInformada, price, evaluation, valorTotalITBI,
     displayMaxFinanc, displaySubsidy, displayFgts, displayDescontoAto, valAtoITBI, atoBruto, atoEfetivo,
-    pm, qtdMensais, parcela, proSolutoTotalPainel
+    pm, qtdMensais, parcela, proSolutoTotalPainel, negociacaoSnapshotJson
   ]);
 
   if (!isSimulationComplete) {
@@ -2740,7 +2943,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                     </span>
                   ) : (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title="O fluxo distribuído não fecha com o total do sinal + ITBI">
-                      Diferença de {formatCurrency(Math.abs(diferencaDistribuidoBanco))}
+                      ⚠️ Diferença não alocada: {formatCurrency(Math.abs(diferencaDistribuidoBanco))}
                     </span>
                   ))}
                 </div>
@@ -3308,7 +3511,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       </span>
                     ) : (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title={`Alvo da negociação: ${formatCurrency(pmValorAlvoDistribuicao)}`}>
-                        Diferença de {formatCurrency(Math.abs(pmDiferencaDistribuido))}
+                        ⚠️ Diferença não alocada: {formatCurrency(Math.abs(pmDiferencaDistribuido))}
                       </span>
                     ))}
                   </div>
@@ -3596,6 +3799,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           </div>
         </div>,
         document.body
+      )}
+
+      {ajusteTravaAto && (
+        <AjusteAtoTravadoModal
+          excedente={ajusteTravaAto.excedente}
+          contexto={'Com a Qtd. Mensais em ' + qtdMensais + 'x'}
+          onJogarParaAto={confirmarAjusteTravaAto}
+          onCancelar={cancelarAjusteTravaAto}
+        />
       )}
 
     </div>

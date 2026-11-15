@@ -86,6 +86,10 @@ const contemTexto = (valor: string | undefined | null, busca: string): boolean =
 // os campos presentes na simulação selecionada são exibidos.
 const CAMPOS_DETALHE: { key: string; label: string; formato: 'moeda' | 'numero' | 'texto' }[] = [
   { key: 'preco_tabela', label: 'Preço de Tabela', formato: 'moeda' },
+  { key: 'desconto_construtora_valor', label: 'Desconto Construtora', formato: 'moeda' },
+  { key: 'carta_na_manga_valor', label: 'Carta na Manga', formato: 'moeda' },
+  { key: 'desconto_avista_valor', label: 'Desconto à Vista', formato: 'moeda' },
+  { key: 'preco_liquido', label: 'Valor Base Negociado', formato: 'moeda' },
   { key: 'avaliacao_bancaria', label: 'Avaliação Bancária', formato: 'moeda' },
   { key: 'itbi_total', label: 'ITBI / Registro Total', formato: 'moeda' },
   { key: 'financiamento_maximo', label: 'Financiamento', formato: 'moeda' },

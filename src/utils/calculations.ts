@@ -552,6 +552,9 @@ function distribuirComTetos(pesos: number[], tetos: number[], totalDisponivel: n
 }
 
 export interface MorarEngineParams {
+  // Parcela mínima (R$) de cada série de Obra/Pós-Obra (padrão 200,00 — o mesmo piso exibido na ficha). Quando o saldo
+  // comporta, nenhuma série com meses fica abaixo dele nem em R$ 0,00 (ver "fechamento exato das séries").
+  parcelaMinimaSerie?: number;
   precoTabela: number;
   avaliacaoBanco?: number;
   itbiRegistro: number;
@@ -812,7 +815,9 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
     }
   }
 
-  const parcelaMensalITBI = Math.round(parcelaMensalITBIExato * 100) / 100;
+  // Parcela mensal do ITBI TRUNCADA em 2 casas (nunca arredonda para cima): n × parcela nunca passa do saldo a
+  // parcelar. Os centavos que sobram do truncamento ficam no saldo exato (as telas contabilizam o saldo, não n × parcela).
+  const parcelaMensalITBI = Math.floor(parcelaMensalITBIExato * 100 + 1e-6) / 100;
   const itbiAtoSugerido = Math.round(itbiAtoEfetivo * 100) / 100;
 
   // Sinal Total s/ ITBI = Preço Tabela - (Financiamento + Subsídio + FGTS)
@@ -1159,6 +1164,79 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const obraRatesLiquidas = obraMoneyPorBalde.map((m, idx) => toLiquida('obra', idx, mObra[idx] || 0, m));
   const posRatesLiquidas = posMoneyPorBalde.map((m, idx) => toLiquida('pos', idx, mPos[idx] || 0, m));
 
+  // FECHAMENTO EXATO DAS SÉRIES (Obra + Pós-Obra): as parcelas líquidas são arredondadas em centavos e uma série
+  // cujo dinheiro não cobre o ITBI dos próprios meses era "cortada" em R$ 0,00 — as duas coisas faziam a soma das
+  // séries passar do que sobra a distribuir (Sinal Líquido − Ato − ITBI) por alguns reais ou centavos. Aqui as
+  // parcelas são reconciliadas com o total EXATO distribuído:
+  //  0) se alguma série foi cortada em R$ 0,00 porque o ITBI diluído nos meses dela passa do dinheiro que cabia a ela,
+  //     o total é redistribuído na mesma proporção decrescente das séries (SEM piso forçado), todas ficando com parcela > 0;
+  //  1) sobra → reduz todas as séries na mesma proporção (cortando em centavos);
+  //  2) centavos que faltam → acrescentados às séries com folga até o teto, as de mais meses primeiro.
+  // NUNCA zera nem encurta uma série: todos os meses de Obra e de Pós-Obra definidos pela política permanecem (as
+  // diferenças são absorvidas, proporcionalmente, nas séries que têm parcela — a série que já estava em R$ 0,00 por
+  // causa do ITBI continua assim, e uma série com parcela nunca é reduzida a zero).
+  {
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    type Slot = { fase: 'obra' | 'pos'; idx: number; qtd: number };
+    const slots: Slot[] = [];
+    mObra.forEach((q, idx) => { if ((q || 0) > 0) slots.push({ fase: 'obra', idx, qtd: q }); });
+    mPos.forEach((q, idx) => { if ((q || 0) > 0) slots.push({ fase: 'pos', idx, qtd: q }); });
+    const taxas = (s: Slot) => (s.fase === 'obra' ? obraRatesLiquidas : posRatesLiquidas);
+    const somaAtual = () => slots.reduce((a, s) => a + s.qtd * taxas(s)[s.idx], 0);
+    const somaOv = slots.reduce((a, s) => a + ovPorSerie(s.fase, s.idx), 0);
+    const somaMoney = obraMoneyPorBalde.reduce((a, b) => a + b, 0) + posMoneyPorBalde.reduce((a, b) => a + b, 0);
+    const alvoLiquido = Math.max(0, r2(somaMoney - (modoITBIDesacoplado ? 0 : parcelaMensalITBIExato * somaOv)));
+    // Maior parcela líquida que a série comporta (teto de renda do mês, descontado o ITBI dos meses dela).
+    const maxLiquida = (s: Slot): number => {
+      const teto = tetoSerieMoney(s.fase, s.idx, s.qtd);
+      if (teto === Infinity) return Infinity;
+      return modoITBIDesacoplado ? teto / s.qtd : Math.max(0, (teto - parcelaMensalITBIExato * ovPorSerie(s.fase, s.idx)) / s.qtd);
+    };
+
+    // 0) SÉRIE ZERADA PELO ITBI: sem piso forçado. Só quando o ITBI diluído come o dinheiro de uma série (parcela
+    //    líquida <= 0) o total é redistribuído NA MESMA PROPORÇÃO decrescente das séries (dinheiro/mês de cada uma),
+    //    mantendo todas com parcela > 0 (podem ficar abaixo de R$ 200 — a ficha só sinaliza em vermelho).
+    const brutas = slots.map(s => {
+      const money = (s.fase === 'obra' ? obraMoneyPorBalde : posMoneyPorBalde)[s.idx] || 0;
+      return modoITBIDesacoplado ? money / s.qtd : (money - parcelaMensalITBIExato * ovPorSerie(s.fase, s.idx)) / s.qtd;
+    });
+    let pisoAplicado = false;
+    if (alvoLiquido > 0 && brutas.some(b => b < 0.01)) {
+      const perfil = slots.map(s => ((s.fase === 'obra' ? obraMoneyPorBalde : posMoneyPorBalde)[s.idx] || 0) / s.qtd);
+      const base = slots.reduce((acc, s, i) => acc + s.qtd * perfil[i], 0);
+      if (base > 0) {
+        const k = alvoLiquido / base;
+        slots.forEach((s, i) => { taxas(s)[s.idx] = Math.max(0.01, Math.floor(perfil[i] * k * 100 + 1e-6) / 100); });
+        pisoAplicado = true;
+      }
+    }
+
+    // 1) sobra: reduz proporcionalmente
+    if (!pisoAplicado && r2(alvoLiquido - somaAtual()) < -0.005) {
+      const base = somaAtual();
+      if (base > 0) {
+        const fator = alvoLiquido / base;
+        slots.forEach(s => { const t = taxas(s); if (t[s.idx] > 0) t[s.idx] = Math.max(0.01, Math.floor(t[s.idx] * fator * 100 + 1e-6) / 100); });
+      }
+    }
+
+    // 2) centavos que faltam (truncamentos/arredondamentos)
+    let falta = r2(alvoLiquido - somaAtual());
+    if (falta > 0.005) {
+      const ordem = slots.filter(s => taxas(s)[s.idx] > 0).sort((a, b) => b.qtd - a.qtd);
+      for (const s of ordem) {
+        const t = taxas(s);
+        const folga = maxLiquida(s) - t[s.idx];
+        const passos = Math.min(Math.floor(falta / (s.qtd * 0.01) + 1e-9), Math.floor(folga / 0.01 + 1e-9));
+        if (passos > 0) {
+          t[s.idx] = r2(t[s.idx] + passos * 0.01);
+          falta = r2(falta - passos * s.qtd * 0.01);
+        }
+        if (falta <= 0.005) break;
+      }
+    }
+  }
+
   // Obra:
   const obraSeries: MorarSerieResult[] = mObra.map((qtd, idx) => {
     const pctAno = (params.globalSeriesPct && params.globalSeriesPct[idx]) || [30, 25, 20, 15, 10, 5][idx] || 0;
@@ -1254,8 +1332,10 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const atoPremiado = descontoAto;
   const atoBruto = Math.round((atoResidual + atoPremiado) * 100) / 100;
 
+  // ITBI distribuído = ITBI no Ato efetivo + SALDO EXATO a parcelar (a parcela mensal é truncada, então n × parcela pode
+  // ficar centavos abaixo do saldo — o saldo é o que de fato está distribuído).
   const distribuidoTotal = Math.round(
-    (atoResidual + (params.atoITBI || 0) + totalProSolutoGerado + itbiParceladoTotal + atoPremiado) * 100
+    (atoResidual + itbiAtoSugerido + totalProSolutoGerado + Math.round(itbiRestante * 100) / 100 + atoPremiado) * 100
   ) / 100;
   const totalComITBI = sinalComITBI;
 

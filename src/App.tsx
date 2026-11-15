@@ -1,6 +1,6 @@
 import React, { useState, Suspense, lazy } from 'react';
 import { X, ListChecks } from 'lucide-react';
-import { ActiveTab, CommercialCondition, PerfilUsuario, Product, SelectedUnit, SimulationData, TableInfo } from './types';
+import { ActiveTab, CommercialCondition, PerfilUsuario, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TableInfo } from './types';
 import type { SavedSimulationRecord } from './components/SavedSimulationsView';
 import { INITIAL_PRODUCTS } from './data/initialProducts';
 import { ensureProductConditions, getConditionKind, ConditionKind } from './utils/calculations';
@@ -323,6 +323,8 @@ export default function App({ perfil, onSair }: AppProps) {
 
   // Selected Torre & Unidade stored per product ID
   const [selectedUnits, setSelectedUnits] = useState<Record<string, SelectedUnit>>({});
+  // Simulação salva reaberta, aguardando a ficha aplicar o snapshot (consumida uma vez — ver onSimulacaoReabertaConsumida).
+  const [simulacaoReaberta, setSimulacaoReaberta] = useState<SimulacaoReaberta | null>(null);
 
   // Active product ID for Screen 3 (Policies) and Screen 4 (Import Table)
   const [activePolicyProductId, setActivePolicyProductId] = useState<string>(AMORAS_ID);
@@ -414,6 +416,17 @@ export default function App({ perfil, onSair }: AppProps) {
   // do cliente, prontos para ajuste.
   const handleEditSimulation = (sim: SavedSimulationRecord) => {
     const dados = sim.dados || {};
+    // Hidratação completa: o snapshot da negociação (Ato, ITBI, descontos, à vista, séries, overrides do
+    // Parcelamento Morar...) vai para a ficha, que o aplica depois de montar torre/unidade/condição. Registro
+    // de outro usuário (ex.: gerente abrindo a simulação da equipe) não é atualizado pelo auto-save: salva como novo.
+    const snap = dados.negociacao_snapshot;
+    setSimulacaoReaberta({
+      id: !sim.criado_por || sim.criado_por === perfil.id ? sim.id : null,
+      torre: dados.torre && dados.torre !== 'Não Selecionada' ? dados.torre : '',
+      unidade: dados.unidade && dados.unidade !== 'Não Selecionada' ? dados.unidade : '',
+      snapshot: snap && typeof snap === 'object' ? snap : null,
+      nonce: Date.now()
+    });
     const empId = dados.empreendimento_id || sim.empreendimento_id;
     const prod = products.find(p => p.id === empId);
     if (!prod) {
@@ -745,6 +758,8 @@ export default function App({ perfil, onSair }: AppProps) {
               simulationData={simulationData}
               onSimulationDataChange={setSimulationData}
               selectedUnits={selectedUnits}
+              simulacaoReaberta={simulacaoReaberta}
+              onSimulacaoReabertaConsumida={() => setSimulacaoReaberta(null)}
               onUnitSelectChange={handleUnitSelectChange}
               onBackToSimulator={() => setActiveTab('simulator')}
               onNavigateToImport={(prodId) => {
@@ -773,6 +788,8 @@ export default function App({ perfil, onSair }: AppProps) {
               onSelectCondition={handleSelectConditionWithRouting}
               simulationData={simulationData}
               selectedUnits={selectedUnits}
+              simulacaoReaberta={simulacaoReaberta}
+              onSimulacaoReabertaConsumida={() => setSimulacaoReaberta(null)}
               onUnitSelectChange={handleUnitSelectChange}
               onBackToSimulator={() => setActiveTab('simulator')}
               onNavigateToImport={(prodId) => {

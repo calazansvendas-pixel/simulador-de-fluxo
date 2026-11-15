@@ -10,7 +10,7 @@ import {
   Check,
   PieChart
 } from 'lucide-react';
-import { ActiveTab, Cargo, CommercialCondition, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulationData, TelaVisibilitySettings } from '../types';
+import { ActiveTab, Cargo, CommercialCondition, NegociacaoSnapshot, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDeliveryText, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
 import { ensureProductConditions, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
@@ -22,6 +22,7 @@ import { NovatoSimuladorView } from './NovatoSimuladorView';
 import { MonthStepper } from './MonthStepper';
 import { ComissaoParcelasLista, ComissaoTravadas, parcelasComissaoDetalhe, parcelasComissaoIguais } from './ComissaoParcelas';
 import { MiniSwitch } from './MiniSwitch';
+import { AjusteAtoTravadoModal } from './AjusteAtoTravadoModal';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
 import { FichaMorarProdutoGrid } from './FichaMorarProdutoGrid';
@@ -47,6 +48,10 @@ interface FichaMorarProps {
   // Atualiza o estado global da simulação (App): usado pelos seletores de % financiado e 1º imóvel.
   onSimulationDataChange?: (data: SimulationData) => void;
   selectedUnits: Record<string, SelectedUnit>;
+  // Simulação salva reaberta por "Simulações Salvas": o snapshot da negociação é aplicado uma única vez, depois de
+  // montar torre/unidade/condição, e o auto-save passa a atualizar o mesmo registro.
+  simulacaoReaberta?: SimulacaoReaberta | null;
+  onSimulacaoReabertaConsumida?: () => void;
   onUnitSelectChange: (productId: string, unit: SelectedUnit) => void;
   onBackToSimulator: () => void;
   onNavigateToImport: (productId: string) => void;
@@ -82,6 +87,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   simulationData,
   onSimulationDataChange,
   selectedUnits,
+  simulacaoReaberta,
+  onSimulacaoReabertaConsumida,
   onUnitSelectChange,
   onBackToSimulator,
   onNavigateToImport,
@@ -192,6 +199,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Ato alterado pelo usuário (digitação, + / − ou "À Vista" do card): acende o ↺ em verde. Volta a false
   // sempre que o Ato retorna ao automático (null: ↺, Limpar, troca de unidade/condição, fim do à vista).
   const [atoEditadoPeloUsuario, setAtoEditadoPeloUsuario] = useState<boolean>(false);
+  // Alteração de prazo pendente de decisão: o motor precisaria elevar o Ato (Imóvel), mas ele está TRAVADO. O excedente
+  // nunca some: o usuário escolhe jogar no Ato (destravando) ou cancelar (mantém a quantidade anterior).
+  const [ajusteAtoTravado, setAjusteAtoTravado] = useState<{ excedente: number; contexto: string; aplicar: () => void } | null>(null);
   const setValAtoManual = (v: number | null) => {
     if (v === null) {
       setAtoEditadoPeloUsuario(false);
@@ -207,6 +217,27 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const atoManualTravado = (): number | undefined => (atoTravadoRef.current ? atoTravadoValorRef.current : undefined);
   // Pagamento à vista traz o saldo para o Ato: o cadeado precisa soltar antes (sem apagar o valor).
   const destravarAtoSemLimpar = () => { atoTravadoRef.current = false; setAtoTravado(false); };
+  // Com o cadeado do Ato fechado, se o novo prazo exige um Ato maior (as parcelas bateram no teto da política e não
+  // absorvem o saldo), NADA é aplicado: abre o modal com o excedente. Retorna true quando abriu o modal.
+  const decidirAtoTravado = (atoResidual: number, aplicar: () => void, contexto: string): boolean => {
+    if (!atoTravadoRef.current) return false;
+    const travado = atoTravadoValorRef.current;
+    if (!(atoResidual > travado + 0.005)) return false;
+    setAjusteAtoTravado({ excedente: Math.round((atoResidual - travado) * 100) / 100, contexto, aplicar });
+    return true;
+  };
+  const confirmarAjusteAtoTravado = () => {
+    const pend = ajusteAtoTravado;
+    if (!pend) return;
+    setAjusteAtoTravado(null);
+    destravarAtoSemLimpar();
+    pend.aplicar();
+    onShowToast?.(`Cadeado do Ato (Imóvel) aberto: ${formatCurrency(pend.excedente)} somados ao Ato para o fluxo continuar 100% fechado.`);
+  };
+  const cancelarAjusteAtoTravado = () => {
+    setAjusteAtoTravado(null);
+    onShowToast?.('Alteração cancelada: a quantidade de parcelas anterior foi mantida.');
+  };
   const alternarTravaAto = () => {
     if (atoTravadoRef.current) {
       setValAtoManual(null); // destrava e volta ao Ato calculado pelo motor
@@ -1121,11 +1152,11 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   });
 
   const itbiCalculadoMes = (hasUnitSelected && itbiTotalMeses > 0 && saldoITBI > 0)
-    ? Math.round((saldoITBI / itbiTotalMeses) * 100) / 100
+    ? Math.floor((saldoITBI / itbiTotalMeses) * 100 + 1e-6) / 100
     : 0;
 
   const itbiParcelaObraValor = itbiObraTotalMeses > 0 
-    ? (itbiObraValorManual !== null ? itbiObraValorManual : (itbiPosTotalMeses === 0 ? Math.round((saldoITBI / itbiObraTotalMeses) * 100) / 100 : itbiCalculadoMes))
+    ? (itbiObraValorManual !== null ? itbiObraValorManual : (itbiPosTotalMeses === 0 ? Math.floor((saldoITBI / itbiObraTotalMeses) * 100 + 1e-6) / 100 : itbiCalculadoMes))
     : 0;
   // A parcela do ITBI é a mesma em todos os meses (saldo a parcelar ÷ qtd. de parcelas).
   const itbiParcelaPosValor = itbiPosTotalMeses > 0
@@ -1165,7 +1196,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const semEdicaoManualITBI = itbiObraValorManual === null && itbiPosValorManual === null;
   let somaITBIObra = Math.round((itbiObraTotalMeses * itbiParcelaObraValor) * 100) / 100;
   let somaITBIPos = Math.round((itbiPosTotalMeses * itbiParcelaPosValor) * 100) / 100;
-  if (semEdicaoManualITBI) {
+  // O total do ITBI parcelado é SEMPRE o saldo exato a parcelar (a parcela exibida é truncada, então n × parcela pode
+  // ficar centavos abaixo — nunca acima); a última fase com parcelas absorve esses centavos.
+  if (saldoITBI > 0 && (itbiObraTotalMeses + itbiPosTotalMeses) > 0) {
     if (itbiPosTotalMeses > 0) {
       somaITBIPos = Math.round((saldoITBI - somaITBIObra) * 100) / 100;
     } else if (itbiObraTotalMeses > 0) {
@@ -1224,13 +1257,21 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // que reajusta o Ato e vê se fechou) chegou a entrar num loop infinito de
   // re-render. O Pró-Soluto não alimenta mais nenhuma outra conta aqui, então
   // absorve o resíduo uma única vez, sem laço, sem estado e sem risco de loop.
-  const totalDistribuidoAntesDoResiduo = Math.round(
-    ((Number(valorAtoEfetivo) || 0) + (Number(descontoAto) || 0) + (Number(atoITBIValidado) || 0) + somaParcelasLiquidasEfetivas + somaTotalITBI) * 100
+  //
+  // ATENÇÃO: o total é a SOMA REAL do que está na tela — Ato + Desconto do Ato Premiado + ITBI no Ato + parcelas
+  // efetivamente exibidas de Obra e Pós-Obra (qtd × valor de cada série) + ITBI parcelado — e NUNCA é "completado"
+  // até o Total com ITBI. Quando as séries batem no teto da política e não absorvem o saldo, a diferença aparece
+  // aqui (em vez de um falso "100% Validado"). Só o ruído de arredondamento centavo a centavo das parcelas
+  // uniformes é tolerado: 0,05 + 1 centavo por parcela do fluxo (cada série tem parcela uniforme em centavos, então o
+  // fechamento exato só é possível em múltiplos de qtd × R$ 0,01 — o motor já fecha o máximo possível).
+  const totalDistribuido = Math.round(
+    ((Number(valorAtoEfetivo) || 0) + (Number(descontoAto) || 0) + (Number(atoITBIValidado) || 0) + somaTotalParceladoMorar + somaTotalITBI) * 100
   ) / 100;
-  const residuoArredondamento = hasUnitSelected
-    ? Math.round((sinalTotalComITBIEfetivo - totalDistribuidoAntesDoResiduo) * 100) / 100
+  const diferencaNaoAlocada = hasUnitSelected
+    ? Math.round((sinalTotalComITBIEfetivo - totalDistribuido) * 100) / 100
     : 0;
-  const totalDistribuido = Math.round((totalDistribuidoAntesDoResiduo + residuoArredondamento) * 100) / 100;
+  const toleranciaDistribuido = Math.round((0.05 + 0.01 * totalParcMorar) * 100) / 100;
+  const distribuidoFecha = Math.abs(diferencaNaoAlocada) <= toleranciaDistribuido;
 
   // INDICADORES DE RISCO E COMPROMETIMENTO
   const baseLiquidaComITBI = hasUnitSelected 
@@ -1811,9 +1852,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (novoTotalObra < mesesObraPadraoPolitica) {
       // 1. Zerar o período de Pós-Obra
       // 2. Concentração Total do ITBI na Obra
-      setItbiObraValorManual(null);
-      setItbiPosValorManual(0);
-
       const engineResult = calculateMorarFlowEngine({
         precoTabela: price,
         avaliacaoBanco: evaluation,
@@ -1839,6 +1877,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         pctComissaoApartada: pctComissaoApartadaCond
       });
 
+      const aplicarFluxo = () => {
       const mObraArr = engineResult.obraSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
       const mPosArr = [
         { qtd: 0, valor: 0, serieIndex: 0 },
@@ -1867,12 +1906,12 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           ? `Obra reduzida para ${novoTotalObra} meses. Pós-Obra zerado; ITBI/mês (${formatCurrency(engineResult.parcelaMensalITBI)}) respeitando o teto de renda, com ${formatCurrency(engineResult.itbiAtoSugerido)} movido para o ITBI no Ato.`
           : `Obra reduzida para ${novoTotalObra} meses. Pós-Obra zerado e ITBI (${formatCurrency(engineResult.parcelaMensalITBI)}/mês) concentrado na Obra.`);
       }
+      };
+      if (decidirAtoTravado(engineResult.atoResidual, aplicarFluxo, `Ao reduzir a Obra para ${novoTotalObra} meses`)) return;
+      aplicarFluxo();
     } else {
       // Regra 2: Usuário restaurou o padrão da política ou ampliou
       const novoPos = totalParcPos > 0 ? totalParcPos : mesesPosPadraoPolitica;
-      setItbiObraValorManual(null);
-      setItbiPosValorManual(null);
-
       const engineResult = calculateMorarFlowEngine({
         precoTabela: price,
         avaliacaoBanco: evaluation,
@@ -1898,6 +1937,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         pctComissaoApartada: pctComissaoApartadaCond
       });
 
+      const aplicarFluxo = () => {
       const mObraArr = engineResult.obraSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
       const mPosArr = engineResult.posSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
 
@@ -1914,6 +1954,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       if (onShowToast) {
         onShowToast(`Prazo de Obra restaurado para ${novoTotalObra} meses com divisão padrão de Pós-Obra (${novoPos} meses).`);
       }
+      };
+      if (decidirAtoTravado(engineResult.atoResidual, aplicarFluxo, `Ao ajustar a Obra para ${novoTotalObra} meses`)) return;
+      aplicarFluxo();
     }
   };
 
@@ -1943,9 +1986,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const atoFoiDigitadoPeloUsuario = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01;
     const atoManualParam = atoManualTravado() ?? (atoFoiDigitadoPeloUsuario ? valAtoManual : undefined);
 
-    setItbiObraValorManual(null);
-    setItbiPosValorManual(null);
-
     const engineResult = calculateMorarFlowEngine({
       precoTabela: price,
       avaliacaoBanco: evaluation,
@@ -1972,6 +2012,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       pctComissaoApartada: pctComissaoApartadaCond
     });
 
+    const aplicarFluxo = () => {
     const mObraArr = engineResult.obraSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
     const mPosArr = novoTotalPos === 0
       ? [{ qtd: 0, valor: 0, serieIndex: 0 }, { qtd: 0, valor: 0, serieIndex: 1 }, { qtd: 0, valor: 0, serieIndex: 2 }, { qtd: 0, valor: 0, serieIndex: 3 }]
@@ -2005,6 +2046,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         ? `Pós-Obra ajustado para ${novoTotalPos} meses (${mesesObraAtual + novoTotalPos} meses totais). ITBI/mês (${formatCurrency(engineResult.parcelaMensalITBI)}) respeitando o teto de renda, com ${formatCurrency(engineResult.itbiAtoSugerido)} movido para o ITBI no Ato.`
         : `Pós-Obra ajustado para ${novoTotalPos} meses (${mesesObraAtual + novoTotalPos} meses totais). ITBI rediluído para ${formatCurrency(engineResult.parcelaMensalITBI)}/mês.`));
     }
+    };
+    if (decidirAtoTravado(engineResult.atoResidual, aplicarFluxo, `Ao ajustar o Pós-Obra para ${novoTotalPos} meses`)) return;
+    aplicarFluxo();
   };
 
   // Altera o prazo do ITBI (do prazo do fluxo da construtora até maxParcelasITBI). Recalcula o fluxo com a trava mês a mês: se
@@ -2383,6 +2427,67 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   const [isSavingSimulation, setIsSavingSimulation] = useState<boolean>(false);
 
+  // Snapshot COMPLETO da negociação (campo `negociacao_snapshot`): tudo que o corretor pode editar nesta ficha,
+  // para a simulação reabrir exatamente como foi deixada. Só estados-fonte (overrides); o resto é recalculado.
+  const montarSnapshot = (): NegociacaoSnapshot => ({
+    versao: 1,
+    tela: 'ficha-morar',
+    condicao_id: currentCond?.id || '',
+    credito: {
+      percentual_financiamento: Math.round((simulationData.finPercent ?? 0) * 100),
+      is_primeiro_imovel: simulationData.isFirstHome,
+      financiamento_estimado: maxFinancEfetivo,
+      renda: income,
+      subsidio: subsidyEfetivo,
+      fgts: fgtsEfetivo
+    },
+    descontos: {
+      construtora_ativo: descontoConstrutoraAtivo,
+      carta_na_manga_valor: cartaNaManga,
+      carta_na_manga_ativa: cartaNaMangaAtiva,
+      ato_premiado_ativo: isAtoPremiadoEnabled,
+      pagamento_avista_ativo: isPagamentoAVistaEnabled,
+      desconto_avista_ativo: descontoVistaAtivo
+    },
+    ato: {
+      ato_imovel_valor: valorAtoEfetivo,
+      valor_manual: valAtoManual,
+      is_ato_manual: atoEditadoPeloUsuario,
+      editado_pelo_usuario: atoEditadoPeloUsuario,
+      travado: atoTravado,
+      travado_valor: atoTravado ? atoTravadoValorRef.current : null
+    },
+    itbi: {
+      itbi_no_ato_valor: valAtoITBI,
+      piso_manual: itbiAtoManualFloor,
+      is_itbi_com_desconto: isFirstHomeLocal,
+      parcelas_itbi: parcelasITBIManual,
+      total_manual: itbiTotalManual,
+      obra_valor_manual: itbiObraValorManual,
+      pos_valor_manual: itbiPosValorManual
+    },
+    series: {
+      faixas_obra: faixasObra,
+      is_manual_obra: isManualObra,
+      faixas_pos: faixasPos,
+      is_manual_pos: isManualPos,
+      qtd_meses_obra: totalParcObra,
+      qtd_meses_pos: totalParcPos
+    },
+    datas: {
+      // Só as datas digitadas à mão são guardadas (as automáticas seguem o mês base "Hoje é").
+      obra: datasManuaisRef.current.obra ? dataObra : null,
+      pos: datasManuaisRef.current.pos ? dataPos : null,
+      itbi: datasManuaisRef.current.itbi ? dataITBI : null
+    },
+    comissao: {
+      apartar_comissao: isComissaoApartada,
+      parcelas_manual: comissaoParcelasManual,
+      parcelas_qtd: comissaoApartadaParcelasQtd,
+      travadas: comissaoTravadas
+    }
+  });
+
   // Monta o snapshot completo da simulação no formato salvo em `simulacoes`.
   const montarDadosCompletos = () => ({
     empreendimento_id: currentProd?.id || '',
@@ -2400,7 +2505,19 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     simulation_data: simulationData,
     cliente_nome: simulationData.clientName || 'Cliente Não Informado',
     renda: income,
-    preco_tabela: price,
+    // Preço de Tabela BRUTO da unidade (os registros antigos guardavam aqui o preço já líquido) e o valor base
+    // negociado após Desconto Construtora, Carta na Manga e Desconto à Vista, cada um com seu valor e estado.
+    preco_tabela: precoTabelaLista,
+    preco_liquido: price,
+    desconto_construtora_valor: descontoConstrutora,
+    is_desconto_construtora_enabled: descontoConstrutoraAtivo && !isPagamentoAVistaEnabled,
+    desconto_avista_valor: isPagamentoAVistaEnabled ? valorDescontoAVista : 0,
+    is_pagamento_avista_enabled: isPagamentoAVistaEnabled,
+    desconto_ato_valor: descontoAto,
+    is_ato_premiado_applied: isAtoPremiadoEnabled,
+    carta_na_manga_valor: cartaNaMangaEfetiva,
+    is_carta_na_manga_enabled: cartaNaMangaEfetiva > 0,
+    negociacao_snapshot: montarSnapshot(),
     avaliacao_bancaria: evaluation,
     itbi_total: itbiValTabela,
     financiamento_maximo: maxFinancEfetivo,
@@ -2504,6 +2621,93 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   const isSimulationComplete = isIncomeValid && isFinancingValid && isSubsidyValid && isFgtsValid;
 
+  // ================= HIDRATAÇÃO DE UMA SIMULAÇÃO SALVA REABERTA =================
+  // O App entrega a simulação reaberta (id + snapshot). A ficha aplica o snapshot UMA vez, só depois que torre e
+  // unidade salvas já estão selecionadas aqui (o efeito de reset por torre/unidade roda antes e este vem por
+  // último, então vence). Depois de aplicado, trocar de empreendimento/torre/unidade ou clicar em Limpar volta a
+  // resetar normalmente. O id do registro é associado ao auto-save: novas edições ATUALIZAM o mesmo registro.
+  const reabertaPendenteRef = useRef<SimulacaoReaberta | null>(simulacaoReaberta ?? null);
+  useEffect(() => {
+    if (!simulacaoReaberta) return;
+    reabertaPendenteRef.current = simulacaoReaberta;
+    onSimulacaoReabertaConsumida?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulacaoReaberta]);
+  useEffect(() => {
+    const pend = reabertaPendenteRef.current;
+    if (!pend || !currentProd) return;
+    if (pend.torre && !(selectedTorre === pend.torre && selectedUnidade === pend.unidade)) {
+      // Outra seleção não vazia (o usuário trocou de torre/unidade antes de a salva montar): descarta o snapshot.
+      if (selectedTorre || selectedUnidade) reabertaPendenteRef.current = null;
+      return;
+    }
+    reabertaPendenteRef.current = null;
+    autoSaveKeyRef.current = `${currentProd.id}|${currentCond?.id || ''}|${selectedTorre}|${selectedUnidade}`;
+    autoSavedIdRef.current = pend.id;
+    const s = pend.snapshot;
+    if (!s || s.tela !== 'ficha-morar' || (s.condicao_id && s.condicao_id !== (currentCond?.id || ''))) return;
+
+    const num = (v: any, d = 0): number => (typeof v === 'number' && isFinite(v) ? v : d);
+    const numOuNull = (v: any): number | null => (typeof v === 'number' && isFinite(v) ? v : null);
+    const obj = (v: any): Record<string, any> => (v && typeof v === 'object' ? v : {});
+    const faixas = (v: any): MorarFaixa[] | null => (Array.isArray(v) && v.length > 0
+      ? v.map((f: any) => ({ qtd: num(f?.qtd), valor: num(f?.valor), ...(typeof f?.serieIndex === 'number' ? { serieIndex: f.serieIndex } : {}) }))
+      : null);
+    const d = obj(s.descontos), a = obj(s.ato), i = obj(s.itbi), sr = obj(s.series), dt = obj(s.datas), c = obj(s.comissao);
+
+    setDescontoConstrutoraAtivo(!!d.construtora_ativo);
+    setCartaNaManga(num(d.carta_na_manga_valor));
+    setCartaNaMangaAtiva(!!d.carta_na_manga_ativa);
+    setIsAtoPremiadoEnabled(!!d.ato_premiado_ativo);
+    setIsPagamentoAVistaEnabled(!!d.pagamento_avista_ativo);
+    setDescontoVistaAtivo(!!d.desconto_avista_ativo);
+
+    // Ato (com o cadeado, se estava travado, e a setinha ↺ em verde se foi editado pelo usuário)
+    atoTravadoRef.current = false;
+    setValAtoManualRaw(numOuNull(a.valor_manual));
+    if (a.travado && numOuNull(a.travado_valor) !== null) {
+      atoTravadoValorRef.current = a.travado_valor;
+      atoTravadoRef.current = true;
+      setAtoTravado(true);
+    } else {
+      setAtoTravado(false);
+    }
+    setAtoEditadoPeloUsuario(!!a.editado_pelo_usuario);
+    setAtoInputText(numOuNull(a.valor_manual) !== null ? formatCurrency(a.valor_manual) : '');
+    setIsEditingAto(false);
+
+    setValAtoITBI(num(i.itbi_no_ato_valor));
+    lembrarItbiNoAto(num(i.itbi_no_ato_valor));
+    setItbiAtoManualFloor(numOuNull(i.piso_manual));
+    setItbiAtoInputText(num(i.itbi_no_ato_valor) > 0 ? formatCurrency(i.itbi_no_ato_valor) : '');
+    setIsEditingAtoITBI(false);
+    if (typeof i.is_itbi_com_desconto === 'boolean') setIsFirstHomeLocal(i.is_itbi_com_desconto);
+    setParcelasITBIManual(numOuNull(i.parcelas_itbi));
+    setItbiTotalManual(numOuNull(i.total_manual));
+    setItbiObraValorManual(numOuNull(i.obra_valor_manual));
+    setItbiPosValorManual(numOuNull(i.pos_valor_manual));
+
+    // Séries de Obra e Pós-Obra (se não vierem no snapshot, o motor recalcula as sugeridas)
+    const fo = faixas(sr.faixas_obra), fp = faixas(sr.faixas_pos);
+    if (fo) setFaixasObra(fo);
+    if (fp) setFaixasPos(fp);
+    setIsManualObra(!!sr.is_manual_obra);
+    setIsManualPos(!!sr.is_manual_pos);
+
+    // Datas digitadas à mão
+    if (typeof dt.obra === 'string') { datasManuaisRef.current.obra = true; setDataObra(dt.obra); }
+    if (typeof dt.pos === 'string') { datasManuaisRef.current.pos = true; setDataPos(dt.pos); }
+    if (typeof dt.itbi === 'string') { datasManuaisRef.current.itbi = true; setDataITBI(dt.itbi); }
+
+    setComissaoParcelasManual(numOuNull(c.parcelas_manual));
+    setComissaoTravadas(obj(c.travadas) as ComissaoTravadas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTorre, selectedUnidade, currentProd?.id, simulacaoReaberta]);
+
+  // Snapshot serializado: qualquer edição da negociação (Ato, descontos, à vista, séries, ITBI...) dispara o
+  // auto-save, mesmo quando os totais exibidos não mudam.
+  const negociacaoSnapshotJson = JSON.stringify(montarSnapshot());
+
   // Salvamento automático: toda simulação completa (renda/financiamento/
   // subsídio/FGTS preenchidos e uma unidade selecionada) fica registrada em
   // Simulações Salvas, mesmo que a pessoa nunca clique em "Salvar Simulação".
@@ -2531,7 +2735,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     currentProd?.id, currentCond?.id, selectedTorre, selectedUnidade, hasUnitSelected, isSimulationComplete,
     simulationData, income, price, evaluation, itbiValTabela, maxFinancEfetivo, subsidyEfetivo, fgtsEfetivo,
     valorAtoEfetivo, descontoAto, atoITBIValidado, totalFaseObraComITBI, totalFasePosComITBI,
-    comissaoApartadaValor, comissaoApartadaParcelasQtd
+    comissaoApartadaValor, comissaoApartadaParcelasQtd, negociacaoSnapshotJson
   ]);
 
   if (!isSimulationComplete) {
@@ -2745,6 +2949,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             pieDataPct={pieData1}
             pieDataValor={pieData2}
             barData={barData}
+          />
+        )}
+
+        {ajusteAtoTravado && (
+          <AjusteAtoTravadoModal
+            excedente={ajusteAtoTravado.excedente}
+            contexto={ajusteAtoTravado.contexto}
+            onJogarParaAto={confirmarAjusteAtoTravado}
+            onCancelar={cancelarAjusteAtoTravado}
           />
         )}
       </>
@@ -2999,12 +3212,17 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2.5 bg-morar-50 px-3.5 rounded-lg border border-morar-100 mt-3 gap-2 transition-colors">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-slate-800">Distribuído:</span>
-                {hasUnitSelected && (
+                {hasUnitSelected && (distribuidoFecha ? (
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                     <Check className="w-3 h-3 text-emerald-600" />
                     100% Validado
                   </span>
-                )}
+                ) : (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1" title={`Total com ITBI devido: ${formatCurrency(sinalTotalComITBIEfetivo)} — distribuído na tela: ${formatCurrency(totalDistribuido)}`}>
+                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                    {diferencaNaoAlocada > 0 ? 'Diferença não alocada' : 'Distribuído acima do total'}: {formatCurrency(Math.abs(diferencaNaoAlocada))}
+                  </span>
+                ))}
               </div>
               <strong className="text-xs font-semibold text-morar-700">
                 {formatCurrency(totalDistribuido)}
@@ -3903,6 +4121,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           pieDataPct={pieData1}
           pieDataValor={pieData2}
           barData={barData}
+        />
+      )}
+
+      {ajusteAtoTravado && (
+        <AjusteAtoTravadoModal
+          excedente={ajusteAtoTravado.excedente}
+          contexto={ajusteAtoTravado.contexto}
+          onJogarParaAto={confirmarAjusteAtoTravado}
+          onCancelar={cancelarAjusteAtoTravado}
         />
       )}
 
