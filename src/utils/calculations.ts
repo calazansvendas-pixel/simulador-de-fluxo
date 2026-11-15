@@ -1329,6 +1329,48 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const totalPosComITBI = Math.round((subtotalPosLiquido + itbiPosTotal) * 100) / 100;
 
   const itbiParceladoTotal = Math.round(nITBI * parcelaMensalITBI * 100) / 100;
+
+  // FECHAMENTO FINAL NO ATO (IMÓVEL): o que as séries (tetos de renda, truncamento em centavos) e o ITBI não
+  // absorveram vai para o Ato. Como o Ato Premiado (e a comissão apartada) dependem do Ato, o ajuste roda em loop
+  // de convergência Ato ↔ Ato Premiado até Distribuído == Total com ITBI. Com o Ato digitado/travado (atoManual > 0)
+  // só absorve diferenças de centavos (<= R$ 0,99), para não desfazer o valor que o usuário fixou.
+  if (!isAtoZerado) {
+    const restoDistribuido = totalProSolutoGerado + Math.round(itbiRestante * 100) / 100 + itbiAtoSugerido;
+    const distComAto = (gross: number) => {
+      const r = resolverComissaoDadoAtoGross(gross);
+      return { r, dist: Math.round((gross + r.desconto + restoDistribuido) * 100) / 100 };
+    };
+    const alvo = Math.round(sinalComITBI * 100) / 100;
+    const manual = params.atoManual !== undefined && params.atoManual > 0;
+    const inicial = distComAto(atoResidual);
+    const difInicial = Math.round((alvo - inicial.dist) * 100) / 100;
+    if (Math.abs(difInicial) >= 0.005 && (!manual || Math.abs(difInicial) <= 0.99)) {
+      let gross = atoResidual;
+      let melhor = { gross, r: inicial.r, err: Math.abs(difInicial) };
+      for (let it = 0; it < 40 && melhor.err >= 0.005; it++) {
+        const cur = distComAto(gross);
+        const passo = Math.round((alvo - cur.dist) * 100) / 100;
+        if (Math.abs(passo) < 0.005) break;
+        gross = Math.max(pisoAtoBruto, Math.round((gross + passo) * 100) / 100);
+        const nov = distComAto(gross);
+        const err = Math.abs(alvo - nov.dist);
+        if (err < melhor.err - 1e-9) melhor = { gross, r: nov.r, err };
+      }
+      // refino final em centavos (o desconto arredonda, então o passo exato pode oscilar em 1 centavo)
+      for (let d = -3; d <= 3 && melhor.err >= 0.005; d++) {
+        const g = Math.max(pisoAtoBruto, Math.round((melhor.gross + d * 0.01) * 100) / 100);
+        const nov = distComAto(g);
+        const err = Math.abs(alvo - nov.dist);
+        if (err < melhor.err - 1e-9) melhor = { gross: g, r: nov.r, err };
+      }
+      if (melhor.err < Math.abs(difInicial) - 1e-9) {
+        atoResidual = melhor.gross;
+        descontoAto = melhor.r.desconto;
+        comissaoApartadaValor = melhor.r.comissao;
+      }
+    }
+  }
+
   const atoPremiado = descontoAto;
   const atoBruto = Math.round((atoResidual + atoPremiado) * 100) / 100;
 

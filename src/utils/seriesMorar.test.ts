@@ -50,3 +50,32 @@ describe('séries Morar — unidade 708 com Comissão Apartada', () => {
     for (const s of ss) expect(s.parcelaLiquida).toBeGreaterThan(0);
   });
 });
+
+// Caso real: Vista dos Colibris — Torre A — Unidade 101 — Sinal c/ Morar (Comissão Apartada), Obra 30x, Pós 0x.
+// O resíduo que as séries/ITBI não absorvem (centavos) é jogado no Ato (Imóvel), convergindo com o Ato Premiado.
+describe('fechamento no Ato (Imóvel) — unidade 101 Torre A', () => {
+  const PRECO_101 = 375067.82 - 10000;
+  const FIN_101 = PRECO_101 - 1253.25 - 25698.99 - 106546.62;
+  const rodar101 = (extra: Record<string, unknown> = {}) => calculateMorarFlowEngine({
+    precoTabela: PRECO_101, avaliacaoBanco: 346000, itbiRegistro: 14876.42, renda: 7586.32,
+    financiamento: FIN_101, subsidio: 1253.25, fgts: 25698.99, percentualRiscoGeral: 17, percentualRiscoPos: 8,
+    mesesObra: 30, mesesPos: 0, tetoRendaMensalPct: 40, globalSeriesPct: [30, 25, 20, 15, 10, 5],
+    serieMesesCapacidades: [12, 12, 12, 12, 12, 12], sinalMinimo: 2000, atoITBI: 0, isAtoPremiadoEnabled: true,
+    atoPremiadoPct: 0.1, isComissaoApartada: true, pctComissaoApartada: 0.04, maxParcelasITBI: 72, ...extra
+  } as any);
+
+  it('Total com ITBI = R$ 121.423,04 e o Distribuído fecha dentro da tolerância (<= R$ 0,05)', () => {
+    for (const extra of [{}, { parcelasITBI: 72 }, { parcelasITBI: 30 }]) {
+      const r = rodar101(extra);
+      expect(Math.round(r.totalComITBI * 100) / 100).toBe(121423.04);
+      expect(Math.abs(r.totalComITBI - r.distribuidoTotal)).toBeLessThan(0.051);
+    }
+  });
+
+  it('com renda baixa (série no teto) o resíduo vai para o Ato e o Distribuído fecha', () => {
+    for (const renda of [4000, 5000, 6000]) {
+      const r = rodar101({ renda });
+      expect(Math.abs(r.totalComITBI - r.distribuidoTotal)).toBeLessThan(0.051);
+    }
+  });
+});
