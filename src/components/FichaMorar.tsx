@@ -2345,68 +2345,66 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     );
   };
 
-  // Cada balde/série (0-5) pode ter meses tanto em Obra quanto em Pós-Obra
-  // quando atravessa a fronteira entre as duas fases (o mesmo peso da
-  // política é mantido, só o rateio de meses muda) — cada fase tem sua
-  // própria parcelaBrutaFinal (taxas diferentes), então precisam virar DUAS
-  // barras distintas ("Série N (Obra)" / "Série N (Pós-Obra)") em vez de uma
-  // só, que descartava silenciosamente o valor de uma das duas fases.
-  const barData: { name: string; percBase: number; percBaseRaw: number; parcelaBruta: number; percRenda: number; percRendaRaw: number; qtdTotal: number; labelFormatado: string }[] = [];
-  [0, 1, 2, 3, 4, 5].forEach(idx => {
-    const oSerie = morarEngineBase?.obraSeries[idx] || { qtd: 0, parcelaBrutaFinal: 0 };
-    const pSerie = morarEngineBase?.posSeries[idx] || { qtd: 0, parcelaBrutaFinal: 0 };
-    const isSplit = oSerie.qtd > 0 && pSerie.qtd > 0;
-
-    const pushFase = (fase: { qtd: number; parcelaBrutaFinal: number }, sufixo: string) => {
-      if (fase.qtd <= 0) return;
-      // `morarEngineBase` é o motor "base/sugerido" (sem considerar Ato manual
-      // nem Pagamento à Vista) — quando o Ato já cobre o Pró-Soluto inteiro
-      // (saldoProSolutoRestante <= 0), não sobra parcela nenhuma de verdade,
-      // então a parcela bruta some daqui também, e não só nos cards de Obra/
-      // Pós-Obra que já respeitavam isso.
-      const parcelaBruta = saldoProSolutoRestante <= 0 ? 0 : fase.parcelaBrutaFinal;
-      const subtotalBruto = fase.qtd * parcelaBruta;
-      const percBase = baseLiquidaComITBI > 0 ? (subtotalBruto / baseLiquidaComITBI) * 100 : 0;
+  // COMPROMETIMENTO POR SÉRIE (PARCELA / RENDA) — mesma base dos cards de Obra/Pós-Obra: cada barra é a
+  // PARCELA BRUTA/mês da série (parcela líquida da série + parcela mensal do ITBI vigente nela) ÷ Renda.
+  // O ITBI já vem somado nas séries que o têm; só quando há meses em que o cliente paga APENAS o ITBI (sem
+  // parcela da construtora) aparece a barra "Somente ITBI (Obra)" / "Somente ITBI (Pós-Obra)".
+  // Uma série que atravessa Obra e Pós-Obra vira duas barras ("Série N (Obra)" / "Série N (Pós-Obra)").
+  const barData: { name: string; percBase: number; percBaseRaw: number; parcelaBruta: number; parcelaSerie: number; parcelaItbi: number; percRenda: number; percRendaRaw: number; qtdTotal: number; labelFormatado: string }[] = [];
+  {
+    const semProSoluto = saldoProSolutoRestante <= 0;
+    const empurra = (name: string, qtd: number, parcelaSerie: number, parcelaItbi: number) => {
+      const parcelaBruta = Math.round((parcelaSerie + parcelaItbi) * 100) / 100;
+      const percBase = baseLiquidaComITBI > 0 ? (qtd * parcelaBruta / baseLiquidaComITBI) * 100 : 0;
       const percRenda = income > 0 ? (parcelaBruta / income) * 100 : 0;
       barData.push({
-        name: isSplit ? `Série ${idx + 1} ${sufixo}` : `Série ${idx + 1}`,
+        name,
         percBase: Number(percBase.toFixed(2)),
         percBaseRaw: percBase,
         parcelaBruta,
+        parcelaSerie,
+        parcelaItbi,
         percRenda: Number(percRenda.toFixed(2)),
         percRendaRaw: percRenda,
-        qtdTotal: fase.qtd,
+        qtdTotal: qtd,
         labelFormatado: `${percRenda.toFixed(2)}%`
       });
     };
+    const liqFaixa = (fx: MorarFaixa) => (semProSoluto ? 0 : (Number(fx.valor) || 0));
+    const temParcela = (fx: MorarFaixa) => (Number(fx.qtd) || 0) > 0 && liqFaixa(fx) > 0.009;
+    const idxDe = (fx: any, i: number) => (fx?.serieIndex !== undefined ? fx.serieIndex : i);
+    const posPorIdx = new Map<number, MorarFaixa>();
+    faixasPos.forEach((fx, i) => { if (temParcela(fx)) posPorIdx.set(idxDe(fx, i), fx); });
+    const obraPorIdx = new Map<number, MorarFaixa>();
+    faixasObra.forEach((fx, i) => { if (temParcela(fx)) obraPorIdx.set(idxDe(fx, i), fx); });
 
-    pushFase(oSerie, '(Obra)');
-    pushFase(pSerie, '(Pós-Obra)');
-  });
-
-  // O ITBI/Registro parcelado é um comprometimento de renda à parte, pago todo
-  // mês durante Obra e Pós-Obra independente das séries do Pró-Soluto — por
-  // isso entra no gráfico como suas próprias barras, e não some quando as
-  // séries do Pró-Soluto estão zeradas (ex.: Pró-Soluto inteiro levado para o
-  // Ato): o risco do ITBI continua existindo mesmo nesse cenário.
-  const pushItbiFase = (qtd: number, parcelaBruta: number, nome: string) => {
-    if (qtd <= 0 || parcelaBruta <= 0) return;
-    const subtotalBruto = qtd * parcelaBruta;
-    const percBase = baseLiquidaComITBI > 0 ? (subtotalBruto / baseLiquidaComITBI) * 100 : 0;
-    const percRenda = income > 0 ? (parcelaBruta / income) * 100 : 0;
-    barData.push({
-      name: nome,
-      percBase: Number(percBase.toFixed(2)),
-      percBaseRaw: percBase,
-      parcelaBruta,
-      percRenda: Number(percRenda.toFixed(2)),
-      percRendaRaw: percRenda,
-      qtdTotal: qtd,
-      labelFormatado: `${percRenda.toFixed(2)}%`
+    let mesesSoItbiObra = 0;
+    faixasObra.forEach((fx, i) => {
+      const nx = serieObraItbiMeses[i] ?? 0;
+      if (temParcela(fx)) {
+        const idx = idxDe(fx, i);
+        const split = posPorIdx.has(idx);
+        empurra(split ? `Série ${idx + 1} (Obra)` : `Série ${idx + 1}`, Number(fx.qtd) || 0, liqFaixa(fx), nx > 0 ? itbiParcelaObraValor : 0);
+      } else if (nx > 0) {
+        mesesSoItbiObra += nx;
+      }
     });
-  };
-  pushItbiFase(itbiObraTotalMeses, itbiParcelaObraValor, 'ITBI (Obra)');
-  pushItbiFase(itbiPosTotalMeses, itbiParcelaPosValor, 'ITBI (Pós-Obra)');
+    let mesesSoItbiPos = 0;
+    faixasPos.forEach((fx, i) => {
+      const nx = itbiMesesNaSerie(faixasPos, i, itbiPosTotalMeses);
+      if (temParcela(fx)) {
+        const idx = idxDe(fx, i);
+        const split = obraPorIdx.has(idx);
+        empurra(split ? `Série ${idx + 1} (Pós-Obra)` : `Série ${idx + 1}`, Number(fx.qtd) || 0, liqFaixa(fx), nx > 0 ? itbiParcelaPosValor : 0);
+      } else if (nx > 0) {
+        mesesSoItbiPos += nx;
+      }
+    });
+    // Meses de ITBI além das séries da Pós-Obra (a construtora já terminou, só corre o ITBI).
+    mesesSoItbiPos += Math.max(0, itbiPosTotalMeses - totalParcPos);
+    if (mesesSoItbiObra > 0 && itbiParcelaObraValor > 0) empurra('Somente ITBI (Obra)', mesesSoItbiObra, 0, itbiParcelaObraValor);
+    if (mesesSoItbiPos > 0 && itbiParcelaPosValor > 0) empurra('Somente ITBI (Pós-Obra)', mesesSoItbiPos, 0, itbiParcelaPosValor);
+  }
 
   const CustomBarTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -2415,7 +2413,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
         <div className="bg-white p-3 rounded-lg shadow-lg border border-slate-200 text-xs z-50 relative">
           <strong className="block text-slate-800 mb-1">{data.name}</strong>
           <div className="space-y-1">
-            <div className="flex justify-between gap-4"><span className="text-slate-500">Parcela:</span><strong className="text-slate-800">{formatCurrency(data.parcelaBruta)}</strong></div>
+            {data.parcelaItbi > 0 && data.parcelaSerie > 0 ? (
+              <>
+                <div className="flex justify-between gap-4"><span className="text-slate-500">Parcela Série:</span><strong className="text-slate-800">{formatCurrency(data.parcelaSerie)}</strong></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-500">+ ITBI:</span><strong className="text-emerald-700">{formatCurrency(data.parcelaItbi)}</strong></div>
+                <div className="flex justify-between gap-4"><span className="text-slate-500">= Parcela Bruta:</span><strong className="text-slate-800">{formatCurrency(data.parcelaBruta)}</strong></div>
+              </>
+            ) : (
+              <div className="flex justify-between gap-4"><span className="text-slate-500">{data.parcelaSerie > 0 ? 'Parcela Bruta:' : 'Parcela ITBI:'}</span><strong className="text-slate-800">{formatCurrency(data.parcelaBruta)}</strong></div>
+            )}
+            {data.qtdTotal > 0 && <div className="flex justify-between gap-4"><span className="text-slate-500">Meses:</span><strong className="text-slate-800">{data.qtdTotal}x</strong></div>}
             <div className="flex justify-between gap-4"><span className="text-slate-500">Renda:</span><strong className="text-slate-800">{formatCurrency(income)}</strong></div>
             <div className="flex justify-between gap-4 pt-1 border-t border-slate-100"><span className="text-slate-500 font-semibold">Comprometimento:</span><strong className="text-rose-600">{data.percRenda}%</strong></div>
           </div>
