@@ -1485,9 +1485,12 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const despCartoriasEfetivas = saldoITBI;
 
   // Base Líquida c/ ITBI da Operação
-  const valorBaseImovel = hasUnitSelected ? Math.max(price, evaluation) : 0;
+  // Valor Base = SEMPRE a Avaliação Bancária (só cai no preço se a avaliação não estiver informada).
+  const valorBaseImovel = hasUnitSelected ? (evaluation > 0 ? evaluation : price) : 0;
+  // SINAL C/ BANCO DIRETO: o maior entre o Preço de Tabela e a Avaliação Bancária + ITBI/Registro total, SEM subtrair
+  // nenhum desconto (Ato, Construtora, Carta na Manga ou À Vista).
   const baseVendaLiquidaComITBI = hasUnitSelected
-    ? Math.max(0, (valorBaseImovel + valorTotalITBI) - descontoAto)
+    ? Math.max(precoTabelaLista, evaluation) + valorTotalITBI
     : 0;
 
   // 1. Definição do "Total Negoc.":
@@ -1931,7 +1934,9 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // ou não financiamento de fato), então sem esta trava o gráfico mostraria um risco
   // de Pró-Soluto que nunca é usado. Mesma lógica já aplicada ao ITBI (valorTotalITBI
   // acima) e ao Risco Parcela/Renda (valorRiscoParcela, que já zera via `parcela`).
-  const valorRiscoProSoluto = isPagamentoAVistaAtivoManual ? 0 : riscoMaximoApuradoBruto;
+  // SINAL C/ BANCO DIRETO: o numerador é o SALDO REAL parcelado (o mesmo "Pró-Soluto Total c/ ITBI" do Card 3, antes dos
+  // juros da Tabela Price) — não mais o teto teórico da política (riscoMaximoApuradoBruto, que segue só como limite).
+  const valorRiscoProSoluto = isPagamentoAVistaAtivoManual ? 0 : proSolutoTotalPainel;
   const pctRiscoProSoluto = baseVendaLiquidaComITBI > 0
     ? Math.min(100, Math.max(0, (valorRiscoProSoluto / baseVendaLiquidaComITBI) * 100))
     : 0;
@@ -1973,7 +1978,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const displayValorRiscoProSoluto = isParcelamentoMorar ? pm.subtotalAteChaves : valorRiscoProSoluto;
   // "Parcelamento Morar" não soma ITBI à Base Líquida (não entra ITBI/registro
   // nesta condição), mas continua deduzindo o desconto do Ato Premiado.
-  const pmBaseLiquida = hasUnitSelected ? Math.max(0, price - pm.descontoAtoPremiado) : 0;
+  const pmBaseLiquida = hasUnitSelected ? Math.max(0, valorBaseImovel - pm.descontoAtoPremiado) : 0;
   const displayBaseLiquida = isParcelamentoMorar ? pmBaseLiquida : baseVendaLiquidaComITBI;
 
   // Função auxiliar para renderizar Gráficos de Pizza Sólidos com percentuais internos
@@ -3544,7 +3549,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
               {/* FAIXA DE AMORTIZAÇÃO E JUROS */}
               <div className="flex justify-between items-center text-[10px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/80">
                 <span>Amortização: <strong className="text-slate-700 font-semibold">Tabela Price</strong></span>
-                <span>Juros: <strong className="text-morar-700 font-bold">{appliedRatePct.toFixed(2)}% a.m.</strong></span>
+                <span>Juros já inclusos de <strong className="text-morar-700 font-bold">{appliedRatePct.toFixed(2).replace('.', ',')}% a.m.</strong></span>
               </div>
 
               <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2.5 text-xs">

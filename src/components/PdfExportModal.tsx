@@ -972,7 +972,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
 
                     <div className="flex justify-between items-center text-[10px] text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 mt-2">
                       <span>Amortização: <strong className="text-slate-700 font-semibold">Tabela Price</strong></span>
-                      <span>Juros: <strong className="text-morar-700 font-bold">{appliedRatePct.toFixed(2)}% a.m.</strong></span>
+                      <span>Juros já inclusos de <strong className="text-morar-700 font-bold">{appliedRatePct.toFixed(2).replace('.', ',')}% a.m.</strong></span>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 text-xs mt-2">

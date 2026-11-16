@@ -866,8 +866,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // "Ato Premiado" ligado na ficha — comporta-se como se o Ato Premiado estivesse zerado.
   const pctAtoPremiadoCond = currentCond?.atoPremiadoPct ?? 0.10;
 
-  // 1. VALOR BASE: Maior entre Preço de Tabela e Avaliação Bancária
-  const valorBase = hasUnitSelected ? Math.max(price, evaluation) : 0;
+  // 1. VALOR BASE: SEMPRE o Valor da Avaliação Bancária (uniforme entre todos os empreendimentos, seja a avaliação maior
+  // ou menor que o preço de tabela). Só cai no preço se a avaliação não estiver informada (evita base zerada).
+  // É usado nos indicadores de risco (denominadores/percentuais) — o fluxo de pagamento continua sobre o preço negociado.
+  const valorBase = hasUnitSelected ? (evaluation > 0 ? evaluation : price) : 0;
 
   // Nunca "inventamos" um valor de financiamento: só usamos exatamente o que
   // foi digitado em "Financiamento Estimado" no Simulador (capado pelo teto
@@ -1275,7 +1277,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
   // INDICADORES DE RISCO E COMPROMETIMENTO
   const baseLiquidaComITBI = hasUnitSelected 
-    ? (morarEngineBase?.baseCalculoComITBI || Math.max(0, (price - descontoAto) + despCartoriasEfetivas))
+    // SINAL C/ MORAR: Preço de Tabela − todos os descontos ativos (Construtora, Carta na Manga, À Vista — já embutidos em
+    // `price` — e Desconto Ato) + ITBI/Registro TOTAL. NÃO usa a Avaliação Bancária.
+    ? Math.max(0, (precoTabelaLista - descontoConstrutora - cartaNaMangaEfetiva - valorDescontoAVista - descontoAto) + despCartoriasEfetivas)
     : 0;
   const baseRendaInformada = income;
   const nomeFaixaRenda = currentCond?.name || 'Não informada';
