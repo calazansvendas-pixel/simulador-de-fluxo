@@ -1205,8 +1205,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
       // === despCartorias e esta conta fica idêntica à de antes.
       sinalComITBILocal = sinalSemITBILocal + saldoITBIParam;
 
-      // e) Base Risco Imóvel = (MAX(Preço Tabela, Avaliação Banco) + ITBI parcelável) - atoPremiadoAtual
-      baseRiscoLocal = Math.max(0, (maxPriceEval + saldoITBIParam) - atoPremiadoLocal);
+      // e) Base Risco Imóvel = EXATAMENTE a "Base Líq. c/ ITBI" exibida no Card 4:
+      // MAX(Preço de Tabela, Avaliação Bancária) + ITBI total (sem subtrair descontos
+      // nem Ato Premiado), para o teto de 25% bater com o gráfico (ex.: 25,0%).
+      baseRiscoLocal = Math.max(0, Math.max(precoTabelaLista, evaluation) + valorTotalITBI);
 
       // e) Valor Risco Imóvel = Base Risco Imóvel * (% Risco Imóvel);
       valorRiscoLocal = baseRiscoLocal * riscoImovelPctDec;
