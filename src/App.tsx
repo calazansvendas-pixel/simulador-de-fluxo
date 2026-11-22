@@ -4,6 +4,7 @@ import { ActiveTab, CommercialCondition, PerfilUsuario, Product, SelectedUnit, S
 import type { SavedSimulationRecord } from './components/SavedSimulationsView';
 import { INITIAL_PRODUCTS } from './data/initialProducts';
 import { ensureProductConditions, getConditionKind, ConditionKind } from './utils/calculations';
+import { getTodayLocalISO, addMonthsLocalISO } from './utils/formatters';
 import { TELAS_APP } from './config/telasApp';
 
 import { Header } from './components/Header';
@@ -86,7 +87,7 @@ export default function App({ perfil, onSair }: AppProps) {
   // estático em telas médias/grandes. Ver Sidebar.tsx.
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [currentDate, setCurrentDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    getTodayLocalISO()
   );
 
   // Sinaliza se ESTE carregamento remapeou um produto do id legado 'amoras' para
@@ -154,8 +155,8 @@ export default function App({ perfil, onSair }: AppProps) {
                 // então a mesma tabela podia parecer vigente para uns e vencida para
                 // outros, dependendo de quando cada um abriu o app pela primeira vez.
                 currentTableInfo = {
-                  validFrom: dbEmp.tabela_valid_from || existing.tableInfo?.validFrom || new Date().toISOString().split('T')[0],
-                  validTo: dbEmp.tabela_valid_to || existing.tableInfo?.validTo || new Date(new Date().setMonth(new Date().getMonth() + 3)).toISOString().split('T')[0],
+                  validFrom: dbEmp.tabela_valid_from || existing.tableInfo?.validFrom || getTodayLocalISO(),
+                  validTo: dbEmp.tabela_valid_to || existing.tableInfo?.validTo || addMonthsLocalISO(getTodayLocalISO(), 3),
                   fileName: dbEmp.tabela_file_name || existing.tableInfo?.fileName || `tabela_${dbEmp.id}.xlsx`,
                   headers: existing.tableInfo?.headers || ['Fase', 'TORRE', 'UNIDADE', 'ÁREA PRIVATIVA M² - APTO', 'ÁREA QUINTAL M²', 'TIPOLOGIA', 'AVALIAÇÃO', 'PREÇO', 'ITBI + Registro 1º Imóvel', 'ITBI + Registro 2º Imóvel'],
                   rows: rows,

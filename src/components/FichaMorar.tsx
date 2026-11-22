@@ -11,7 +11,7 @@ import {
   PieChart
 } from 'lucide-react';
 import { ActiveTab, Cargo, CommercialCondition, NegociacaoSnapshot, PdfConditionKind, PdfExportSettings, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TelaVisibilitySettings } from '../types';
-import { formatCurrency, formatArea, parseCurrency, formatDeliveryText, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto } from '../utils/formatters';
+import { formatCurrency, formatArea, parseCurrency, formatDeliveryText, isTabelaVencida, formatDateBr, formatDateMonthYear, formatMesAno, indiceMesDeDataIso, indiceMesDeTexto, getTodayLocalISO } from '../utils/formatters';
 import { ensureProductConditions, calculateMorarFlowEngine, resolverDescontoEComissaoApartada, resolverTetoAtoComDesconto, resolveConditionForTorre, resolveConditionForUnit, isApenasFaseObra, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, getConditionKind } from '../utils/calculations';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
 import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
@@ -187,7 +187,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const [isFirstHomeLocal, setIsFirstHomeLocal] = useState<boolean>(simulationData.isFirstHome ?? true);
 
   // Estados dos Blocos de Pagamento Morar
-  const [dataAto, setDataAto] = useState<string>('agosto, 2026');
+  const [dataAto, setDataAto] = useState<string>(() => {
+    const b = indiceMesDeDataIso(getTodayLocalISO());
+    return b !== null ? formatMesAno(b) : '';
+  });
   const [valAtoManual, setValAtoManualRaw] = useState<number | null>(null);
   // CADEADO DO ATO (IMÓVEL) — todas as condições comerciais. Travado: o valor do Ato fica congelado e
   // nenhum recálculo (ITBI, prazos, descontos...) consegue alterá-lo; os demais blocos absorvem a
@@ -249,13 +252,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setAtoTravado(true);
     setValAtoManualRaw(valorAtoEfetivo);
   };
-  const [atoInputText, setAtoInputText] = useState<string>('');
-  const [isEditingAto, setIsEditingAto] = useState<boolean>(false);
 
   // Estados dos Cards de ITBI no Ato e Ato Premiado (Padronizados)
   const [valAtoITBI, setValAtoITBI] = useState<number>(0);
-  const [itbiAtoInputText, setItbiAtoInputText] = useState<string>('');
-  const [isEditingAtoITBI, setIsEditingAtoITBI] = useState<boolean>(false);
   // Piso digitado pelo CORRETOR em "ITBI no Ato" (null = nenhum, valor exibido
   // é 100% sugestão automática do motor). Diferente de reaproveitar o próprio
   // valAtoITBI como piso: valAtoITBI pode estar temporariamente elevado por
@@ -369,12 +368,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Atualização e Reset Automático ao Trocar Torre / Unidade
   useEffect(() => {
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
-    setIsEditingAtoITBI(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
@@ -419,12 +414,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setSelectedUnidade('');
     }
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
-    setIsEditingAtoITBI(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
     setDescontoVistaAtivo(false);
@@ -591,8 +582,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (v <= 0) setCartaNaMangaAtiva(false);
     else if (cartaNaManga <= 0) setCartaNaMangaAtiva(true);
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiObraValorManual(null);
@@ -602,8 +591,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (cartaNaMangaDigitada <= 0) return;
     setCartaNaMangaAtiva(v => !v);
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiObraValorManual(null);
@@ -696,12 +683,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Descarta os ajustes manuais do fluxo para o motor refazer Ato, ITBI e séries do zero.
   const resetarAjustesManuais = () => {
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
-    setIsEditingAtoITBI(false);
     setIsManualObra(false);
     setIsManualPos(false);
     setItbiTotalManual(null);
@@ -767,12 +750,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setSelectedTorre('');
     setSelectedUnidade('');
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
-    setIsEditingAtoITBI(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
     setDescontoVistaAtivo(false);
@@ -820,12 +799,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // esse descompasso, pois ele já roda com os valores frescos.
   const limparFluxoPagamento = () => {
     setValAtoManual(null);
-    setAtoInputText('');
-    setIsEditingAto(false);
     setValAtoITBI(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
-    setIsEditingAtoITBI(false);
     setIsAtoPremiadoEnabled(padraoAtoLigado);
     setIsPagamentoAVistaEnabled(false);
     setDescontoVistaAtivo(false);
@@ -894,8 +869,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     : 0;
 
   const somaRecursos = hasUnitSelected ? (rawMaxFinanc + rawSubsidy + rawFGTS) : 0;
-  const totalNegociado = hasUnitSelected ? Math.min(somaRecursos, tetoMaximo) : 0;
-  const totalNegoc = totalNegociado;
 
   let maxFinanc = rawMaxFinanc;
   let fgts = rawFGTS;
@@ -950,9 +923,12 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const totalParcMorar = totalParcObra + totalParcPos;
 
   useEffect(() => {
-    const base = indiceMesDeDataIso(currentDate) ?? indiceMesDeDataIso(new Date().toISOString().split('T')[0]);
+    const base = indiceMesDeDataIso(currentDate) ?? indiceMesDeDataIso(getTodayLocalISO());
     if (base === null) return;
     const inicioObra = base + 1;
+    // "A partir de" do card Período de Pagamentos (Ato) = mês/ano da data base ("Hoje é"),
+    // sempre um mês antes do início das parcelas.
+    setDataAto(formatMesAno(base));
     if (!datasManuaisRef.current.obra) setDataObra(formatMesAno(inicioObra));
     if (!datasManuaisRef.current.itbi) setDataITBI(formatMesAno(inicioObra));
     if (!datasManuaisRef.current.pos) {
@@ -1195,7 +1171,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // Sem edição manual de nenhuma das duas fases, a última fase com parcelas
   // (Pós-Obra, ou Obra se não houver Pós-Obra) absorve essa sobra/falta, de
   // forma que o total pareado dos dois nunca destoe do nominal.
-  const semEdicaoManualITBI = itbiObraValorManual === null && itbiPosValorManual === null;
   let somaITBIObra = Math.round((itbiObraTotalMeses * itbiParcelaObraValor) * 100) / 100;
   let somaITBIPos = Math.round((itbiPosTotalMeses * itbiParcelaPosValor) * 100) / 100;
   // O total do ITBI parcelado é SEMPRE o saldo exato a parcelar (a parcela exibida é truncada, então n × parcela pode
@@ -1229,9 +1204,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     : 0;
 
   // PARCELAS LÍQUIDAS EFETIVAS DA CONSTRUTORA
-  const somaParcelasLiquidasEfetivas = saldoProSolutoRestante <= 0 
-    ? 0 
-    : (isManualObra || isManualPos ? somaTotalParceladoMorar : saldoProSolutoRestante);
 
   const totalFaseObraComITBI = saldoProSolutoRestante <= 0 
     ? Math.round(somaITBIObra * 100) / 100
@@ -1241,8 +1213,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     ? Math.round(somaITBIPos * 100) / 100
     : Math.round((somaTotalPos + somaITBIPos) * 100) / 100;
 
-  // MAX FLUXO (PARCELAS MORAR + ITBI PARCELADO)
-  const maxFluxoEfetivo = Math.round((somaParcelasLiquidasEfetivas + somaTotalITBI) * 100) / 100;
 
   // TOTALIZADOR DISTRIBUÍDO EM TEMPO REAL
   // Distribuído = Ato (Imóvel) + Desconto Ato + ITBI no Ato + Parcelas Líquidas da Construtora + ITBI Parcelado Total
@@ -1288,8 +1258,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const limiteMaximoRiscoRenda = currentCond?.riscoRendaPct ?? 0;
   const limiteMaximoProSoluto = currentCond?.percMaxProSolutoGlobal ?? currentCond?.riscoImovelPct ?? 17.0;
 
-  // 1ª Parcela sobre a Base da Renda
-  const primeiraParcelaObraLiquida = faixasObra.length > 0 ? (Number(faixasObra[0].valor) || 0) : 0;
   // Pico mensal concorrente (m = 1 até max(fluxo, ITBI)): maior (parcela da série + parcela do ITBI).
   let picoMensalConcorrente = 0;
   {
@@ -1312,90 +1280,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const valorRiscoProSoluto = totalFaseObraComITBI + totalFasePosComITBI;
   const pctRiscoProSoluto = (baseLiquidaComITBI > 0 && valorRiscoProSoluto > 0) ? Math.min(100, Math.max(0, (valorRiscoProSoluto / baseLiquidaComITBI) * 100)) : 0;
 
-  // Função auxiliar para renderizar Gráficos de Pizza Sólidos com percentuais internos refinados
-  const renderSolidPie = (
-    pct: number,
-    colorPrimary: string,
-    colorSecondary: string = '#cbd5e1',
-    primaryTextColor: string = '#ffffff',
-    secondaryTextColor: string = '#1e293b'
-  ) => {
-    const cx = 50;
-    const cy = 50;
-    const r = 40;
-    const clampedPct = Math.min(100, Math.max(0, pct));
-    const restPct = Math.max(0, 100 - clampedPct);
-
-    const formatPct = (val: number) => {
-      return (val < 10 && val > 0) ? val.toFixed(2) : val.toFixed(1);
-    };
-
-    if (clampedPct >= 100) {
-      return (
-        <svg
-          className="w-24 h-24 sm:w-28 sm:h-28 mx-auto select-none overflow-visible block"
-          viewBox="-10 -10 120 120"
-        >
-          <circle cx={cx} cy={cy} r={r} fill={colorPrimary} />
-          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill={primaryTextColor} fontSize="10" fontWeight="bold">
-            100.0%
-          </text>
-        </svg>
-      );
-    }
-
-    if (clampedPct <= 0) {
-      return (
-        <svg
-          className="w-24 h-24 sm:w-28 sm:h-28 mx-auto select-none overflow-visible block"
-          viewBox="-10 -10 120 120"
-        >
-          <circle cx={cx} cy={cy} r={r} fill={colorSecondary} />
-          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fill={secondaryTextColor} fontSize="10" fontWeight="bold">
-            0.0%
-          </text>
-        </svg>
-      );
-    }
-
-    const angle = (clampedPct / 100) * 360;
-    const rad = (angle - 90) * (Math.PI / 180);
-    const x = cx + r * Math.cos(rad);
-    const y = cy + r * Math.sin(rad);
-    const largeArcFlag = clampedPct > 50 ? 1 : 0;
-
-    const pathD = `M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 ${largeArcFlag} 1 ${x} ${y} Z`;
-
-    const calcCentroidRadius = (sliceAngleDeg: number) => {
-      const theta = (sliceAngleDeg * Math.PI) / 180;
-      if (theta <= 0.001) return r * 0.58;
-      const factor = (2 / 3) * (Math.sin(theta / 2) / (theta / 2));
-      return r * Math.min(0.68, Math.max(0.48, factor));
-    };
-
-    const midAngle1 = angle / 2;
-    const rLabel1 = calcCentroidRadius(angle);
-    const rad1 = (midAngle1 - 90) * (Math.PI / 180);
-    const textX1 = cx + rLabel1 * Math.cos(rad1);
-    const textY1 = cy + rLabel1 * Math.sin(rad1);
-
-    return (
-      <svg
-        className="w-24 h-24 sm:w-28 sm:h-28 mx-auto select-none overflow-visible block"
-        viewBox="-12 -12 124 124"
-      >
-        <circle cx={cx} cy={cy} r={r} fill={colorSecondary} />
-        <path d={pathD} fill={colorPrimary} />
-        <line x1={cx} y1={cy} x2={cx} y2={cy - r} stroke="#ffffff" strokeWidth="1.5" />
-        <line x1={cx} y1={cy} x2={x} y2={y} stroke="#ffffff" strokeWidth="1.5" />
-        {clampedPct >= 14 ? (
-          <text x={textX1} y={textY1} textAnchor="middle" dominantBaseline="central" fill={primaryTextColor} fontSize="10" fontWeight="bold">
-            {formatPct(clampedPct)}%
-          </text>
-        ) : null}
-      </svg>
-    );
-  };
 
   // CURVA OFICIAL MORAR DE DISTRIBUIÇÃO AUTOMÁTICA
   // Calcula dinamicamente as séries por teto de renda, extração do ITBI e fechamento do ato residual
@@ -1453,7 +1337,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setFaixasObra(mObraArr);
     setFaixasPos(mPosArr);
     setValAtoManual(engineResult.atoResidual);
-    setAtoInputText(formatCurrency(engineResult.atoResidual));
     setItbiObraValorManual(engineResult.parcelaMensalITBI);
     setItbiPosValorManual(mesesPosParam === 0 ? 0 : engineResult.parcelaMensalITBI);
     // O motor eleva o ITBI no Ato sozinho (nunca o Ato (Imóvel)) quando o valor
@@ -1463,7 +1346,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // OU desce livremente conforme a Qtd. Meses muda, sem grudar num valor
     // auto-sugerido antigo quando os meses aumentam de novo.
     setValAtoITBI(engineResult.itbiAtoSugerido);
-    setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     setIsManualObra(false);
     setIsManualPos(false);
   };
@@ -1548,7 +1430,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // nunca o Ato (Imóvel) recalculado logo abaixo. Sempre sincroniza com a
     // sugestão fresca (nunca abaixo do piso manual), pra também poder descer.
     setValAtoITBI(engineResult.itbiAtoSugerido);
-    setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     setIsManualObra(false);
     setIsManualPos(false);
 
@@ -1559,7 +1440,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // o Ato exibido não fecha com o restante do fluxo já recalculado.
     if (engineResult.atoResidual > atoValor + 0.005) {
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
       if (onShowToast) {
         onShowToast(`Ato (Imóvel) ajustado para ${formatCurrency(engineResult.atoResidual)}: com ${formatCurrency(atoValor)} o Pró-Soluto ultrapassaria o risco máximo da política de crédito.`);
       }
@@ -1598,7 +1478,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       // antigo deixava o Ato defasado do restante do fluxo — era o que fazia o
       // Ato ficar abaixo do exigido (e o risco estourar) ao "Zerar" o prêmio.
       setValAtoManual(null);
-      setAtoInputText('');
       setIsManualObra(false);
       setIsManualPos(false);
       return;
@@ -1615,7 +1494,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     if (isAVistaActive) {
       const novoAtoVistaTarget = resolverTetoAtoComDesconto(sinalImovelInicial, ativo, pctAtoPremiadoCond);
       setValAtoManual(novoAtoVistaTarget);
-      setAtoInputText(formatCurrency(novoAtoVistaTarget));
       recalcularSeriesParaAtoManual(novoAtoVistaTarget, ativo);
       return;
     }
@@ -1627,7 +1505,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const atoPreservado = Math.min(valAtoManual, novoTetoAto);
 
     setValAtoManual(atoPreservado);
-    setAtoInputText(formatCurrency(atoPreservado));
     recalcularSeriesParaAtoManual(atoPreservado, ativo);
   };
 
@@ -1662,7 +1539,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       // Ato volta a ser sugerido automaticamente.
       setIsAtoPremiadoEnabled(padraoAtoLigado);
       setValAtoManual(null);
-      setAtoInputText('');
       setIsManualObra(false);
       setDescontoConstrutoraAtivo(padraoConstrutoraLigado);
       setIsManualPos(false);
@@ -1684,9 +1560,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setCartaNaMangaAtiva(false);
     setCartaNaManga(0);
     setItbiAtoManualFloor(null);
-    setItbiAtoInputText('');
     setValAtoManual(precoComDesconto);
-    setAtoInputText(formatCurrency(precoComDesconto));
     recalcularSeriesParaAtoManual(precoComDesconto, false, {
       precoTabela: precoComDesconto,
       itbiRegistro: 0,
@@ -1698,7 +1572,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
 
     if (onShowToast) {
       const mensagemDesconto = descontoPct > 0
-        ? `Desconto à vista de ${formatCurrency(valorDesconto)} (${descontoPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%) aplicado sobre o Preço de Tabela.`
+        ? `Desconto à vista de ${formatCurrency(valorDesconto)} (${descontoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%) aplicado sobre o Preço de Tabela.`
         : (descontoLigado ? 'Nenhum % de Desconto à Vista configurado na política desta condição.' : 'Pagamento à vista ativado sem o Desconto à Vista (interruptor desligado).');
       onShowToast(`${mensagemDesconto} O ITBI foi zerado — é de responsabilidade do cliente a partir da obtenção do Habite-se pelo empreendimento. Financiamento, Subsídio e FGTS não são considerados: o Ato (Imóvel) absorve o valor integral.`);
     }
@@ -1752,11 +1626,9 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setFaixasObra(mObraArr);
       setFaixasPos(mPosArr);
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
       setItbiObraValorManual(engineResult.parcelaMensalITBI);
       setItbiPosValorManual(engineResult.parcelaMensalITBI);
       setValAtoITBI(engineResult.itbiAtoSugerido);
-      setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     }
   }, [sinalLiquidoTotalEfetivo, hasUnitSelected, isManualObra, isManualPos, valAtoManual, sinalMinimoVal, currentCond, income, despCartoriasEfetivas, itbiAtoManualFloor, price, evaluation, maxFinanc, subsidy, fgts, isAtoPremiadoEnabled, isComissaoApartada, pctComissaoApartadaCond]);
 
@@ -1788,7 +1660,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     }
     setValAtoManual(valor);
     setAtoEditadoPeloUsuario(true);
-    setAtoInputText(formatCurrency(valor));
     recalcularSeriesParaAtoManual(valor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPagamentoAVistaEnabled]);
@@ -1839,12 +1710,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const aplicarAtoResultante = (atoResidual: number) => {
       if (!atoFoiDigitadoPeloUsuario) {
         setValAtoManual(atoResidual);
-        setAtoInputText(formatCurrency(atoResidual));
         return;
       }
       if (atoResidual > (valAtoManual as number) + 0.005) {
         setValAtoManual(atoResidual);
-        setAtoInputText(formatCurrency(atoResidual));
         if (onShowToast) {
           onShowToast(`O Ato (Imóvel) digitado precisou subir para ${formatCurrency(atoResidual)}: com o novo prazo, o piso exigido pela política de crédito é maior.`);
         }
@@ -1901,7 +1770,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       // ela também desce quando o prazo volta a aumentar.
       const itbiSubiu = engineResult.itbiAtoSugerido > valAtoITBI + 0.005;
       setValAtoITBI(engineResult.itbiAtoSugerido);
-      setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
       setIsManualObra(false);
       setIsManualPos(false);
 
@@ -1951,7 +1819,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setItbiObraValorManual(engineResult.parcelaMensalITBI);
       setItbiPosValorManual(engineResult.parcelaMensalITBI);
       setValAtoITBI(engineResult.itbiAtoSugerido);
-      setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
       setIsManualObra(false);
       setIsManualPos(false);
 
@@ -2026,10 +1893,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     setFaixasPos(mPosArr);
     if (!atoFoiDigitadoPeloUsuario) {
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
     } else if (engineResult.atoResidual > (valAtoManual as number) + 0.005) {
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
       if (onShowToast) {
         onShowToast(`O Ato (Imóvel) digitado precisou subir para ${formatCurrency(engineResult.atoResidual)}: com o novo prazo, o piso exigido pela política de crédito é maior.`);
       }
@@ -2040,7 +1905,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     // manual): assim ela também desce quando o prazo volta a aumentar.
     const itbiSubiu = engineResult.itbiAtoSugerido > valAtoITBI + 0.005;
     setValAtoITBI(engineResult.itbiAtoSugerido);
-    setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     setIsManualObra(false);
     setIsManualPos(false);
 
@@ -2104,16 +1968,13 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       : engineResult.posSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex })));
     if (!atoFoiDigitadoPeloUsuario) {
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
     } else if (engineResult.atoResidual > (valAtoManual as number) + 0.005) {
       setValAtoManual(engineResult.atoResidual);
-      setAtoInputText(formatCurrency(engineResult.atoResidual));
     }
     setItbiObraValorManual(engineResult.parcelaMensalITBI);
     setItbiPosValorManual(engineResult.parcelaMensalITBI);
     const itbiSubiu = engineResult.itbiAtoSugerido > valAtoITBI + 0.005;
     setValAtoITBI(engineResult.itbiAtoSugerido);
-    setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
     setIsManualObra(false);
     setIsManualPos(false);
     if (onShowToast) {
@@ -2157,119 +2018,15 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     const atoDigitado = valAtoManual !== null && Math.abs(valAtoManual - atoSugeridoResidual) >= 0.01 ? valAtoManual : null;
     setParcelasITBIManual(null);
     setItbiAtoManualFloor(null);
-    setIsEditingAtoITBI(false);
     setIsManualObra(false);
     setIsManualPos(false);
     aplicarDistribuicaoOficialMorar({ atoITBI: 0, parcelasITBI: null });
     if (atoDigitado !== null) {
       setValAtoManual(atoDigitado);
-      setAtoInputText(formatCurrency(atoDigitado));
     }
     onShowToast?.('ITBI e parcelas restaurados ao padrão sugerido.');
   };
 
-  const handleFinishITBIEdit = (rawText: string) => {
-    setIsEditingAtoITBI(false);
-    const parsed = parseCurrency(rawText);
-    const maxITBI = valorTotalITBI > 0 ? valorTotalITBI : 0;
-
-    let finalVal = 0;
-    if (rawText.trim() === '' || isNaN(parsed) || parsed <= 0) {
-      finalVal = 0;
-      setValAtoITBI(0);
-      setItbiAtoInputText('');
-    } else if (hasUnitSelected && maxITBI > 0 && parsed > maxITBI) {
-      if (onShowToast) {
-        onShowToast(`O valor do Pagamento do ITBI no Ato não pode exceder o total de ${formatCurrency(maxITBI)}. Ajustado para o teto.`);
-      }
-      finalVal = maxITBI;
-      setValAtoITBI(finalVal);
-      setItbiAtoInputText(formatCurrency(finalVal));
-    } else {
-      finalVal = parsed;
-      setValAtoITBI(finalVal);
-      setItbiAtoInputText(formatCurrency(finalVal));
-    }
-
-    // Guarda este valor como o piso manual — as próximas recalculagens (ex.:
-    // ao mudar a Qtd. Meses) partem dele, nunca de zero, mas também nunca de
-    // um valor auto-sugerido anterior que porventura esteja maior na tela.
-    setItbiAtoManualFloor(finalVal > 0 ? finalVal : null);
-    lembrarItbiNoAto(finalVal);
-
-    setItbiObraValorManual(null);
-    setItbiPosValorManual(null);
-
-    // Recalcular o rateio de ITBI e séries
-    const mesesObraParam = totalParcObra < mesesObraPadraoPolitica ? totalParcObra : mesesObraPadraoPolitica;
-    const mesesPosParam = (apenasFaseObra || totalParcObra < mesesObraPadraoPolitica) ? 0 : (totalParcPos >= 0 ? totalParcPos : mesesPosPadraoPolitica);
-    const globalPct: [number, number, number, number, number, number] = [
-      currentCond?.globalSerie1Pct ?? 30.0,
-      currentCond?.globalSerie2Pct ?? 25.0,
-      currentCond?.globalSerie3Pct ?? 20.0,
-      currentCond?.globalSerie4Pct ?? 15.0,
-      currentCond?.globalSerie5Pct ?? 10.0,
-      currentCond?.globalSerie6Pct ?? 5.0
-    ];
-
-    const engineResult = calculateMorarFlowEngine({
-      precoTabela: price,
-      avaliacaoBanco: evaluation,
-      itbiRegistro: despCartoriasEfetivas,
-      renda: income,
-      financiamento: maxFinanc,
-      subsidio: subsidy,
-      fgts: fgts,
-      percentualRiscoGeral: currentCond?.percMaxProSolutoGlobal ?? currentCond?.riscoImovelPct ?? 17.0,
-      percentualRiscoPos: currentCond?.percMaxPosObra ?? currentCond?.riscoPosPct ?? 8.0,
-      mesesObra: mesesObraParam,
-      mesesPos: mesesPosParam,
-      parcelasITBI: parcelasITBIManual ?? undefined,
-      maxParcelasITBI: maxParcelasITBIPolitica,
-      tetoRendaMensalPct: currentCond?.riscoRendaPct,
-      globalSeriesPct: globalPct,
-      serieMesesCapacidades: serieMesesCapacidades,
-      sinalMinimo: sinalMinimoVal,
-      atoITBI: finalVal,
-      isAtoPremiadoEnabled,
-      atoManual: valAtoManual !== null ? valAtoManual : undefined,
-      atoPremiadoPct: pctAtoPremiadoCond,
-      isComissaoApartada,
-      pctComissaoApartada: pctComissaoApartadaCond
-    });
-
-    const mObraArr = engineResult.obraSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
-    const mPosArr = mesesPosParam === 0 
-      ? [{ qtd: 0, valor: 0, serieIndex: 0 }, { qtd: 0, valor: 0, serieIndex: 1 }, { qtd: 0, valor: 0, serieIndex: 2 }, { qtd: 0, valor: 0, serieIndex: 3 }]
-      : engineResult.posSeries.map(s => ({ qtd: s.qtd, valor: s.parcelaLiquida, serieIndex: s.serieIndex }));
-
-    setFaixasObra(mObraArr);
-    setFaixasPos(mPosArr);
-    setItbiObraValorManual(engineResult.parcelaMensalITBI);
-    setItbiPosValorManual(mesesPosParam === 0 ? 0 : engineResult.parcelaMensalITBI);
-    // O valor digitado pode não bastar: se o saldo restante ainda furar o teto
-    // de renda de algum balde com a quantidade de meses atual, o motor eleva
-    // o próprio campo "ITBI no Ato" até o ponto em que o que sobra cabe.
-    const itbiAjustado = engineResult.itbiAtoSugerido > finalVal + 0.005;
-    if (itbiAjustado) {
-      setValAtoITBI(engineResult.itbiAtoSugerido);
-      setItbiAtoInputText(formatCurrency(engineResult.itbiAtoSugerido));
-    }
-    setIsManualObra(false);
-    setIsManualPos(false);
-
-    if (onShowToast) {
-      if (itbiAjustado) {
-        onShowToast(`ITBI no Ato ajustado para ${formatCurrency(engineResult.itbiAtoSugerido)}: com ${formatCurrency(finalVal)} o restante furaria o teto de renda na quantidade de meses atual.`);
-      } else if (finalVal >= maxITBI && maxITBI > 0) {
-        onShowToast(`ITBI quitado no Ato (${formatCurrency(finalVal)}). Parcela mensal de ITBI zerada.`);
-      } else if (finalVal > 0) {
-        onShowToast(`ITBI no Ato definido em ${formatCurrency(finalVal)}. Saldo de ITBI restante diluído a ${formatCurrency(engineResult.parcelaMensalITBI)}/mês.`);
-      } else {
-        onShowToast(`ITBI no Ato zerado. Valor total diluído a ${formatCurrency(engineResult.parcelaMensalITBI)}/mês.`);
-      }
-    }
-  };
 
   // O teto de meses nunca pode passar do que a política de crédito prevê
   // (mesesObra/mesesPos da condição) — o corretor pode reduzir livremente,
@@ -2335,7 +2092,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     { name: 'Total Pós-Obra', value: totalFasePosComITBI, fill: '#7C3AED', label: formatCurrency(totalFasePosComITBI) }
   ].filter(d => d.value > 0);
 
-  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, index, payload }: any) => {
+  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, payload }: any) => {
     if (payload.value <= 0) return null;
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.55;
@@ -2684,14 +2441,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
       setAtoTravado(false);
     }
     setAtoEditadoPeloUsuario(!!a.editado_pelo_usuario);
-    setAtoInputText(numOuNull(a.valor_manual) !== null ? formatCurrency(a.valor_manual) : '');
-    setIsEditingAto(false);
 
     setValAtoITBI(num(i.itbi_no_ato_valor));
     lembrarItbiNoAto(num(i.itbi_no_ato_valor));
     setItbiAtoManualFloor(numOuNull(i.piso_manual));
-    setItbiAtoInputText(num(i.itbi_no_ato_valor) > 0 ? formatCurrency(i.itbi_no_ato_valor) : '');
-    setIsEditingAtoITBI(false);
     if (typeof i.is_itbi_com_desconto === 'boolean') setIsFirstHomeLocal(i.is_itbi_com_desconto);
     setParcelasITBIManual(numOuNull(i.parcelas_itbi));
     setItbiTotalManual(numOuNull(i.total_manual));
@@ -2825,7 +2578,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               : novoVal))) return;
             if (novoVal === null) {
               setValAtoManual(null);
-              setAtoInputText(formatCurrency(atoSugeridoResidual));
               aplicarDistribuicaoOficialMorar();
             } else {
               const novoValBruto = isComissaoApartada
@@ -2833,7 +2585,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 : novoVal;
               setValAtoManual(novoValBruto);
               setAtoEditadoPeloUsuario(true);
-              setAtoInputText(formatCurrency(novoValBruto));
               recalcularSeriesParaAtoManual(novoValBruto);
             }
           }}
@@ -2892,7 +2643,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           valorRiscoProSoluto={valorRiscoProSoluto}
           pieDataPct={pieData1}
           pieDataValor={pieData2}
-          barData={barData}
           onShowToast={onShowToast}
           onBackToSimulator={onBackToSimulator}
           onOpenPdfExport={() => setIsPdfModalOpen(true)}
@@ -2913,7 +2663,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
             tipologia={tipologia}
             areaPriv={areaPriv}
             areaQuintal={areaQuintal}
-            price={price}
             precoTabelaOriginal={precoTabelaLista}
             descontoConstrutora={descontoConstrutora}
             cartaNaManga={cartaNaMangaEfetiva}
@@ -3154,8 +2903,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                         // inicialização automática ao escolher a unidade).
                         setDescontoConstrutoraAtivo(v => !v);
                         setValAtoManual(null);
-                        setAtoInputText('');
-                        setIsEditingAto(false);
                         setIsManualObra(false);
                         setIsManualPos(false);
                         setItbiObraValorManual(null);
@@ -3548,7 +3295,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-500 font-medium">Comprometimento da Renda:</span>
                     <strong className={`font-bold ${pctRiscoParcelaRenda > limiteMaximoRiscoRenda ? 'text-red-600' : 'text-morar-700'}`}>
-                      {pctRiscoParcelaRenda < 10 && pctRiscoParcelaRenda > 0 ? pctRiscoParcelaRenda.toFixed(2) : pctRiscoParcelaRenda.toFixed(1)}%
+                      {pctRiscoParcelaRenda.toFixed(2)}%
                     </strong>
                   </div>
                 </div>
@@ -3567,7 +3314,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-500 font-medium">Pró-Soluto Total (%):</span>
                     <strong className={`font-bold ${pctRiscoProSoluto > limiteMaximoProSoluto ? 'text-red-600' : 'text-emerald-700'}`}>
-                      {pctRiscoProSoluto < 10 && pctRiscoProSoluto > 0 ? pctRiscoProSoluto.toFixed(2) : pctRiscoProSoluto.toFixed(2)}%
+                      {pctRiscoProSoluto.toFixed(2)}%
                     </strong>
                   </div>
                 </div>
@@ -3617,7 +3364,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               if (atoTravadoRef.current && novoVal !== null) return;
               if (novoVal === null) {
                 setValAtoManual(null);
-                setAtoInputText(formatCurrency(atoSugeridoResidual));
                 aplicarDistribuicaoOficialMorar();
               } else {
                 // Converte o valor líquido digitado de volta para o Ato bruto
@@ -3629,7 +3375,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   : novoVal;
                 setValAtoManual(novoValBruto);
                 setAtoEditadoPeloUsuario(true);
-                setAtoInputText(formatCurrency(novoValBruto));
                 recalcularSeriesParaAtoManual(novoValBruto);
               }
             }}
@@ -3675,12 +3420,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                 // já considerando o desconto do Ato Premiado quando ativo.
                 setValAtoManual(atoAVistaTarget);
                 setAtoEditadoPeloUsuario(true); // acende o ↺ do Ato em verde
-                setAtoInputText(formatCurrency(atoAVistaTarget));
                 recalcularSeriesParaAtoManual(atoAVistaTarget);
               } else {
                 // Volta para o fluxo parcelado normal (Ato automático/sugerido).
                 setValAtoManual(null);
-                setAtoInputText(formatCurrency(atoSugeridoResidual));
                 aplicarDistribuicaoOficialMorar();
               }
             }}
@@ -3731,7 +3474,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   // salvo quando há parcelas de ITBI de Obra naquela janela (série só de ITBI).
                   return (meses > 0 && valorLiquido > 0.009) || (serieObraItbiMeses[originalIndex] ?? 0) > 0;
                 })
-                .map(({ faixa: faixaOriginal, originalIndex }, index) => {
+                .map(({ faixa: faixaOriginal, originalIndex }) => {
                   const fluxoQtd = Number(faixaOriginal.qtd) || 0;
                   const soITBI = fluxoQtd <= 0;
                   // Série só de ITBI: o contador é da CONSTRUTORA (0 X de R$ 0,00); os meses do ITBI ficam no badge abaixo.
@@ -3855,7 +3598,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                   // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados.
                   return meses > 0 && valorLiquido > 0.009;
                 })
-                .map(({ faixa, originalIndex }, index) => {
+                .map(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
                   const subtotalSerie = (Number(faixa.qtd) || 0) * valorLiquido;
                   const parcelaBrutaComITBI = valorLiquido + itbiParcelaPosValor;
@@ -4053,7 +3796,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
                     <YAxis dataKey="name" type="category" width={50} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'normal' }} axisLine={false} tickLine={false} />
                     <RechartsTooltip content={<CustomBarTooltip />} cursor={{ fill: '#f1f5f9' }} />
                     <Bar dataKey="percRendaRaw" fill="#4f46e5" radius={[0, 4, 4, 0]} barSize={24} minPointSize={larguraMinimaBarra}>
-                      {barData.map((entry, index) => (
+                      {barData.map((_entry, index) => (
                         <Cell key={`cell-${index}`} fill={['#312e81', '#3730a3', '#4338ca', '#4f46e5', '#6366f1', '#818cf8'][index % 6]} />
                       ))}
                       <LabelList dataKey="labelFormatado" content={rotuloBarraDireita(11)} />
@@ -4086,7 +3829,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           tipologia={tipologia}
           areaPriv={areaPriv}
           areaQuintal={areaQuintal}
-          price={price}
           precoTabelaOriginal={precoTabelaLista}
           descontoConstrutora={descontoConstrutora}
             cartaNaManga={cartaNaMangaEfetiva}
