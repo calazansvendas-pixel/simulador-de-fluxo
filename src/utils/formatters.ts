@@ -238,6 +238,22 @@ export function formatDateBr(dateStr?: string): string {
 // feitas "como se fosse" outra data. Ambas as datas são strings ISO
 // (YYYY-MM-DD), então a comparação lexicográfica já é cronologicamente
 // correta, sem precisar converter para objeto Date.
+/** Data de HOJE no horário LOCAL (YYYY-MM-DD) — nunca use toISOString(), que é UTC e vira o dia/mês após as 21h no Brasil. */
+export function getTodayLocalISO(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Soma meses a uma data YYYY-MM-DD (ou a hoje) sem shift de fuso; o dia é limitado ao último dia do mês de destino. */
+export function addMonthsLocalISO(iso: string | undefined, meses: number): string {
+  const m = /^(d{4})-(d{2})-(d{2})/.exec(iso || '');
+  const base = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
+  const dia = base.getDate();
+  const alvo = new Date(base.getFullYear(), base.getMonth() + meses, 1);
+  const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+  alvo.setDate(Math.min(dia, ultimo));
+  return getTodayLocalISO(alvo);
+}
+
 export function isTabelaVencida(validTo: string | undefined, currentDate: string | undefined): boolean {
   if (!validTo || !currentDate) return false;
   return validTo < currentDate;

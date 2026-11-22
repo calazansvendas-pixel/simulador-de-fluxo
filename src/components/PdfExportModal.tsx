@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Calendar, FileText, Download, Loader2, AlertCircle } from 'lucide-react';
 import { formatarTelefoneBR } from '../utils/telefone';
 import { CommercialCondition, PdfExportSettings, Product, SimulationData } from '../types';
@@ -35,7 +36,6 @@ interface PdfExportModalProps {
   tipologia: string;
   areaPriv: string;
   areaQuintal: string;
-  price: number;
   // Preço de Tabela original, importado da tabela de vendas — usado só no
   // display "Preço de Tabela" do PDF, que nunca deve refletir o desconto à
   // vista (aplicado sobre `price`, usado no restante dos cálculos).
@@ -55,8 +55,13 @@ interface PdfExportModalProps {
   maxFinanc: number;
   totalNegocEfetivo: number;
   sinalTotal: number;
-  despCartoriasEfetivas: number;
   atoAposMensais: number;
+  // Comissão Apartada — só > 0 na condição "Sinal c/ Banco Direto (Comissão Apartada)" (mesmos valores do card da tela).
+  comissaoApartadaValor?: number;
+  comissaoApartadaParcelasQtd?: number;
+  comissaoApartadaParcelaValor?: number;
+  // Só preenchido quando as parcelas NÃO são todas iguais (detalha uma a uma).
+  comissaoApartadaParcelasDetalhe?: { numero: number; valor: number; travada: boolean }[];
   atoITBIValidado: number;
   valParc2: number;
   valParc3: number;
@@ -67,8 +72,6 @@ interface PdfExportModalProps {
   saldoITBI: number;
   proSoluto: number;
   proSolutoTotalPainel: number;
-  baseVendaLiquidaComITBI: number;
-  baseRendaInformada: number;
   pctRiscoParcelaRenda: number;
   valorRiscoParcela: number;
   pctRiscoProSoluto: number;
@@ -111,7 +114,6 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   tipologia,
   areaPriv,
   areaQuintal,
-  price,
   precoTabelaOriginal,
   descontoConstrutora = 0,
   cartaNaManga = 0,
@@ -125,8 +127,11 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   maxFinanc,
   totalNegocEfetivo,
   sinalTotal,
-  despCartoriasEfetivas,
   atoAposMensais,
+  comissaoApartadaValor = 0,
+  comissaoApartadaParcelasQtd = 0,
+  comissaoApartadaParcelaValor = 0,
+  comissaoApartadaParcelasDetalhe,
   atoITBIValidado,
   valParc2,
   valParc3,
@@ -137,8 +142,6 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   saldoITBI,
   proSoluto,
   proSolutoTotalPainel,
-  baseVendaLiquidaComITBI,
-  baseRendaInformada,
   pctRiscoParcelaRenda,
   valorRiscoParcela,
   pctRiscoProSoluto,
@@ -164,6 +167,14 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
 }) => {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Esc fecha o modal.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -288,7 +299,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
     const restPct = Math.max(0, 100 - clampedPct);
 
     const formatPct = (val: number) => {
-      return (val < 10 && val > 0) ? val.toFixed(2) : val.toFixed(1);
+      return val.toFixed(2);
     };
 
     // Posição radial do texto da fatia
@@ -431,17 +442,21 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             fontSize="10"
             fontWeight="bold"
           >
-            {restPct.toFixed(1)}%
+            {restPct.toFixed(2)}%
           </text>
         )}
       </svg>
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(15,23,42,0.6)] backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+  // Portal no <body>: o modal nunca fica preso a um ancestral com transform/overflow nem atrás do header da página.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       {/* DIALOG CONTAINER */}
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[96vh] flex flex-col overflow-hidden animate-fade-in">
+      <div className="max-h-[92vh] w-full max-w-4xl flex flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200">
         
         {/* BARRA SUPERIOR DO MODAL (NÃO IMPRESSA) */}
         <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between no-print shrink-0">
@@ -460,17 +475,17 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               type="button"
               onClick={handleDownloadPdf}
               disabled={isExporting}
-              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-[rgba(226,232,240,0.8)] disabled:opacity-60"
+              className="px-3.5 py-2 bg-[#006B3F] hover:bg-[#005a35] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
               title="Baixar arquivo .pdf diretamente no dispositivo"
             >
               {isExporting ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-morar-600" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                   <span>Gerando PDF...</span>
                 </>
               ) : (
                 <>
-                  <Download className="w-3.5 h-3.5 text-slate-600" />
+                  <Download className="w-3.5 h-3.5 text-white" />
                   <span>Baixar PDF</span>
                 </>
               )}
@@ -500,7 +515,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             horizontal (como as tabelas largas do Painel do Administrador) em vez
             de espremer o grid interno e descaracterizar a pré-visualização do
             que realmente sai no PDF exportado. */}
-        <div className="flex-1 overflow-auto p-4 sm:p-6 bg-[rgba(241,245,249,0.6)]">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 sm:p-6 bg-[rgba(241,245,249,0.6)]">
           <div
             id="pdf-content-area"
             className="printable-document bg-white mx-auto border border-slate-200 shadow-md rounded-xl p-5 sm:p-7 space-y-4 min-w-[520px] max-w-[210mm] text-slate-900 text-xs"
@@ -786,7 +801,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                       <div className="mt-2 pt-1.5 border-t border-[rgba(226,232,240,0.7)] w-full text-center space-y-0.5">
                         <div className="flex justify-between items-center text-[9.5px] px-1">
                           <span className="text-slate-500 font-medium">Comprometimento:</span>
-                          <strong className="text-morar-700 font-bold">{pctRiscoParcelaRenda < 10 ? pctRiscoParcelaRenda.toFixed(2) : pctRiscoParcelaRenda.toFixed(1)}%</strong>
+                          <strong className="text-morar-700 font-bold">{pctRiscoParcelaRenda.toFixed(2)}%</strong>
                         </div>
                         <div className="flex justify-between items-center text-[9.5px] px-1">
                           <span className="text-slate-500 font-medium">1ª Parcela:</span>
@@ -809,7 +824,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                       <div className="mt-2 pt-1.5 border-t border-[rgba(226,232,240,0.7)] w-full text-center space-y-0.5">
                         <div className="flex justify-between items-center text-[9.5px] px-1">
                           <span className="text-slate-500 font-medium">Comprometimento:</span>
-                          <strong className="text-indigo-700 font-bold">{pctRiscoProSoluto < 10 ? pctRiscoProSoluto.toFixed(2) : pctRiscoProSoluto.toFixed(1)}%</strong>
+                          <strong className="text-indigo-700 font-bold">{pctRiscoProSoluto.toFixed(2)}%</strong>
                         </div>
                         <div className="flex justify-between items-center text-[9.5px] px-1">
                           <span className="text-slate-500 font-medium">Pró-Soluto Total:</span>
@@ -890,6 +905,23 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                     )}
                   </div>
                   )}
+
+                  {/* COMISSÃO APARTADA — só na condição "Sinal c/ Banco Direto (Comissão Apartada)" */}
+                  {comissaoApartadaValor > 0 && (pdfSettings.mostrarComissaoApartada ?? true) && (
+                    <div className="flex items-center justify-between flex-wrap bg-fuchsia-50 px-3 py-2 rounded-lg border border-fuchsia-100 text-xs">
+                      <span className="font-bold text-fuchsia-700">Comissão Apartada ({comissaoApartadaParcelasQtd}x):</span>
+                      <strong className="text-fuchsia-800 font-black text-xs sm:text-sm">
+                        {fmt(comissaoApartadaValor)}{!comissaoApartadaParcelasDetalhe && <span className="font-semibold"> ({fmt(comissaoApartadaParcelaValor)}/mês)</span>}
+                      </strong>
+                      {comissaoApartadaParcelasDetalhe && (
+                        <div className="w-full basis-full mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-semibold text-fuchsia-800">
+                          {comissaoApartadaParcelasDetalhe.map(p => (
+                            <span key={p.numero} className="flex justify-between"><span>{p.numero}ª Parcela</span><span>{fmt(p.valor)}</span></span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 )}
 
@@ -957,7 +989,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                     {/* TARJA "SUBTOTAL ATÉ AS CHAVES" */}
                     <div className="flex justify-between items-center bg-morar-50 px-3 py-1.5 rounded-xl border border-morar-200 mt-2">
                       <span className="text-xs font-semibold text-slate-700">
-                        Subtotal até as Chaves: <span className="text-[9.5px] font-normal text-slate-500">({pmPctSubtotalAteChaves.toFixed(1)}% do imóvel)</span>
+                        Subtotal até as Chaves: <span className="text-[9.5px] font-normal text-slate-500">({pmPctSubtotalAteChaves.toFixed(2)}% do imóvel)</span>
                       </span>
                       <strong className="text-sm font-bold text-morar-700">{fmt(pmSubtotalAteChaves)}</strong>
                     </div>
@@ -1026,6 +1058,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

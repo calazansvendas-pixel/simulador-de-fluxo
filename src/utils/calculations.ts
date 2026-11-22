@@ -1334,7 +1334,6 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
   const totalObraComITBI = Math.round((subtotalObraLiquido + itbiObraTotal) * 100) / 100;
   const totalPosComITBI = Math.round((subtotalPosLiquido + itbiPosTotal) * 100) / 100;
 
-  const itbiParceladoTotal = Math.round(nITBI * parcelaMensalITBI * 100) / 100;
 
   // FECHAMENTO FINAL NO ATO (IMÓVEL): o que as séries (tetos de renda, truncamento em centavos) e o ITBI não
   // absorveram vai para o Ato. Como o Ato Premiado (e a comissão apartada) dependem do Ato, o ajuste roda em loop
@@ -1553,7 +1552,7 @@ export function calculatePolicyRiskValues(
   overridePrice?: number,
   overrideITBI?: number,
   overrideEvaluation?: number,
-  overrideAtoPremiado?: number, // Mantido na interface para compatibilidade, mas ignorado
+  _overrideAtoPremiado?: number, // posição mantida na assinatura (compatibilidade com quem chama), ignorado
   maxFinanciamentoBanco: number = Infinity,
   subsidy: number = 0,
   fgts: number = 0,
@@ -1915,20 +1914,11 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
   const recursos = Math.max(0, p.recursos || 0);
   const renda = Math.max(0, p.renda || 0);
 
-  // Sinal Mínimo = X% da MESMA base usada nos percentuais de comprometimento e nos tetos das parcelas: o
-  // imóvel já líquido do Desconto do Ato Premiado (preço − desconto(Sinal)). Como o desconto depende do próprio
-  // Sinal, é um ponto fixo: S = X% × (preço − desconto(S)). Sem isso o Sinal saía em 10,10% (10% do preço cheio)
-  // enquanto as parcelas ainda tinham margem.
+  // Sinal Mínimo (piso do ATO (IMÓVEL) líquido) = X% do valor do imóvel (price), SEM abater o Desconto do Ato
+  // Premiado do cálculo do piso: o desconto reduz o saldo a parcelar, mas o cliente sempre paga, no mínimo,
+  // X% do imóvel no Ato (e o gráfico de Sinal mostra X% exato sobre o valor do imóvel).
   const pctSinalMinimoPM = (p.pctSinalMinimo ?? 10) / 100;
-  const pctAtoPremiadoSinal = Math.max(0, p.atoPremiadoPct !== undefined ? p.atoPremiadoPct : ATO_PREMIADO_PCT_PADRAO);
-  let sinalMinimoCalculado = Math.round(price * pctSinalMinimoPM * 100) / 100;
-  if (p.isAtoPremiadoEnabled && pctAtoPremiadoSinal > 0) {
-    for (let i = 0; i < 20; i++) {
-      const proximo = Math.round(pctSinalMinimoPM * (price - calcularDescontoAtoPremiado(sinalMinimoCalculado, pctAtoPremiadoSinal)) * 100) / 100;
-      if (Math.abs(proximo - sinalMinimoCalculado) < 0.005) break;
-      sinalMinimoCalculado = proximo;
-    }
-  }
+  const sinalMinimoCalculado = Math.round(price * pctSinalMinimoPM * 100) / 100;
 
   const nMensaisObra = Math.max(0, Math.round(p.mesesObraQtd || 0));
   const nSemestrais = Math.max(0, Math.round(p.semestraisQtd || 0));
@@ -2110,9 +2100,17 @@ export function calcularParcelamentoMorar(p: ParcelamentoMorarParams): Parcelame
     valorPosObraTotal = parcela * qtdParcelasPosObra;
   }
   if (centavosTruncados > 0.00001) {
-    const atoDigitado = p.valAtoManual !== null && p.valAtoManual !== undefined && p.valAtoManual >= sinalMinimoCalculado;
-    if (atoDigitado && chavesHabilitada && !chavesIsManual) valorChaves += centavosTruncados;
-    else atoEfetivo += centavosTruncados;
+    // Os centavos NÃO inflam o Ato (no piso ou acima dele): o Ato exibido continua sendo exatamente o valor sobre o
+    // qual o Desconto Ato (10%) foi calculado, sem divergência de centavos. Vão para a Chaves automática; só sem
+    // Chaves utilizável (desligada ou digitada) o Ato absorve.
+    // A Chaves nunca passa do teto da política (pctChavesMax do Valor Utilizado) por causa de centavos: o que não
+    // couber vai para o Ato.
+    if (chavesHabilitada && !chavesIsManual) {
+      const tetoChaves = Math.round(valorUtilizado * ((p.pctChavesMax ?? 15) / 100) * 100) / 100;
+      const cabe = Math.max(0, Math.min(centavosTruncados, tetoChaves - valorChaves));
+      valorChaves += cabe;
+      atoEfetivo += centavosTruncados - cabe;
+    } else atoEfetivo += centavosTruncados;
   }
 
   const saldoAPagarDireto = valorMensalObraTotal + totalSemestrais + valorChaves + valorPosObraTotal;

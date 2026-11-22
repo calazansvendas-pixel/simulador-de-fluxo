@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Calendar, Download, Loader2, AlertCircle } from 'lucide-react';
 import { formatarTelefoneBR } from '../utils/telefone';
 import logoMorar from '../assets/brand';
@@ -44,7 +45,6 @@ interface PdfExportModalMorarProps {
   tipologia: string;
   areaPriv: string;
   areaQuintal: string;
-  price: number;
   // Preço de Tabela original, importado da tabela de vendas — usado só no
   // display "Preço de Tabela" do PDF, que nunca deve refletir o desconto à
   // vista (aplicado sobre `price`, usado no restante dos cálculos).
@@ -117,7 +117,6 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   tipologia,
   areaPriv,
   areaQuintal,
-  price,
   precoTabelaOriginal,
   descontoConstrutora = 0,
   cartaNaManga = 0,
@@ -172,6 +171,14 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
   const [exibirComprometimento, setExibirComprometimento] = useState<boolean>(true);
   const comprometimentoPermitido = pdfSettings.mostrarBloco2 && comprometimentoPorSerieVisivel;
   const mostrarComprometimento = comprometimentoPermitido && exibirComprometimento;
+
+  // Esc fecha o modal.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -291,9 +298,13 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(15,23,42,0.6)] backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl overflow-hidden flex flex-col max-h-[96vh] animate-in fade-in zoom-in-95 duration-150">
+  // Portal no <body>: o modal nunca fica preso a um ancestral com transform/overflow nem atrás do header da página.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="max-h-[92vh] w-full max-w-4xl flex flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200">
         
         {/* CABEÇALHO DO MODAL */}
         <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
@@ -332,7 +343,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
               type="button"
               onClick={handleDownloadPdf}
               disabled={isExporting}
-              className="px-4 py-2 bg-morar-600 hover:bg-morar-700 disabled:bg-morar-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+              className="px-4 py-2 bg-[#006B3F] hover:bg-[#005a35] disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer"
             >
               {isExporting ? (
                 <>
@@ -370,7 +381,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
             min-w (mesma razão do PdfExportModal.tsx: preservar a fidelidade da
             pré-visualização do PDF exportado); em telas de celular a área rola
             na horizontal em vez de espremer o grid interno. */}
-        <div className="p-4 sm:p-6 overflow-auto bg-slate-100 flex justify-center items-start flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-auto bg-slate-100 flex justify-center items-start flex-1 min-h-0">
 
           <div
             id="pdf-content-area-morar"
@@ -662,7 +673,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={45} tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'normal' }} axisLine={false} tickLine={false} />
                         <Bar dataKey="percRendaRaw" fill="#4f46e5" radius={[0, 4, 4, 0]} barSize={16} minPointSize={larguraMinimaBarra} isAnimationActive={false}>
-                          {barData.map((entry, idx) => (
+                          {barData.map((_entry, idx) => (
                             <Cell key={`bar-${idx}`} fill={['#312e81', '#3730a3', '#4338ca', '#4f46e5', '#6366f1', '#818cf8'][idx % 6]} />
                           ))}
                           <LabelList dataKey="labelFormatado" content={rotuloBarraDireita(9)} />
@@ -875,7 +886,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500 font-medium">Comprometimento da Renda:</span>
                     <strong className={`font-bold ${pctRiscoParcelaRenda > limiteMaximoRiscoRenda ? 'text-red-600' : 'text-morar-700'}`}>
-                      {pctRiscoParcelaRenda < 10 && pctRiscoParcelaRenda > 0 ? pctRiscoParcelaRenda.toFixed(2) : pctRiscoParcelaRenda.toFixed(1)}%
+                      {pctRiscoParcelaRenda.toFixed(2)}%
                     </strong>
                   </div>
                 </div>
@@ -887,7 +898,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500 font-medium">Pró-Soluto Total (%):</span>
                     <strong className={`font-bold ${pctRiscoProSoluto > limiteMaximoProSoluto ? 'text-red-600' : 'text-emerald-700'}`}>
-                      {pctRiscoProSoluto < 10 && pctRiscoProSoluto > 0 ? pctRiscoProSoluto.toFixed(2) : pctRiscoProSoluto.toFixed(2)}%
+                      {pctRiscoProSoluto.toFixed(2)}%
                     </strong>
                   </div>
                 </div>
@@ -905,6 +916,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
