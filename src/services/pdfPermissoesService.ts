@@ -65,6 +65,7 @@ export const pdfPermissoesService = {
       const resultado: Partial<Record<Cargo, PdfExportSettingsByKind>> = {};
       snap.forEach(d => {
         const row = d.data() as PdfSettingsRow;
+        if (!(row.condicao in DEFAULT_PDF_EXPORT_SETTINGS_BY_KIND)) return; // condição removida (legado)
         if (!resultado[row.cargo]) resultado[row.cargo] = { ...DEFAULT_PDF_EXPORT_SETTINGS_BY_KIND };
         resultado[row.cargo]![row.condicao] = rowParaSettings(row);
       });

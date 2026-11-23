@@ -93,6 +93,7 @@ export const telaVisibilidadeService = {
       const resultado: Partial<Record<Cargo, TelaVisibilitySettingsByKind>> = {};
       snap.forEach(d => {
         const row = d.data() as TelaVisibilityRow;
+        if (!(row.condicao in DEFAULT_TELA_VISIBILITY_SETTINGS_BY_KIND)) return; // condição removida (legado)
         if (!resultado[row.cargo]) resultado[row.cargo] = { ...DEFAULT_TELA_VISIBILITY_SETTINGS_BY_KIND };
         resultado[row.cargo]![row.condicao] = rowParaSettings(row);
       });

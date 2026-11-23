@@ -80,7 +80,7 @@ export default function App({ perfil, onSair }: AppProps) {
     return 'simulator';
   });
   // Segunda página (cálculo do fluxo): sem Sidebar; cada ficha traz o próprio painel lateral.
-  const isTelaCalculo = activeTab === 'ficha-morar' || activeTab === 'ficha-morar-simplificada' || activeTab === 'details';
+  const isTelaCalculo = activeTab === 'ficha-morar' || activeTab === 'details';
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   // Gaveta do menu lateral em telas pequenas (abaixo de md) — independente de
   // isSidebarCollapsed, que só controla a largura (ícone x completo) do menu
@@ -387,8 +387,7 @@ export default function App({ perfil, onSair }: AppProps) {
   };
 
   // `targetTab` vem de SimulatorView já resolvido (ver CONDICOES_APP em
-  // config/telasApp.ts) para as duas opções simplificadas ("Sinal c/ Morar**"
-  // e "...Com. Apartada)**") liberadas no dropdown "Selecionar Condição" —
+  // config/telasApp.ts) para as opções liberadas no dropdown "Selecionar Condição" —
   // sem ele, cai no roteamento automático de sempre (por isComissaoApartada/kind).
   const handleAdvanceToDetails = (prod: Product, conditionId: string, targetTab?: ActiveTab) => {
     const prodWithConds = ensureProductConditions({ ...prod });
@@ -486,11 +485,9 @@ export default function App({ perfil, onSair }: AppProps) {
     }
 
     if (cond && isMorarCondition(cond.name)) {
-      // `origem_tela` (gravado por FichaMorar.tsx.montarDadosCompletos) diz
-      // se a simulação foi feita na versão completa ou na simplificada —
-      // simulações salvas antes dessa gravação existir (origem_tela ausente)
-      // continuam abrindo na completa, como sempre.
-      setActiveTab(dados.origem_tela === 'ficha-morar-simplificada' ? 'ficha-morar-simplificada' : 'ficha-morar');
+      // Simulações antigas gravadas com origem_tela 'ficha-morar-simplificada' (tela removida)
+      // abrem normalmente na Ficha Morar.
+      setActiveTab('ficha-morar');
     } else {
       setActiveTab('details');
     }
@@ -501,8 +498,8 @@ export default function App({ perfil, onSair }: AppProps) {
   // Handler para troca de condição comercial com redirecionamento/roteamento
   // inteligente. `targetTab` (opcional) vem do próprio dropdown do cabeçalho
   // da ficha (FichaMorarTopBar) já resolvido via CONDICOES_APP quando a opção
-  // escolhida é uma das variantes "**" — nesse caso o roteamento não é mais
-  // "inteligente" por isComissaoApartada/kind, é a tela exata que a opção pede.
+  // escolhida a define — nesse caso o roteamento não é mais "inteligente" por
+  // isComissaoApartada/kind, é a tela exata que a opção pede.
   const handleSelectConditionWithRouting = (cond: CommercialCondition, targetTab?: ActiveTab) => {
     // Torre e Unidade (selectedUnits) NÃO são zeradas ao trocar de condição comercial: a
     // mesma unidade segue ativa na nova condição e o fluxo é recalculado para ela.
@@ -516,11 +513,7 @@ export default function App({ perfil, onSair }: AppProps) {
       return;
     }
     if (isMorarCondition(cond.name)) {
-      // Sem targetTab explícito (ex.: troca de empreendimento), preserva a
-      // variante de tela em que a pessoa já está — 'sinal-morar' e
-      // 'sinal-morar-comissao-apartada' têm cada uma as duas variantes de
-      // tela (completa/simplificada) e a troca não deve "ejetar" ninguém.
-      if (activeTab !== 'ficha-morar' && activeTab !== 'ficha-morar-simplificada') {
+      if (activeTab !== 'ficha-morar') {
         setActiveTab('ficha-morar');
         window.scrollTo(0, 0);
       }
@@ -741,8 +734,8 @@ export default function App({ perfil, onSair }: AppProps) {
 
       <div className={`flex flex-1 w-full mx-auto ${isTelaCalculo ? 'max-w-[1555px]' : 'max-w-7xl'}`}>
 
-        {/* SIDEBAR — nas telas de cálculo (2ª página) o menu não aparece: Ficha Morar, Detalhes e a
-            variante simplificada ocupam toda a largura com o próprio painel lateral do imóvel. */}
+        {/* SIDEBAR — nas telas de cálculo (2ª página) o menu não aparece: Ficha Morar e Detalhes
+            ocupam toda a largura com o próprio painel lateral do imóvel. */}
         {isTelaCalculo ? null : (
           <Sidebar
             activeTab={activeTab}
@@ -805,7 +798,7 @@ export default function App({ perfil, onSair }: AppProps) {
             />
           )}
 
-          {(activeTab === 'ficha-morar' || activeTab === 'ficha-morar-simplificada') && (
+          {activeTab === 'ficha-morar' && (
             <FichaMorar
               product={activeAnalysisProduct}
               condition={activeAnalysisCondition}
@@ -831,7 +824,6 @@ export default function App({ perfil, onSair }: AppProps) {
               }}
               onShowToast={showToast}
               cargoUsuario={perfil.cargo}
-              isNovato={activeTab === 'ficha-morar-simplificada'}
               condicoesLiberadas={condicoesLiberadas}
               onSimulationDataChange={setSimulationData}
             />

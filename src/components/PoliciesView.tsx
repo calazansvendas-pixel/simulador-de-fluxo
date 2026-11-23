@@ -26,10 +26,7 @@ import { calculatePresentValue, ensureProductConditions, calculatePolicyRiskValu
 
 // Par "condição base -> condição com Comissão Apartada" dentro do mesmo
 // empreendimento (ver blocosMeta.ts e o comentário de comissaoApartadaPct em
-// types.ts). "Parcelamento Morar" não tem par de comissão apartada. As telas
-// simplificadas ("**"/"Com. Apartada)**") não entram aqui: usam o MESMO
-// ConditionKind das versões completas (getConditionKind não distingue
-// completa de simplificada), então já ficam sincronizadas automaticamente.
+// types.ts). "Parcelamento Morar" não tem par de comissão apartada.
 const PAR_COMISSAO_APARTADA: Partial<Record<ConditionKind, ConditionKind>> = {
   'sinal-morar': 'sinal-morar-comissao-apartada',
   'banco-direto': 'banco-direto-comissao-apartada',

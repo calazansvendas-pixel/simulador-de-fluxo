@@ -1,4 +1,4 @@
-import { FileCheck2, Coins, Sparkles, HandCoins } from 'lucide-react';
+import { FileCheck2, Coins } from 'lucide-react';
 import { PdfConditionKind } from '../types';
 
 export interface BlocoMeta {
@@ -63,32 +63,6 @@ export const KIND_META: KindMeta[] = [
     bloco1: { title: 'Bloco 1 — Dados da Aprovação de Crédito', description: 'Renda, subsídio, FGTS, ato premiado, financiamento e sinal distribuído.' },
     bloco2: { title: 'Bloco 2 — Comprometimento por Série & Comissão', description: 'Gráfico de comprometimento por série e card de comissão a pagar.' },
     bloco3: { title: 'Bloco 3 — Período de Pagamentos', description: 'Ato, correção INCC (obra), correção IPCA (pós) e ITBI/registro.' },
-    bloco4: { title: 'Bloco 4 — Indicadores de Risco / Comprometimento', description: 'Gráficos de risco por fase e volume financeiro por fase.' },
-  },
-  // As duas entradas abaixo são das telas SIMPLIFICADAS (NovatoSimuladorView.tsx,
-  // rótulos "Sinal c/ Morar**"/"...Com. Apartada)**" no menu — ver telasApp.ts),
-  // configuráveis pelo Administrador de forma independente das telas completas
-  // acima, mesmo usando a mesma condição comercial por trás (getConditionKind
-  // não distingue completa de simplificada). A tela simplificada não tem uma
-  // seção equivalente ao Bloco 2 (Comprometimento por Série) das telas
-  // completas — o switch existe pela mesma estrutura de 4 blocos usada em toda
-  // configuração de tela/PDF, mas hoje não tem nenhum conteúdo para ocultar.
-  {
-    kind: 'simulador-simplificado',
-    label: 'Sinal c/ Morar**',
-    icon: Sparkles,
-    bloco1: { title: 'Bloco 1 — Dados da Aprovação de Crédito', description: 'Renda, subsídio, FGTS, ato premiado, financiamento e sinal distribuído.' },
-    bloco2: { title: 'Bloco 2 — Comprometimento por Série', description: 'Não exibido na versão simplificada — este switch hoje não tem efeito visual.' },
-    bloco3: { title: 'Bloco 3 — Período de Pagamentos', description: 'Ato (editável), correção INCC (obra), correção IPCA (pós) e ITBI/registro.' },
-    bloco4: { title: 'Bloco 4 — Indicadores de Risco / Comprometimento', description: 'Gráficos de risco por fase e volume financeiro por fase.' },
-  },
-  {
-    kind: 'simulador-simplificado-comissao-apartada',
-    label: 'Sinal c/ Morar (Com. Apartada)**',
-    icon: HandCoins,
-    bloco1: { title: 'Bloco 1 — Dados da Aprovação de Crédito', description: 'Renda, subsídio, FGTS, ato premiado, financiamento e sinal distribuído.' },
-    bloco2: { title: 'Bloco 2 — Comprometimento por Série', description: 'Não exibido na versão simplificada — este switch hoje não tem efeito visual.' },
-    bloco3: { title: 'Bloco 3 — Período de Pagamentos & Comissão', description: 'Ato (editável, líquido de comissão), card de Comissão Apartada, correção INCC/IPCA e ITBI/registro.' },
     bloco4: { title: 'Bloco 4 — Indicadores de Risco / Comprometimento', description: 'Gráficos de risco por fase e volume financeiro por fase.' },
   },
 ];
