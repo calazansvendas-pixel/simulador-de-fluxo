@@ -1507,8 +1507,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Ato Mínimo estivesse ativa (ali riscoMaximoApuradoBruto vem sem taxa
   // nenhuma, então bater com um valor que já tem taxa somada sempre acusava
   // uma sobra do tamanho exato da Taxa Bancária).
+  //
+  // TETO COM A TAXA SUBENTENDIDA: o card mostra o Pró-Soluto SEM a Taxa Bancária, mas o indicador "Risco Pró-Soluto
+  // Total" mede (Pró-Soluto + Taxa) ÷ Base Líq. c/ ITBI. Por isso o limite do Pró-Soluto exibido é o teto bruto MENOS a
+  // Taxa Bancária (riscoMaximo − taxaBancaria): assim, em qualquer fluxo (Ato Premiado ligado/desligado, mensais
+  // digitadas à mão etc.) Pró-Soluto + Taxa nunca passa de 100% do teto (ex.: 20,00%, nunca 20,04%). O excedente
+  // migra para o Ato (Imóvel).
+  const tetoProSolutoSemTaxa = Math.max(0, riscoMaximoApuradoBruto - taxaBancaria);
   const excessoRiscoParcela = (hasUnitSelected && riscoMaximoApuradoBruto > 0)
-    ? Math.max(0, proSolutoTotalParceladoSemTravaParcela - riscoMaximoApuradoBruto)
+    ? Math.max(0, proSolutoTotalParceladoSemTravaParcela - tetoProSolutoSemTaxa)
     : 0;
   const extraAtoPorTravaParcelaRisco = Math.round(excessoRiscoParcela * 100) / 100;
 
@@ -1870,9 +1877,10 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const displayValorRiscoParcela = isParcelamentoMorar ? pm.valorMensalObra : valorRiscoParcela;
   const displayPctRiscoProSoluto = isParcelamentoMorar ? pm.pctSubtotalAteChaves : pctRiscoProSoluto;
   const displayValorRiscoProSoluto = isParcelamentoMorar ? pm.subtotalAteChaves : valorRiscoProSoluto;
-  // "Parcelamento Morar" não soma ITBI à Base Líquida (não entra ITBI/registro
-  // nesta condição), mas continua deduzindo o desconto do Ato Premiado.
-  const pmBaseLiquida = hasUnitSelected ? Math.max(0, valorBaseImovel - pm.descontoAtoPremiado) : 0;
+  // "Parcelamento Morar" não soma ITBI à Base Líquida (não entra ITBI/registro nesta condição). O badge mostra o
+  // DENOMINADOR REAL dos percentuais do Bloco 4 — o `price` que o motor (calcularParcelamentoMorar) usa em
+  // pctSubtotalAteChaves (subtotal ÷ price) —, de modo que Base × % = valor em R$ exibido no quadro.
+  const pmBaseLiquida = hasUnitSelected ? price : 0;
   const displayBaseLiquida = isParcelamentoMorar ? pmBaseLiquida : baseVendaLiquidaComITBI;
 
   // Função auxiliar para renderizar Gráficos de Pizza Sólidos com percentuais internos
