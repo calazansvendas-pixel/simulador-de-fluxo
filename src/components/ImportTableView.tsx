@@ -425,8 +425,10 @@ export const ImportTableView: React.FC<ImportTableViewProps> = ({
     }
 
     // O <input type="date"> entrega YYYY-MM-DD; só acusa erro com campo vazio, data ilegível ou fim < início.
-    const inicio = new Date(validFrom).getTime();
-    const fim = new Date(validTo).getTime();
+    // Comparação por string YYYY-MM-DD (sem Date/UTC): imune a fuso horário.
+    const isoOk = (d: string) => /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d);
+    const inicio = isoOk(validFrom) ? 0 : NaN;
+    const fim = isoOk(validTo) ? (validTo < validFrom ? -1 : 0) : NaN;
     if (!validFrom || !validTo) {
       onShowToast("Preencha as datas de vigência inicial e final.");
       return;

@@ -3,7 +3,7 @@ import { Pencil, RotateCcw } from 'lucide-react';
 import { ActiveTab, CommercialCondition, PdfExportSettings, Product, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatForEdit, parseCurrency } from '../utils/formatters';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { MorarBarDatum, MorarFaixa, MorarPieDatum } from './PdfExportModalMorar';
+import { MorarFaixa, MorarPieDatum } from './PdfExportModalMorar';
 import { MonthStepper } from './MonthStepper';
 import { FichaMorarTopBar } from './FichaMorarTopBar';
 import { FichaMorarActionBar } from './FichaMorarActionBar';
@@ -170,7 +170,6 @@ interface NovatoSimuladorViewProps {
   valorRiscoProSoluto: number;
   pieDataPct: MorarPieDatum[];
   pieDataValor: MorarPieDatum[];
-  barData: MorarBarDatum[];
 
   onShowToast: (msg: string) => void;
   onBackToSimulator: () => void;
@@ -267,7 +266,6 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
   valorRiscoProSoluto,
   pieDataPct,
   pieDataValor,
-  barData,
   onShowToast,
   onBackToSimulator,
   onOpenPdfExport
@@ -799,7 +797,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">Comprometimento da Renda:</span>
                   <strong className={`font-bold ${pctRiscoParcelaRenda > limiteMaximoRiscoRenda ? 'text-red-600' : 'text-morar-700'}`}>
-                    {pctRiscoParcelaRenda < 10 && pctRiscoParcelaRenda > 0 ? pctRiscoParcelaRenda.toFixed(2) : pctRiscoParcelaRenda.toFixed(1)}%
+                    {pctRiscoParcelaRenda.toFixed(2)}%
                   </strong>
                 </div>
               </div>
@@ -811,7 +809,7 @@ export const NovatoSimuladorView: React.FC<NovatoSimuladorViewProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-medium">Pró-Soluto Total (%):</span>
                   <strong className={`font-bold ${pctRiscoProSoluto > limiteMaximoProSoluto ? 'text-red-600' : 'text-emerald-700'}`}>
-                    {pctRiscoProSoluto < 10 && pctRiscoProSoluto > 0 ? pctRiscoProSoluto.toFixed(2) : pctRiscoProSoluto.toFixed(2)}%
+                    {pctRiscoProSoluto.toFixed(2)}%
                   </strong>
                 </div>
               </div>

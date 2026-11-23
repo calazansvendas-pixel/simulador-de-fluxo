@@ -32,6 +32,7 @@ export type PmResultado =
 export type PmDestino = 'ato' | 'mensal' | 'semestrais' | 'chaves' | 'pos';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const MSG_NO_TETO = 'Esta parcela já atingiu o valor máximo permitido pela política de crédito.';
 const ehSemestral = (k: string) => k.startsWith('sem-');
 
 /**
@@ -162,8 +163,12 @@ function fecharNoCentavo(ctx: PmContexto, valores: Record<string, number>, prote
     let gap = gapCom(v.ato);
     if (Math.abs(gap) < 0.005) return v;
 
-    // 2. Ato absorvedor, respeitando o piso
-    if (atoAbsorve) {
+    // 2. Ato absorvedor, respeitando o piso. Com o Ato NO piso e faltando distribuir centavos (gap > 0), o Ato
+    //    não recebe resíduo: os centavos vão para a Chaves aberta (passo 3), mesma regra do motor (calculations.ts).
+    // Folga da Chaves até o teto da política (o resíduo nunca a leva para o vermelho).
+    const folgaChaves = () => { const b = bloco('chaves'); return b && Number.isFinite(b.teto) ? Math.max(0, r2(b.teto) - v.chaves) : Infinity; };
+    const atoNoPisoComChaves = v.ato <= pisoAto + 0.005 && gap > 0 && livre('chaves') && folgaChaves() >= gap - 0.005;
+    if (atoAbsorve && !atoNoPisoComChaves) {
       if (ajustarAto() && v.ato >= pisoAto - 0.005) return v;
       if (v.ato < pisoAto) v.ato = pisoAto;
       gap = gapCom(v.ato);
@@ -171,8 +176,8 @@ function fecharNoCentavo(ctx: PmContexto, valores: Record<string, number>, prote
     }
 
     // 3. Parcela Chaves aberta
-    if (livre('chaves') && v.chaves + gap >= 0) {
-      v.chaves = r2(v.chaves + gap);
+    if (livre('chaves') && v.chaves + gap >= 0 && (gap <= 0 || folgaChaves() > 0.005)) {
+      v.chaves = r2(v.chaves + (gap > 0 ? Math.min(gap, folgaChaves()) : gap));
       if (Math.abs(gapCom(v.ato)) < 0.005) return v;
       gap = gapCom(v.ato);
     }
@@ -215,6 +220,19 @@ export function redistribuirParcelamentoMorar(ctx: PmContexto, chave: string, no
   const X = ctx.blocos.find(b => b.chave === chave);
   const ato = ctx.blocos.find(b => b.chave === 'ato');
   if (!X || !ato) return { tipo: 'bloqueado' };
+
+  // SÉRIE JÁ NO LIMITE: aumentar (clique no +, ou valor digitado acima do teto) uma série que já está no teto da
+  // política — ou que ficaria acima dele — não redistribui nada: bloqueia e avisa, deixando todo o fluxo intacto.
+  if (chave !== 'ato' && Number.isFinite(X.teto) && X.teto > 0.005) {
+    const tol = 0.01 * Math.max(1, X.meses ?? 1);
+    if (novoValor > X.valor + 0.004 && (X.valor >= X.teto - tol || novoValor > X.teto + tol)) {
+      return { tipo: 'bloqueado', aviso: MSG_NO_TETO };
+    }
+  }
+  // ATO já no máximo possível (todas as demais parcelas em R$ 0,00): o + não faz nada e avisa.
+  if (chave === 'ato' && novoValor > X.valor + 0.004 && X.valor >= tetoAbsolutoAto(ctx) - 0.005) {
+    return { tipo: 'bloqueado', aviso: 'O Sinal já atingiu o valor máximo possível (total da negociação).' };
+  }
 
   let aviso: string | undefined;
   let novo = r2(Math.max(X.piso, novoValor));
