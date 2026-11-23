@@ -57,8 +57,8 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
     {/* QUADRO SUPERIOR: parâmetros de crédito (% aprovação + 1º imóvel) */}
     <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-3">
     {/* SELETOR 1: % máximo utilizado na aprovação */}
-    <div className="flex items-center justify-between gap-1 w-full">
-      <span className="whitespace-nowrap text-[11px] sm:text-xs font-semibold text-slate-700">% máximo utilizado na aprovação</span>
+    <div className="flex items-center justify-between gap-2 w-full">
+      <span className="min-w-0 flex-1 text-[11px] sm:text-xs font-semibold text-slate-700 leading-tight">% máximo utilizado na aprovação?</span>
       <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
         <button
           type="button"
@@ -81,7 +81,7 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
 
     {/* SELETOR 2: 1º Imóvel */}
     <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-      <span className="text-[11px] sm:text-xs font-semibold text-slate-700 leading-snug pr-2 min-w-0">É o primeiro imóvel do cliente?</span>
+      <span className="min-w-0 flex-1 text-[11px] sm:text-xs font-semibold text-slate-700 leading-tight">É o primeiro imóvel do cliente?</span>
       <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
         <button
           type="button"
@@ -107,8 +107,8 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
     {onCartaNaMangaChange && (
       // Elegível (teto da política > 0): mesmo verde-claro dos quadros TORRE/UNIDADE, com borda suave.
       <div className={`p-3.5 rounded-xl border shadow-sm space-y-1 transition-colors ${desabilitada ? "bg-white border-slate-200" : "bg-morar-50/60 border-morar-100"}`}>
-        <div className="flex items-center justify-between gap-1.5 min-w-0">
-          <span className={`min-w-0 truncate whitespace-nowrap text-[11px] sm:text-xs font-semibold ${desabilitada ? "text-slate-700" : "text-morar-700"}`} title="Carta na Manga para o Cliente">Carta na Manga para o Cliente</span>
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <span className={`min-w-0 flex-1 text-[11px] sm:text-xs font-semibold leading-tight ${desabilitada ? "text-slate-700" : "text-morar-700"}`} title="Carta na Manga para o Cliente">Carta na Manga para o Cliente</span>
           <div className="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
@@ -140,7 +140,7 @@ export const PainelFinanciamento: React.FC<PainelFinanciamentoProps> = ({
                 onChange={(e) => aoDigitar(e.target.value)}
                 onBlur={() => setTravou(false)}
                 title={bloqueadaAVista ? 'Não acumula no Pgtº à vista' : (desabilitada ? 'Nenhuma Carta na Manga permitida para esta unidade' : undefined)}
-                className={`w-24 h-5 px-1.5 rounded bg-white border text-center text-xs font-bold focus:outline-none focus:text-slate-900 focus:border-[#006B3F]/25 focus:shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${cartaNaManga > 0 ? 'text-slate-900 border-[#006B3F]/25 shadow-2xs' : 'text-slate-500 border-[#E5E8E6]'}`}
+                className={`w-20 sm:w-24 h-5 px-1.5 rounded bg-white border text-center text-xs font-bold focus:outline-none focus:text-slate-900 focus:border-[#006B3F]/25 focus:shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${cartaNaManga > 0 ? 'text-slate-900 border-[#006B3F]/25 shadow-2xs' : 'text-slate-500 border-[#E5E8E6]'}`}
               />
               <button
                 type="button"
