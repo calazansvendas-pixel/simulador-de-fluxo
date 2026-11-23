@@ -37,8 +37,7 @@ export const CLASSE_BOTAO_APARTAR_ATIVO = 'bg-amber-50 text-amber-800 border-amb
 export const CLASSE_BOTAO_APARTAR_INATIVO = 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100';
 
 // Tela de destino das condições base e de suas variantes "Comissão Apartada". Sinal c/ Morar vai
-// SEMPRE para a ficha completa ('ficha-morar') — nunca para 'ficha-morar-simplificada' ("**"),
-// seja qual for o cargo; as demais usam 'details'.
+// SEMPRE para 'ficha-morar'; as demais usam 'details'.
 export function telaDaCondicao(kind: ConditionKind): 'ficha-morar' | 'details' {
   return kind === 'sinal-morar' || kind === 'sinal-morar-comissao-apartada' ? 'ficha-morar' : 'details';
 }

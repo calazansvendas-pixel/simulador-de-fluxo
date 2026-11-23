@@ -1986,7 +1986,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   const condicaoLiberada = (kind: ConditionKind) =>
     !condicoesLiberadas || CONDICOES_APP.some(i => i.variant === kind && condicoesLiberadas.includes(i.key));
   // Sempre as 3 condições base; a que o empreendimento não tem (ou o perfil não tem liberada)
-  // fica desabilitada. Destino fixo: Sinal c/ Morar -> 'ficha-morar' (nunca a simplificada "**").
+  // fica desabilitada. Destino fixo: Sinal c/ Morar -> 'ficha-morar'.
   const opcoesCondicaoBase = CONDICOES_BASE.map(base => {
     const cond = (currentProd.conditions || []).find(c => getConditionKind(c.name) === base);
     const disponivel = !!cond && (base === baseAtual || condicaoLiberada(base));

@@ -410,8 +410,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                 // (ensureProductConditions) cruzada com as entradas de
                 // CONDICOES_APP liberadas para o usuário logado cujo `variant`
                 // bate com o kind daquela condição (getConditionKind) — uma
-                // mesma condição pode gerar duas opções (ex.: "Sinal c/ Morar"
-                // e "Sinal c/ Morar**"), cada uma levando a um `targetTab`
+                // mesma condição pode gerar mais de uma opção, cada uma levando a um `targetTab`
                 // diferente. O valor do <option> combina id da condição real +
                 // chave do item (separados por "__") para decodificar os dois
                 // de volta no onClick de "Avançar", sem precisar de um estado à parte.
@@ -423,7 +422,7 @@ export const SimulatorView: React.FC<SimulatorViewProps> = ({
                     .filter(c => getConditionKind(c.name) === item.variant)
                     .map(c => ({
                       value: `${c.id}__${item.key}`,
-                      label: item.tab === 'ficha-morar-simplificada' ? item.label : c.name,
+                      label: c.name,
                       condicaoId: c.id,
                       targetTab: item.tab
                     }))

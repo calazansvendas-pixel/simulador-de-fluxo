@@ -13,7 +13,7 @@ interface FichaMorarTopBarProps {
   onProductChange: (prodId: string) => void;
   currentCond: CommercialCondition;
   // targetTab (opcional) é resolvido a partir da opção do dropdown escolhida
-  // (ver opcoesCondicao abaixo) quando ela é uma das variantes "**" — deixa
+  // (ver opcoesCondicao abaixo) quando a opção a define — deixa
   // quem recebe o evento (App.tsx/handleSelectConditionWithRouting) navegar
   // direto para a tela certa em vez de inferir pela condição sozinha.
   onSelectCondition?: (condition: CommercialCondition, targetTab?: ActiveTab) => void;
@@ -24,20 +24,14 @@ interface FichaMorarTopBarProps {
   // regra já aplicada ao dropdown "Selecionar Condição" do Simulador (ver
   // SimulatorView.tsx). `undefined` = sem restrição (Administrador).
   condicoesLiberadas?: string[];
-  // true quando este cabeçalho está renderizado dentro da versão simplificada
-  // (NovatoSimuladorView) — usado só para decidir, entre "Sinal c/ Morar" e
-  // "Sinal c/ Morar**" (que compartilham a MESMA condição por trás), qual das
-  // duas mostrar como selecionada no dropdown.
-  isSimplificado?: boolean;
   // Painel lateral: só os seletores (empreendimento, condição, chaves), empilhados em largura
   // total e sem o botão Voltar (que passa para a FichaMorarActionBar).
   vertical?: boolean;
 }
 
 // Barra superior de navegação da Ficha Morar — ÚNICO componente de cabeçalho
-// para TODAS as variantes da tela (editor completo "Sinal c/ Morar"/"...
-// Comissão Apartada" e as telas simplificadas "Sinal c/ Morar**"/"... Com.
-// Apartada**"), garantindo que fiquem estritamente idênticas entre si. Os
+// para TODAS as variantes da tela ("Sinal c/ Morar" e "Sinal c/ Morar
+// (Comissão Apartada)"), garantindo que fiquem idênticas entre si. Os
 // botões de ação (Salvar/PDF/Limpar) não ficam aqui — ver FichaMorarActionBar.
 export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
   onBackToSimulator,
@@ -50,14 +44,13 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
   onConditionChange,
   deliveryText,
   condicoesLiberadas,
-  isSimplificado = false,
   vertical = false
 }) => {
   // Opções do dropdown de condição: cruza CONDICOES_APP (config/telasApp.ts)
   // com as condições reais deste produto, filtrando pelas liberadas para o
   // usuário — mesmo padrão já usado no dropdown "Selecionar Condição" do
   // Simulador (ver SimulatorView.tsx). Uma mesma condição real pode gerar
-  // duas opções (ex.: "Sinal c/ Morar" e "Sinal c/ Morar**"), cada uma com
+  // mais de uma opção, cada uma com
   // seu próprio destino de tela — por isso o valor de cada <option> é
   // composto (`${condicaoId}__${itemKey}`), nunca só o id da condição.
   const condicoesPermitidas = CONDICOES_APP.filter(
@@ -68,19 +61,13 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
       .filter(c => getConditionKind(c.name) === item.variant)
       .map(c => ({
         value: `${c.id}__${item.key}`,
-        label: item.tab === 'ficha-morar-simplificada' ? item.label : c.name,
+        label: c.name,
         variant: item.variant,
         condicaoId: c.id,
         targetTab: item.tab
       }))
   );
-  // Entre as opções que apontam para a MESMA condição (completa vs
-  // simplificada), prioriza a que bate com a tela em que este cabeçalho já
-  // está renderizado — sem isso, o select mostraria sempre a primeira opção
-  // encontrada (a completa), mesmo dentro da tela simplificada.
-  const opcaoAtual = opcoesCondicao.find(o => o.condicaoId === currentCond.id
-    && (isSimplificado ? o.targetTab === 'ficha-morar-simplificada' : o.targetTab !== 'ficha-morar-simplificada')
-  ) ?? opcoesCondicao.find(o => o.condicaoId === currentCond.id);
+  const opcaoAtual = opcoesCondicao.find(o => o.condicaoId === currentCond.id);
   const selectValue = opcaoAtual?.value ?? '';
 
   const handleConditionSelectChange = (value: string) => {
@@ -90,17 +77,14 @@ export const FichaMorarTopBar: React.FC<FichaMorarTopBarProps> = ({
 
   // --- Modo vertical (painel lateral): as 3 condições base + botão "Apartar Comissão" ---
   // As opções vêm direto das condições do empreendimento (não de CONDICOES_APP), com tela de
-  // destino fixa: Sinal c/ Morar -> 'ficha-morar' (nunca a simplificada "**"); as outras -> 'details'.
+  // destino fixa: Sinal c/ Morar -> 'ficha-morar' ; as outras -> 'details'.
   // Sempre aparecem as 3; a que o empreendimento não tem cadastrada (ou que o perfil não tem
   // liberada) fica desabilitada em vez de sumir.
   const kindAtual = getConditionKind(currentCond.name);
   const baseAtual = condicaoBaseDe(kindAtual);
   const condicaoLiberada = (kind: ConditionKind) =>
     !condicoesLiberadas || CONDICOES_APP.some(i => i.variant === kind && condicoesLiberadas.includes(i.key));
-  // Tela de destino: na simplificada, Sinal c/ Morar (e a variante Comissão Apartada) continua na
-  // própria 'ficha-morar-simplificada'; na ficha completa nunca vai para a simplificada.
-  const telaDestino = (kind: ConditionKind): ActiveTab =>
-    isSimplificado && condicaoBaseDe(kind) === 'sinal-morar' ? 'ficha-morar-simplificada' : telaDaCondicao(kind);
+  const telaDestino = (kind: ConditionKind): ActiveTab => telaDaCondicao(kind);
   const opcoesBase = CONDICOES_BASE.map(base => {
     const cond = (currentProd.conditions || []).find(c => getConditionKind(c.name) === base);
     const disponivel = !!cond && (base === baseAtual || condicaoLiberada(base));
