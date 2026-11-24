@@ -21,7 +21,7 @@ interface FichaMorarProdutoGridProps {
 
 // Grid do Imóvel (Torre/Unidade + Fase/Tipologia + Área/Quintal/Preço/
 // Avaliação) — ÚNICO componente para TODAS as variantes da Ficha Morar
-// (editor completo e telas simplificadas), junto com FichaMorarTopBar e
+// , junto com FichaMorarTopBar e
 // FichaMorarActionBar, que juntos formam o "bloco superior" da página.
 export const FichaMorarProdutoGrid: React.FC<FichaMorarProdutoGridProps> = ({
   selectedTorre,

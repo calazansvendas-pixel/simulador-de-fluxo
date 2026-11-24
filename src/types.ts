@@ -232,7 +232,7 @@ export interface SelectedUnit {
  * É o que permite reabrir a proposta exatamente como o corretor deixou: edições do Ato, ITBI, descontos,
  * Pgtº à vista, séries/prazos e (no Parcelamento Morar) cada override de bloco. Registros antigos não têm
  * este campo — nesse caso a ficha abre só com os dados básicos (retrocompatível).
- * `tela` diz qual ficha o gerou ('details' = DetailsView; 'ficha-morar' = FichaMorar, completa ou simplificada).
+ * `tela` diz qual ficha o gerou ('details' = DetailsView; 'ficha-morar' = FichaMorar).
  */
 export interface NegociacaoSnapshot {
   versao: number;
@@ -251,7 +251,7 @@ export interface SimulacaoReaberta {
   nonce: number;
 }
 
-export type ActiveTab = 'simulator' | 'details' | 'ficha-morar' | 'ficha-morar-simplificada' | 'policies' | 'import-table' | 'saved-simulations' | 'pdf-settings' | 'tela-settings' | 'admin-panel';
+export type ActiveTab = 'simulator' | 'details' | 'ficha-morar' | 'policies' | 'import-table' | 'saved-simulations' | 'pdf-settings' | 'tela-settings' | 'admin-panel';
 
 // ---------------------------------------------------------------------------
 // Acesso & Permissões (login, cadastro, hierarquia e Painel do Administrador)
@@ -326,16 +326,8 @@ export interface PerfilUsuario {
 
 // Configuração do que cada ficha em PDF exportada deve conter e apresentar,
 // uma por tipo de condição comercial (Sinal c/ Banco Direto, Sinal c/ Morar,
-// Parcelamento Morar — cada uma guarda suas próprias opções). As duas telas
-// simplificadas ("Sinal c/ Morar**" e "...Com. Apartada)**" — ver
-// NovatoSimuladorView.tsx) usam o MESMO ConditionKind de cálculo que as telas
-// completas correspondentes (getConditionKind em utils/calculations.ts não
-// distingue completa de simplificada, é a mesma condição comercial), mas têm
-// aqui suas PRÓPRIAS chaves ('simulador-simplificado' e
-// 'simulador-simplificado-comissao-apartada', mesmas chaves de TELAS_APP em
-// config/telasApp.ts) para que a visibilidade na tela e a exportação de PDF
-// sejam configuráveis pelo Administrador de forma independente da versão completa.
-export type PdfConditionKind = 'banco-direto' | 'sinal-morar' | 'parcelamento-morar' | 'banco-direto-comissao-apartada' | 'sinal-morar-comissao-apartada' | 'simulador-simplificado' | 'simulador-simplificado-comissao-apartada';
+// Parcelamento Morar — cada uma guarda suas próprias opções).
+export type PdfConditionKind = 'banco-direto' | 'sinal-morar' | 'parcelamento-morar' | 'banco-direto-comissao-apartada' | 'sinal-morar-comissao-apartada';
 
 export interface PdfExportSettings {
   mostrarValores: boolean; // Mostra os valores em R$, ou os oculta (ficha "sem valores")

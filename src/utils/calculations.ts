@@ -1241,6 +1241,59 @@ export function calculateMorarFlowEngine(params: MorarEngineParams): MorarEngine
         if (falta <= 0.005) break;
       }
     }
+
+    // 3) TETO DE PÓS-OBRA DA POLÍTICA: Total Fase Pós-Obra (parcelas + ITBI dos meses de Pós) nunca passa de
+    //    % Max Pós-Obra × Base Líq. c/ ITBI. A redistribuição proporcional da etapa 0 (e os centavos da etapa 2)
+    //    não olhavam esse teto. Qualquer excesso é cortado da Pós-Obra (na mesma proporção entre as séries,
+    //    sempre para baixo em centavos) e passado às séries da OBRA com folga no teto de renda — mantendo a ordem
+    //    decrescente. O que a Obra não comportar fica sem alocar nas séries e é absorvido pelo Ato (Imóvel)
+    //    no fechamento do Ato mais abaixo.
+    {
+      const capPosReais = Math.floor(Math.min(maxRiscoPos, pctMaxPos * ((precoTabela - descontoAto) + itbiRegistro)) * 100 + 1e-6) / 100;
+      const slotsPos = slots.filter(s => s.fase === 'pos');
+      const itbiPosMoney = parcelaMensalITBIExato * slotsPos.reduce((a, s) => a + ovPorSerie('pos', s.idx), 0);
+      const posNet = () => slotsPos.reduce((a, s) => a + s.qtd * posRatesLiquidas[s.idx], 0);
+      const excesso = r2(posNet() + itbiPosMoney - capPosReais);
+      if (excesso > 0.005 && posNet() > 0) {
+        const antes = posNet();
+        const fator = Math.max(0, (antes - excesso) / antes);
+        slotsPos.forEach(s => {
+          const t = posRatesLiquidas;
+          if (t[s.idx] > 0) t[s.idx] = Math.max(0, Math.floor(t[s.idx] * fator * 100 + 1e-6) / 100);
+        });
+        // garante o teto mesmo com o truncamento por série (tira 1 centavo por parcela das de mais meses)
+        for (let g = 0; g < 200 && r2(posNet() + itbiPosMoney - capPosReais) > 0.005; g++) {
+          const s = slotsPos.filter(x => posRatesLiquidas[x.idx] > 0.01).sort((a, b) => b.qtd - a.qtd)[0];
+          if (!s) break;
+          posRatesLiquidas[s.idx] = r2(posRatesLiquidas[s.idx] - 0.01);
+        }
+        let restante = r2(antes - posNet());
+        for (let it = 0; it < 30 && restante > 0.004; it++) {
+          const obraSlots = slots.filter(s => s.fase === 'obra' && obraRatesLiquidas[s.idx] > 0 && (maxLiquida(s) - obraRatesLiquidas[s.idx]) > 0.0049);
+          if (obraSlots.length === 0) break;
+          const somaW = obraSlots.reduce((a, s) => a + s.qtd * obraRatesLiquidas[s.idx], 0);
+          if (!(somaW > 0)) break;
+          let usado = 0;
+          obraSlots.forEach(s => {
+            const share = restante * ((s.qtd * obraRatesLiquidas[s.idx]) / somaW);
+            const add = Math.min(maxLiquida(s) - obraRatesLiquidas[s.idx], Math.floor((share / s.qtd) * 100 + 1e-6) / 100);
+            if (add > 0) { obraRatesLiquidas[s.idx] = r2(obraRatesLiquidas[s.idx] + add); usado += add * s.qtd; }
+          });
+          restante = r2(restante - usado);
+          if (usado < 0.004) break;
+        }
+        // centavos finais: séries da Obra com folga, as de mais meses primeiro
+        if (restante > 0.004) {
+          const ordemObra = slots.filter(s => s.fase === 'obra' && obraRatesLiquidas[s.idx] > 0).sort((a, b) => b.qtd - a.qtd);
+          for (const s of ordemObra) {
+            const folga = maxLiquida(s) - obraRatesLiquidas[s.idx];
+            const passos = Math.min(Math.floor(restante / (s.qtd * 0.01) + 1e-9), Math.floor(folga / 0.01 + 1e-9));
+            if (passos > 0) { obraRatesLiquidas[s.idx] = r2(obraRatesLiquidas[s.idx] + passos * 0.01); restante = r2(restante - passos * s.qtd * 0.01); }
+            if (restante <= 0.004) break;
+          }
+        }
+      }
+    }
   }
 
   // Obra:

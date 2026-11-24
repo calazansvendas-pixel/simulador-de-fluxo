@@ -74,9 +74,13 @@ interface PerfilRow {
 // Campos de `perfis` que também existem no espelho público.
 const CAMPOS_PUBLICOS = ['nome_completo', 'cargo', 'imobiliaria', 'superior_id', 'ancestrais', 'empreendimentos_liberados'] as const;
 
+// Telas/condições removidas do sistema (as duas variantes simplificadas "Sinal c/ Morar**"): perfis e
+// configurações antigas no banco ainda podem trazer essas chaves — ignoradas na leitura.
+const CHAVES_REMOVIDAS = ['simulador-simplificado', 'simulador-simplificado-comissao-apartada'];
+const semChavesRemovidas = (lista: string[] | null | undefined): string[] => (lista || []).filter(k => !CHAVES_REMOVIDAS.includes(k));
+
 const TODAS_AS_CONDICOES_PADRAO = [
-  'sinal-morar', 'simulador-simplificado', 'sinal-morar-comissao-apartada',
-  'simulador-simplificado-comissao-apartada', 'banco-direto',
+  'sinal-morar', 'sinal-morar-comissao-apartada', 'banco-direto',
   'banco-direto-comissao-apartada', 'parcelamento-morar'
 ];
 
@@ -101,8 +105,8 @@ function rowParaPerfil(row: PerfilRow): PerfilUsuario {
     cargo: normalizarCargoLegado(row.cargo),
     superiorId: row.superior_id,
     status: row.status,
-    telasLiberadas: row.telas_liberadas || [],
-    condicoesLiberadas: row.condicoes_liberadas || [],
+    telasLiberadas: semChavesRemovidas(row.telas_liberadas),
+    condicoesLiberadas: semChavesRemovidas(row.condicoes_liberadas),
     verPropostasEquipe: !!row.ver_propostas_equipe,
     camposEditaveisEquipe: row.campos_editaveis_equipe || [],
     empreendimentosLiberados: row.empreendimentos_liberados ?? null,
@@ -400,8 +404,8 @@ export const authService = {
       snap.forEach(d => {
         const row = d.data();
         resultado[(row.cargo || d.id) as Cargo] = {
-          telasLiberadas: row.telas_liberadas || [],
-          condicoesLiberadas: row.condicoes_liberadas || [],
+          telasLiberadas: semChavesRemovidas(row.telas_liberadas),
+          condicoesLiberadas: semChavesRemovidas(row.condicoes_liberadas),
           verPropostasEquipe: !!row.ver_propostas_equipe,
           camposEditaveisEquipe: row.campos_editaveis_equipe || []
         };
@@ -486,7 +490,7 @@ export const authService = {
             creci: row.creci || undefined,
             cargo: normalizarCargoLegado(row.cargo),
             superiorId: row.superior_id,
-            telasLiberadas: row.telas_liberadas || [],
+            telasLiberadas: semChavesRemovidas(row.telas_liberadas),
             empreendimentosLiberados: row.empreendimentos_liberados ?? null
           };
         })

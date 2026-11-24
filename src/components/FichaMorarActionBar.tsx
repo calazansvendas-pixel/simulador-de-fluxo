@@ -24,7 +24,7 @@ interface FichaMorarActionBarProps {
 const actionButtonClass = 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shrink-0';
 
 // Barra de Cliente/Imobiliária + ações (Salvar, PDF, Limpar), compartilhada
-// por TODAS as variantes da Ficha Morar (completa e simplificada), agrupando
+// por TODAS as variantes da Ficha Morar , agrupando
 // os três botões à direita, lado a lado com o mesmo tamanho.
 export const FichaMorarActionBar: React.FC<FichaMorarActionBarProps> = ({
   clientName,

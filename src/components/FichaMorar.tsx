@@ -18,7 +18,6 @@ import { DEFAULT_TELA_VISIBILITY_SETTINGS } from '../utils/telaVisibility';
 import { pdfPermissoesService } from '../services/pdfPermissoesService';
 import { telaVisibilidadeService } from '../services/telaVisibilidadeService';
 import { PdfExportModalMorar, MorarFaixa } from './PdfExportModalMorar';
-import { NovatoSimuladorView } from './NovatoSimuladorView';
 import { MonthStepper } from './MonthStepper';
 import { ComissaoParcelasLista, ComissaoTravadas, parcelasComissaoDetalhe, parcelasComissaoIguais } from './ComissaoParcelas';
 import { MiniSwitch } from './MiniSwitch';
@@ -41,8 +40,8 @@ interface FichaMorarProps {
   currentDate?: string;
   onSelectProduct?: (product: Product, conditionId: string) => void;
   // targetTab (opcional) é resolvido pelo próprio dropdown de condição do
-  // cabeçalho (FichaMorarTopBar) quando a opção escolhida é uma variante
-  // "**" — ver handleConditionDropdownChange abaixo e CONDICOES_APP.
+  // cabeçalho (FichaMorarTopBar) quando a opção escolhida a define
+  // — ver handleConditionDropdownChange abaixo e CONDICOES_APP.
   onSelectCondition?: (condition: CommercialCondition, targetTab?: ActiveTab) => void;
   simulationData: SimulationData;
   // Atualiza o estado global da simulação (App): usado pelos seletores de % financiado e 1º imóvel.
@@ -60,15 +59,6 @@ interface FichaMorarProps {
   // conforme a política que o Administrador definiu em "Configurar
   // Exportação de PDF" (ver pdfPermissoesService.ts).
   cargoUsuario: Cargo;
-  // true quando o usuário navegou pela aba 'ficha-morar-simplificada' (ver
-  // App.tsx e config/telasApp.ts) — troca o editor completo por
-  // NovatoSimuladorView, uma visão simplificada (visual de Ficha Exportada)
-  // com um subconjunto restrito de campos editáveis. Não depende do cargo:
-  // qualquer perfil liberado pelo Administrador para essa tela (política de
-  // "Editar cargo e permissões") pode navegar até aqui. Nenhum cálculo muda —
-  // a visão simplificada reusa os mesmos state/handlers já computados abaixo,
-  // só a apresentação (JSX) é diferente.
-  isNovato?: boolean;
   // Condições comerciais liberadas para o dropdown do usuário logado (ver
   // CONDICOES_APP em config/telasApp.ts) — repassado ao FichaMorarTopBar
   // para filtrar as opções do seletor de condição do cabeçalho, mesma regra
@@ -94,7 +84,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   onNavigateToImport,
   onShowToast,
   cargoUsuario,
-  isNovato = false,
   condicoesLiberadas
 }) => {
   // Produto e Condição atuais com fallback para o primeiro disponível
@@ -155,13 +144,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   const [selectedUnidade, setSelectedUnidade] = useState<string>('');
 
   // Chave de configuração (PdfConditionKind) usada para buscar tanto o PDF
-  // quanto a visibilidade na tela — a versão simplificada (isNovato) tem suas
-  // PRÓPRIAS chaves ('simulador-simplificado'/'...-comissao-apartada'),
-  // configuráveis pelo Administrador independente da tela completa, mesmo
-  // usando a mesma condição comercial por trás (ver types.ts/PdfConditionKind).
-  const condicaoKindParaConfig: PdfConditionKind = isNovato
-    ? (isComissaoApartada ? 'simulador-simplificado-comissao-apartada' : 'simulador-simplificado')
-    : (isComissaoApartada ? 'sinal-morar-comissao-apartada' : 'sinal-morar');
+  // quanto a visibilidade na tela.
+  const condicaoKindParaConfig: PdfConditionKind = isComissaoApartada ? 'sinal-morar-comissao-apartada' : 'sinal-morar';
 
   // O que este cargo pode ver no PDF exportado — definido pelo Administrador
   // em "Configurar Exportação de PDF". Começa mostrando tudo até a busca
@@ -1151,8 +1135,8 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     return acc + ((Number(f.qtd) || 0) * valLiq);
   }, 0);
   const somaTotalParceladoMorar = Math.round((somaTotalObra + somaTotalPos) * 100) / 100;
-  // Mesmos totais por fase acima, arredondados — usados pela tela
-  // simplificada (NovatoSimuladorView) nas linhas "Total Fase Obra"/"Total
+  // Mesmos totais por fase acima, arredondados — usados pela
+  // ficha nas linhas "Total Fase Obra"/"Total
   // Fase Pós-Obra", que exibem só as parcelas do imóvel, SEM o rateio de
   // ITBI/Registro (diferente de totalFaseObraComITBI/totalFasePosComITBI
   // abaixo, usados pelo editor completo e pelos indicadores de risco).
@@ -1460,7 +1444,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
   // devido — nesse caso ele é limitado ao teto (mesmo ponto fixo usado pelo campo),
   // para o usuário nunca pagar mais do que realmente deve.
   const handleToggleAtoPremiado = (ativo: boolean) => {
-    // Pagamento à vista não acumula com o Ato Premiado (vale também para a tela simplificada).
+    // Pagamento à vista não acumula com o Ato Premiado.
     if (ativo && isPagamentoAVistaEnabled) { onShowToast?.('Não acumula no Pgtº à vista: só o Desconto à Vista fica ativo.'); return; }
     setIsAtoPremiadoEnabled(ativo);
 
@@ -2262,11 +2246,7 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     empreendimento_nome: currentProd?.name || '',
     condicao_id: currentCond?.id || '',
     condicao_nome: currentCond?.name || '',
-    // Qual das duas telas (completa ou simplificada) gerou esta simulação —
-    // usado só ao reabrir por "Simulações Salvas" (handleEditSimulation em
-    // App.tsx), pra devolver a pessoa pra mesma versão da ficha em que ela
-    // salvou, em vez de sempre cair na completa.
-    origem_tela: isNovato ? 'ficha-morar-simplificada' : 'ficha-morar',
+    origem_tela: 'ficha-morar',
     torre: selectedTorre || 'Não Selecionada',
     unidade: selectedUnidade || 'Não Selecionada',
     tipologia: hasUnitSelected ? tipologia : null,
@@ -2516,214 +2496,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     );
   }
 
-  if (isNovato) {
-    return (
-      <>
-        <NovatoSimuladorView
-          pdfSettings={pdfSettings}
-          telaSettings={telaSettings}
-          condicoesLiberadas={condicoesLiberadas}
-          product={currentProd}
-          condition={currentCond}
-          simulationData={simulationData}
-          products={products}
-          onSelectProduct={onSelectProduct}
-          onProductChange={handleProductDropdownChange}
-          onSelectCondition={onSelectCondition}
-          onConditionChange={handleConditionDropdownChange}
-          onLimpar={handleResetFicha}
-          onSaveSimulation={handleSaveSimulation}
-          isSavingSimulation={isSavingSimulation}
-          selectedTorre={selectedTorre}
-          selectedUnidade={selectedUnidade}
-          availableTorres={availableTorres}
-          filteredUnits={filteredUnits}
-          onTorreChange={handleTorreChange}
-          onUnidadeChange={handleUnidadeChange}
-          fase={fase}
-          tipologia={tipologia}
-          areaPriv={areaPriv}
-          areaQuintal={areaQuintal}
-          price={price}
-          precoTabelaOriginal={precoTabelaLista}
-          evaluation={evaluation}
-          deliveryText={deliveryText}
-          entregaChaves={entregaChaves}
-          finPercent={simulationData.finPercent}
-          onFinPercentChange={handleFinancingPercentageChange}
-          onFirstHomeChange={handleFirstHomeChange}
-          income={income}
-          subsidy={subsidyEfetivo}
-          fgts={fgtsEfetivo}
-          desconto={descontoAto}
-          maxFinanc={maxFinancEfetivo}
-          totalNegoc={totalNegocEfetivo}
-          sinalTotal={sinalTotalSemITBIEfetivo}
-          comITBI={sinalTotalComITBIEfetivo}
-          distribuido={totalDistribuido}
-          isAtoPremiadoEnabled={isAtoPremiadoEnabled}
-          onToggleAtoPremiado={handleToggleAtoPremiado}
-          dataAto={dataAto}
-          valorAto={isComissaoApartada ? atoLiquidoConstrutora : valorAtoEfetivo}
-          valorAtoMinimo={isComissaoApartada
-            ? Math.max(0, Math.round((Math.max(sinalMinimoVal, atoSugeridoResidual) - comissaoApartadaValor) * 100) / 100)
-            : Math.max(sinalMinimoVal, atoSugeridoResidual)}
-          valorAtoMaximo={isComissaoApartada
-            ? Math.max(0, Math.round((valorAtoMaximoCalculado - comissaoApartadaValor) * 100) / 100)
-            : valorAtoMaximoCalculado}
-          atoNoSugerido={!isPagamentoAVistaEnabled && !atoEditadoPeloUsuario}
-          onAtoChange={(novoVal) => {
-            if (sairDoAVistaPeloAto(novoVal === null ? null : (isComissaoApartada
-              ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
-              : novoVal))) return;
-            if (novoVal === null) {
-              setValAtoManual(null);
-              aplicarDistribuicaoOficialMorar();
-            } else {
-              const novoValBruto = isComissaoApartada
-                ? Math.round((novoVal + comissaoApartadaValor) * 100) / 100
-                : novoVal;
-              setValAtoManual(novoValBruto);
-              setAtoEditadoPeloUsuario(true);
-              recalcularSeriesParaAtoManual(novoValBruto);
-            }
-          }}
-          valAtoITBI={valAtoITBI}
-          valorTotalITBI={valorTotalITBI}
-          isFirstHome={isFirstHomeLocal}
-          onToggleFirstHome={handleToggleFirstHome}
-          onITBIChange={(novoVal) => {
-            setValAtoITBI(novoVal);
-            setItbiAtoManualFloor(novoVal > 0 ? novoVal : null);
-            lembrarItbiNoAto(novoVal);
-            // Reavalia imediatamente o risco (comprometimento de renda) com o
-            // novo ITBI pago no Ato invocando a MESMA rotina global de
-            // distribuição automática usada para reequilibrar uma proposta
-            // fora do limite — ela recalcula e sobrescreve o Ato (Imóvel)
-            // (valAtoManual/atoInputText) para o novo valor otimizado, além
-            // das séries S1/S2/S3, em vez de só elevar o Ato quando estourava
-            // o teto. `novoVal` é passado via override porque o state
-            // (itbiAtoManualFloor) ainda não foi commitado neste tick.
-            aplicarDistribuicaoOficialMorar({ atoITBI: novoVal });
-          }}
-          comissaoApartadaValor={comissaoApartadaValor}
-          comissaoApartadaParcelasQtd={comissaoApartadaParcelasQtd}
-          comissaoApartadaParcelaValor={comissaoApartadaParcelaValor}
-          comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
-          minComissaoParcelas={minComissaoParcelas}
-          maxComissaoParcelas={maxComissaoParcelas}
-          onComissaoParcelasChange={setComissaoParcelasManual}
-          dataObra={dataObra}
-          totalParcObra={totalParcObra}
-          faixasObra={faixasObra}
-          onObraTotalChange={handleTotalObraParcelasChange}
-          maxParcObra={mesesObraPadraoPolitica}
-          totalFaseObraSemITBI={totalFaseObraSemITBI}
-          dataPos={dataPos}
-          totalParcPos={totalParcPos}
-          faixasPos={faixasPos}
-          onPosTotalChange={handleTotalPosParcelasChange}
-          maxParcPos={mesesPosPadraoPolitica}
-          totalFasePosSemITBI={totalFasePosSemITBI}
-          saldoProSolutoRestante={saldoProSolutoRestante}
-          onLimparFluxo={limparFluxoPagamento}
-          dataITBI={dataITBI}
-          valorITBI={despCartoriasEfetivas}
-          itbiObraQtd={itbiObraTotalMeses}
-          itbiObraValor={itbiParcelaObraValor}
-          itbiPosQtd={itbiPosTotalMeses}
-          itbiPosValor={itbiParcelaPosValor}
-          baseLiquidaComITBI={baseLiquidaComITBI}
-          baseRendaInformada={baseRendaInformada}
-          limiteMaximoRiscoRenda={limiteMaximoRiscoRenda}
-          limiteMaximoProSoluto={limiteMaximoProSoluto}
-          pctRiscoParcelaRenda={pctRiscoParcelaRenda}
-          valorRiscoParcela={valorRiscoParcela}
-          pctRiscoProSoluto={pctRiscoProSoluto}
-          valorRiscoProSoluto={valorRiscoProSoluto}
-          pieDataPct={pieData1}
-          pieDataValor={pieData2}
-          onShowToast={onShowToast}
-          onBackToSimulator={onBackToSimulator}
-          onOpenPdfExport={() => setIsPdfModalOpen(true)}
-        />
-
-        {isPdfModalOpen && (
-          <PdfExportModalMorar
-            isOpen={isPdfModalOpen}
-            onClose={() => setIsPdfModalOpen(false)}
-            pdfSettings={pdfSettings}
-            comprometimentoPorSerieVisivel={telaSettings.mostrarComprometimentoPorSerie ?? true}
-            product={currentProd}
-            condition={currentCond}
-            simulationData={simulationData}
-            selectedTorre={selectedTorre}
-            selectedUnidade={selectedUnidade}
-            fase={fase}
-            tipologia={tipologia}
-            areaPriv={areaPriv}
-            areaQuintal={areaQuintal}
-            precoTabelaOriginal={precoTabelaLista}
-            descontoConstrutora={descontoConstrutora}
-            cartaNaManga={cartaNaMangaEfetiva}
-            descontoAVista={isPagamentoAVistaEnabled ? valorDescontoAVista : 0}
-            evaluation={evaluation}
-            deliveryText={deliveryText}
-            income={income}
-            subsidy={subsidyEfetivo}
-            fgts={fgtsEfetivo}
-            desconto={descontoAto}
-            maxFinanc={maxFinancEfetivo}
-            totalNegoc={totalNegocEfetivo}
-            sinalTotal={sinalTotalSemITBIEfetivo}
-            comITBI={sinalTotalComITBIEfetivo}
-            distribuido={totalDistribuido}
-            dataAto={dataAto}
-            valorAto={isComissaoApartada ? atoLiquidoConstrutora : valorAtoEfetivo}
-            comissaoApartadaValor={comissaoApartadaValor}
-            comissaoApartadaParcelasQtd={comissaoApartadaParcelasQtd}
-            comissaoApartadaParcelaValor={comissaoApartadaParcelaValor}
-            comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
-            dataObra={dataObra}
-            totalParcObra={totalParcObra}
-            faixasObra={faixasObra}
-            dataPos={dataPos}
-            totalParcPos={totalParcPos}
-            faixasPos={faixasPos}
-            dataITBI={dataITBI}
-            valorITBI={despCartoriasEfetivas}
-            itbiObraQtd={itbiObraTotalMeses}
-            serieObraItbiMeses={serieObraItbiMeses}
-            itbiObraValor={itbiParcelaObraValor}
-            itbiPosQtd={itbiPosTotalMeses}
-            itbiPosValor={itbiParcelaPosValor}
-            isAtoPremiadoEnabled={isAtoPremiadoEnabled}
-            baseLiquidaComITBI={baseLiquidaComITBI}
-            baseRendaInformada={baseRendaInformada}
-            limiteMaximoRiscoRenda={limiteMaximoRiscoRenda}
-            limiteMaximoProSoluto={limiteMaximoProSoluto}
-            pctRiscoParcelaRenda={pctRiscoParcelaRenda}
-            valorRiscoParcela={valorRiscoParcela}
-            pctRiscoProSoluto={pctRiscoProSoluto}
-            valorRiscoProSoluto={valorRiscoProSoluto}
-            pieDataPct={pieData1}
-            pieDataValor={pieData2}
-            barData={barData}
-          />
-        )}
-
-        {ajusteAtoTravado && (
-          <AjusteAtoTravadoModal
-            excedente={ajusteAtoTravado.excedente}
-            contexto={ajusteAtoTravado.contexto}
-            onJogarParaAto={confirmarAjusteAtoTravado}
-            onCancelar={cancelarAjusteAtoTravado}
-          />
-        )}
-      </>
-    );
-  }
-
   return (
     <div className="space-y-4 max-w-[1555px] mx-auto pb-12">
       
@@ -2789,7 +2561,6 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           onConditionChange={handleConditionDropdownChange}
           deliveryText={deliveryText}
           condicoesLiberadas={condicoesLiberadas}
-          isSimplificado={false}
         />
 
         <FichaMorarProdutoGrid

@@ -1,4 +1,4 @@
-import { Calculator, FileCheck2, Building2, FileSpreadsheet, ClipboardList, Coins, FileOutput, LayoutGrid, ShieldCheck, Sparkles, HandCoins } from 'lucide-react';
+import { Calculator, FileCheck2, Building2, FileSpreadsheet, ClipboardList, Coins, FileOutput, LayoutGrid, ShieldCheck } from 'lucide-react';
 import { ActiveTab, Cargo } from '../types';
 import { ConditionKind } from '../utils/calculations';
 
@@ -20,24 +20,7 @@ export const TELAS_APP: TelaApp[] = [
   { key: 'policies', label: 'Políticas & Empreendimentos', icon: Building2, tab: 'policies' },
   { key: 'simulator', label: 'Simulador de Crédito', icon: Calculator, tab: 'simulator' },
   { key: 'sinal-morar', label: 'Sinal c/ Morar', icon: FileCheck2, tab: 'ficha-morar', variant: 'sinal-morar' },
-  // Versão simplificada (visual de Ficha Exportada, com um subconjunto restrito
-  // de campos editáveis) da Ficha Morar — pensada para corretores iniciantes,
-  // mas liberável pelo Administrador para QUALQUER cargo (não é hardcoded para
-  // "Corretor Parceiro"). Aba própria ('ficha-morar-simplificada'), separada de
-  // 'ficha-morar', para que a liberação desta tela seja independente da tela
-  // "Sinal c/ Morar" tradicional — ver FichaMorar.tsx (prop isNovato). O rótulo
-  // "Sinal c/ Morar**" (com os dois asteriscos) é proposital: sinaliza ao
-  // corretor que esta é uma variante (a versão guiada) da condição comercial
-  // "Sinal c/ Morar", não uma tela totalmente à parte — chave interna
-  // ('simulador-simplificado') mantida estável independente do rótulo exibido.
-  { key: 'simulador-simplificado', label: 'Sinal c/ Morar**', icon: Sparkles, tab: 'ficha-morar-simplificada', variant: 'sinal-morar' },
   { key: 'sinal-morar-comissao-apartada', label: 'Sinal c/ Morar (Comissão Apartada)', icon: FileCheck2, tab: 'ficha-morar', variant: 'sinal-morar-comissao-apartada' },
-  // Segunda versão da tela simplificada, para a condição comercial "Sinal c/
-  // Morar (Comissão Apartada)" — mesma aba ('ficha-morar-simplificada') da
-  // versão acima, diferenciada pelo variant (como já ocorre entre 'sinal-morar'
-  // e 'sinal-morar-comissao-apartada' na versão completa). Liberável pelo
-  // Administrador de forma independente da versão sem comissão apartada.
-  { key: 'simulador-simplificado-comissao-apartada', label: 'Sinal c/ Morar (Com. Apartada)**', icon: HandCoins, tab: 'ficha-morar-simplificada', variant: 'sinal-morar-comissao-apartada' },
   { key: 'banco-direto', label: 'Sinal c/ Banco Direto', icon: FileCheck2, tab: 'details', variant: 'banco-direto' },
   { key: 'banco-direto-comissao-apartada', label: 'Sinal c/ Banco Direto (Comissão Apartada)', icon: FileCheck2, tab: 'details', variant: 'banco-direto-comissao-apartada' },
   { key: 'parcelamento-morar', label: 'Parcelamento Morar', icon: Coins, tab: 'details', variant: 'parcelamento-morar' },
@@ -118,8 +101,7 @@ export interface CondicaoApp {
 // "3. Empreendimentos" do Simulador de Crédito, ver SimulatorView.tsx) —
 // derivada de TELAS_APP (todo item com `variant` é uma condição comercial),
 // então uma condição nova cadastrada em TELAS_APP já aparece aqui sem precisar
-// duplicar a lista. Inclui as duas variantes simplificadas ("Sinal c/ Morar**"
-// e "...Com. Apartada)**"), cada uma com seu próprio `tab` de destino.
+// duplicar a lista.
 export const CONDICOES_APP: CondicaoApp[] = TELAS_APP
   .filter((t): t is TelaApp & { variant: ConditionKind } => !!t.variant)
   .map(t => ({ key: t.key, label: t.label, variant: t.variant, tab: t.tab }));

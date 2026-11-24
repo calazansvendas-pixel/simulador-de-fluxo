@@ -24,8 +24,6 @@ export const DEFAULT_PDF_EXPORT_SETTINGS_BY_KIND: PdfExportSettingsByKind = {
   'parcelamento-morar': { ...DEFAULT_PDF_EXPORT_SETTINGS },
   'banco-direto-comissao-apartada': { ...DEFAULT_PDF_EXPORT_SETTINGS },
   'sinal-morar-comissao-apartada': { ...DEFAULT_PDF_EXPORT_SETTINGS },
-  'simulador-simplificado': { ...DEFAULT_PDF_EXPORT_SETTINGS },
-  'simulador-simplificado-comissao-apartada': { ...DEFAULT_PDF_EXPORT_SETTINGS },
 };
 
 // A configuração em si (quem pode editar o quê, por cargo) mora no banco —
