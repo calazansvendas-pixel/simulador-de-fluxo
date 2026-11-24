@@ -105,3 +105,22 @@ describe('Ato Premiado = 10% exato do Ato (Imóvel) líquido — Torre A 101', (
     expect(Math.round(r.distribuidoTotal * 100) / 100).toBe(121423.04);
   });
 });
+
+describe('teto de Pós-Obra da política (8%) — Total Fase Pós-Obra c/ ITBI nunca passa do teto', () => {
+  // ITBI alto + renda baixa zera séries e dispara a redistribuição proporcional: antes ela ignorava o teto da Pós-Obra.
+  const base = {
+    precoTabela: 330000, avaliacaoBanco: 330000, itbiRegistro: 29700, renda: 6000, financiamento: 90000, subsidio: 0, fgts: 0,
+    percentualRiscoGeral: 17, percentualRiscoPos: 8, mesesObra: 30, mesesPos: 36, tetoRendaMensalPct: 35,
+    globalSeriesPct: [30, 25, 20, 15, 10, 5], sinalMinimo: 2000, isAtoPremiadoEnabled: true, atoITBI: 0, atoPremiadoPct: 0.10,
+    isComissaoApartada: false, pctComissaoApartada: 0.04,
+  } as any;
+  it('Sinal c/ Morar: Pós-Obra c/ ITBI <= 8% da Base Líq. c/ ITBI e o Distribuído fecha', () => {
+    const r = calculateMorarFlowEngine(base);
+    expect(r.totalPosComITBI).toBeLessThanOrEqual(Math.floor(0.08 * r.baseCalculoComITBI * 100) / 100 + 0.001);
+    expect(Math.abs(r.distribuidoTotal - r.totalComITBI)).toBeLessThanOrEqual(0.05 + 0.01 * 66);
+  });
+  it('Sinal c/ Morar (Comissão Apartada): mesmo teto', () => {
+    const r = calculateMorarFlowEngine({ ...base, isComissaoApartada: true });
+    expect(r.totalPosComITBI).toBeLessThanOrEqual(Math.floor(0.08 * r.baseCalculoComITBI * 100) / 100 + 0.001);
+  });
+});
