@@ -3363,11 +3363,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               )}
               {faixasPos
                 .map((faixa, originalIndex) => ({ faixa, originalIndex }))
-                .filter(({ faixa }) => {
+                .filter(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
                   const meses = Number(faixa.qtd) || 0;
-                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados.
-                  return meses > 0 && valorLiquido > 0.009;
+                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados —
+                  // salvo quando há parcelas de ITBI de Pós-Obra naquela janela (série só de ITBI), desde que o
+                  // rateio de ITBI esteja liberado na visibilidade dos quadros (mesma regra do quadro de Obra).
+                  const temItbi = mostrarRateioItbi && itbiParcelaPosValor > 0 && itbiMesesNaSerie(faixasPos, originalIndex, itbiPosTotalMeses) > 0;
+                  return (meses > 0 && valorLiquido > 0.009) || temItbi;
                 })
                 .map(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);

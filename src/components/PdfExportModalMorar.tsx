@@ -783,7 +783,7 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                     </div>
 
                     <div className="space-y-1.5 text-xs">
-                      {faixasPos.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f }) => f.qtd > 0 && (f.valor || 0) > 0.009).map(({ f, originalIdx }, idx) => {
+                      {faixasPos.map((f, originalIdx) => ({ f, originalIdx })).filter(({ f, originalIdx }) => (f.qtd > 0 && (f.valor || 0) > 0.009) || ((itbiPosValor || 0) > 0 && itbiMesesNaSerie(faixasPos, originalIdx, itbiPosQtd) > 0)).map(({ f, originalIdx }, idx) => {
                         const nx = itbiMesesNaSerie(faixasPos, originalIdx, itbiPosQtd);
                         return (
                           <div key={idx} className="bg-[rgba(248,250,252,0.8)] px-2.5 py-1.5 rounded-lg border border-slate-100 space-y-1">
