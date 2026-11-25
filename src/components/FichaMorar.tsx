@@ -1125,6 +1125,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     ? (itbiObraValorManual !== null ? itbiObraValorManual : itbiCalculadoMes)
     : 0;
 
+  // SÉRIES COMO SÃO EXIBIDAS (fonte única para tela e PDF): sem Pró-Soluto a distribuir (Ato cobre todo o
+  // saldo) ou com resíduo abaixo de R$ 0,01, a parcela da construtora é R$ 0,00 — o motor pode deixar resíduos
+  // de centavo (ex.: R$ 0,01) que a tela já zerava e o PDF não. Subtotal e Parcela Bruta saem deste valor limpo.
+  const sanitizarFaixa = (f: MorarFaixa): MorarFaixa => {
+    const valor = Number(f.valor) || 0;
+    return { ...f, valor: saldoProSolutoRestante <= 0 || Math.abs(valor) < 0.01 ? 0 : valor };
+  };
+  const faixasObraExibidas = faixasObra.map(sanitizarFaixa);
+  const faixasPosExibidas = faixasPos.map(sanitizarFaixa);
+
   // SOMA DAS PARCELAS DE CADA FASE (LÍQUIDO MORAR)
   const somaTotalObra = faixasObra.reduce((acc, f) => {
     const valLiq = saldoProSolutoRestante <= 0 ? 0 : (Number(f.valor) || 0);
@@ -3626,10 +3636,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
           dataObra={dataObra}
           totalParcObra={totalParcObra}
-          faixasObra={faixasObra}
+          faixasObra={faixasObraExibidas}
           dataPos={dataPos}
           totalParcPos={totalParcPos}
-          faixasPos={faixasPos}
+          faixasPos={faixasPosExibidas}
           dataITBI={dataITBI}
           valorITBI={despCartoriasEfetivas}
           itbiObraQtd={itbiObraTotalMeses}
