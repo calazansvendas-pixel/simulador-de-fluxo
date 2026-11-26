@@ -1125,6 +1125,16 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
     ? (itbiObraValorManual !== null ? itbiObraValorManual : itbiCalculadoMes)
     : 0;
 
+  // SÉRIES COMO SÃO EXIBIDAS (fonte única para tela e PDF): sem Pró-Soluto a distribuir (Ato cobre todo o
+  // saldo) ou com resíduo abaixo de R$ 0,01, a parcela da construtora é R$ 0,00 — o motor pode deixar resíduos
+  // de centavo (ex.: R$ 0,01) que a tela já zerava e o PDF não. Subtotal e Parcela Bruta saem deste valor limpo.
+  const sanitizarFaixa = (f: MorarFaixa): MorarFaixa => {
+    const valor = Number(f.valor) || 0;
+    return { ...f, valor: saldoProSolutoRestante <= 0 || Math.abs(valor) < 0.01 ? 0 : valor };
+  };
+  const faixasObraExibidas = faixasObra.map(sanitizarFaixa);
+  const faixasPosExibidas = faixasPos.map(sanitizarFaixa);
+
   // SOMA DAS PARCELAS DE CADA FASE (LÍQUIDO MORAR)
   const somaTotalObra = faixasObra.reduce((acc, f) => {
     const valLiq = saldoProSolutoRestante <= 0 ? 0 : (Number(f.valor) || 0);
@@ -3363,11 +3373,14 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
               )}
               {faixasPos
                 .map((faixa, originalIndex) => ({ faixa, originalIndex }))
-                .filter(({ faixa }) => {
+                .filter(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
                   const meses = Number(faixa.qtd) || 0;
-                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados.
-                  return meses > 0 && valorLiquido > 0.009;
+                  // Série com valor financeiro zerado (R$ 0,00) não aparece, mesmo com meses alocados —
+                  // salvo quando há parcelas de ITBI de Pós-Obra naquela janela (série só de ITBI), desde que o
+                  // rateio de ITBI esteja liberado na visibilidade dos quadros (mesma regra do quadro de Obra).
+                  const temItbi = mostrarRateioItbi && itbiParcelaPosValor > 0 && itbiMesesNaSerie(faixasPos, originalIndex, itbiPosTotalMeses) > 0;
+                  return (meses > 0 && valorLiquido > 0.009) || temItbi;
                 })
                 .map(({ faixa, originalIndex }) => {
                   const valorLiquido = saldoProSolutoRestante <= 0 ? 0 : (Number(faixa.valor) || 0);
@@ -3623,10 +3636,10 @@ export const FichaMorar: React.FC<FichaMorarProps> = ({
           comissaoApartadaParcelasDetalhe={comissaoParcelasIguais ? undefined : comissaoParcelasDetalhe}
           dataObra={dataObra}
           totalParcObra={totalParcObra}
-          faixasObra={faixasObra}
+          faixasObra={faixasObraExibidas}
           dataPos={dataPos}
           totalParcPos={totalParcPos}
-          faixasPos={faixasPos}
+          faixasPos={faixasPosExibidas}
           dataITBI={dataITBI}
           valorITBI={despCartoriasEfetivas}
           itbiObraQtd={itbiObraTotalMeses}
