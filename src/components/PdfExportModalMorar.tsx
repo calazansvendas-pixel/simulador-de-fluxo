@@ -562,13 +562,6 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                       </div>
                     )}
 
-                    {cartaNaManga > 0 && (
-                      <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
-                        <span className="text-slate-600 font-medium pr-2">Carta na Manga para o Cliente:</span>
-                        <strong className="text-amber-700 font-semibold shrink-0">{fmt(cartaNaManga)}</strong>
-                      </div>
-                    )}
-
                     {descontoAVista > 0 && (
                       <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
                         <span className="text-slate-600 font-medium">Desconto à Vista:</span>
@@ -584,6 +577,12 @@ export const PdfExportModalMorar: React.FC<PdfExportModalMorarProps> = ({
                       <strong className="text-emerald-600 font-semibold">{fmt(desconto)}</strong>
                     </div>
                     )}
+
+                    {/* Sempre exibida, mesmo zerada. */}
+                    <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
+                      <span className="text-slate-600 font-medium pr-2">Carta na Manga para Cliente:</span>
+                      <strong className="text-amber-700 font-semibold shrink-0">{fmt(cartaNaManga)}</strong>
+                    </div>
 
                     <div className="flex justify-between items-center py-1 border-b border-slate-100 px-1">
                       <span className="text-slate-600 font-medium">Max Financ:</span>
