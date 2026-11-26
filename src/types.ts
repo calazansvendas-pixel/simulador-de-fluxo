@@ -108,6 +108,9 @@ export interface CommercialCondition {
   descontosConstrutora?: DescontoConstrutoraRegra[];
   // Regras de "Carta na Manga" do produto (teto que o corretor pode conceder por unidade).
   cartasNaManga?: CartaNaMangaRegra[];
+  // Liga/desliga a Carta na Manga nesta condição (com herança 1ª → 2ª Fase via fase2Params). Ausente =
+  // ligada quando há regra cadastrada no empreendimento (ver isCartaNaMangaHabilitada).
+  cartaNaMangaAtivo?: boolean;
   habilitar1aMensal?: boolean;
   habilitar2aMensal?: boolean;
   limite1aMensal?: { maxPercentualRenda?: number; maxPercentualImovel?: number };
