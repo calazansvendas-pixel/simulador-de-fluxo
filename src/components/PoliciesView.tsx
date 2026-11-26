@@ -156,6 +156,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
   const [regrasDesconto, setRegrasDesconto] = useState<DescontoConstrutoraRegra[]>([]);
   // Regras de Carta na Manga (teto por Produto × Torre × Tipologia).
   const [regrasCarta, setRegrasCarta] = useState<CartaNaMangaRegra[]>([]);
+  // Escolha explícita Ativa/Inativa da Carta na Manga na fase em edição (undefined = sem escolha: herda).
+  const [cartaAtivaForm, setCartaAtivaForm] = useState<boolean | undefined>(undefined);
   // Estado inicial (padrão) dos 3 interruptores de desconto ao abrir a simulação do produto.
   const [padraoDescontos, setPadraoDescontos] = useState({ construtora: false, vista: false, ato: false });
   // Graduação de Ajuste Rápido (Entrada): passo (R$) dos botões +/- do Ato (Imóvel) e do ITBI no Ato.
@@ -615,6 +617,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
     const fmtLim = (v: number | undefined) => (v !== undefined && v > 0 ? formatDecimalBR(v, 2, 2) : '');
     setRegrasDesconto(Array.isArray(cond.descontosConstrutora) ? cond.descontosConstrutora : []);
     setRegrasCarta(Array.isArray(cond.cartasNaManga) ? cond.cartasNaManga : []);
+    setCartaAtivaForm(fase === '2' ? cond.fase2Params?.cartaNaMangaAtivo : cond.cartaNaMangaAtivo);
     setPadraoDescontos({
       construtora: cond.descontoConstrutoraPadraoLigado === true,
       vista: cond.descontoVistaPadraoLigado === true,
@@ -779,6 +782,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       habilitar1aMensal: habilitar1Mensal,
       descontosConstrutora: regrasDesconto,
       cartasNaManga: regrasCarta,
+      // Só grava quando há escolha explícita, para não congelar a herança (1ª → 2ª Fase) nem o padrão.
+      ...(cartaAtivaForm !== undefined ? { cartaNaMangaAtivo: cartaAtivaForm } : {}),
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
@@ -1152,6 +1157,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
       habilitar1aMensal: habilitar1Mensal,
       descontosConstrutora: regrasDesconto,
       cartasNaManga: regrasCarta,
+      // Só grava quando há escolha explícita, para não congelar a herança (1ª → 2ª Fase) nem o padrão.
+      ...(cartaAtivaForm !== undefined ? { cartaNaMangaAtivo: cartaAtivaForm } : {}),
       descontoConstrutoraPadraoLigado: padraoDescontos.construtora,
       descontoVistaPadraoLigado: padraoDescontos.vista,
       descontoAtoPadraoLigado: padraoDescontos.ato,
@@ -1239,6 +1246,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
 
   const activeCondObj = prodWithConds?.conditions.find(c => c.id === activeConditionId);
   const currentCondition = activeCondObj || prodWithConds?.conditions[0];
+  // Estado mostrado no interruptor da Carta na Manga: escolha da fase em edição → (na 2ª Fase) a da 1ª Fase →
+  // padrão pela existência de regras.
+  const cartaAtivaExibida = cartaAtivaForm
+    ?? (editingFase === '2' ? activeCondObj?.cartaNaMangaAtivo : undefined)
+    ?? regrasCarta.length > 0;
 
   let valorAtoPremiado = 0;
   if (currentCondition && prodWithConds && (propertyPrice > 0 || propertyEvaluation > 0)) {
@@ -2222,6 +2234,24 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({
                       className="w-full pl-3 pr-7 py-2 bg-white border border-slate-300 rounded-xl font-bold text-fuchsia-700 text-center focus:outline-none focus:border-fuchsia-600 text-xs"
                     />
                     <span className="absolute right-3 font-extrabold text-slate-400 text-xs pointer-events-none">%</span>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-4">
+                  <span className="block font-bold text-slate-800 text-xs mb-1">Carta na Manga</span>
+                  <p className="text-[10px] text-slate-500 mb-1.5 leading-tight">
+                    Inativa: o campo e a linha somem do simulador e o valor vale R$ 0,00. Os limites seguem as regras da seção "Carta na Manga". Grava ao salvar a política.
+                  </p>
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-300 bg-white">
+                    <span className={`text-xs font-bold ${cartaAtivaExibida ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      {cartaAtivaExibida ? 'Ativa' : 'Inativa'}
+                    </span>
+                    <MiniSwitch
+                      ativo={cartaAtivaExibida}
+                      disabled={somenteLeitura}
+                      onToggle={() => setCartaAtivaForm(!cartaAtivaExibida)}
+                      title={cartaAtivaExibida ? 'Carta na Manga ativa — clique para desativar' : 'Carta na Manga inativa — clique para ativar'}
+                    />
                   </div>
                 </div>
               </div>

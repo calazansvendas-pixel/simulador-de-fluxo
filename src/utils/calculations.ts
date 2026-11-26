@@ -237,6 +237,16 @@ export function resolverCartaNaMangaMaximo(
   return Math.min(precoTabela, Math.max(0, Math.round((melhor.regra.valorMaximo || 0) * 100) / 100));
 }
 
+/**
+ * Carta na Manga habilitada na condição (já resolvida para a fase da torre)? Vale a escolha explícita da
+ * Política de Crédito; sem ela (cadastros antigos), fica habilitada se houver regra cadastrada.
+ */
+export function isCartaNaMangaHabilitada(cond: CommercialCondition | null | undefined): boolean {
+  if (!cond) return false;
+  if (typeof cond.cartaNaMangaAtivo === 'boolean') return cond.cartaNaMangaAtivo;
+  return Array.isArray(cond.cartasNaManga) && cond.cartasNaManga.length > 0;
+}
+
 /** Chave da regra "Apenas Fase Obra": Torre + Tipologia, sem diferenciar maiúsculas/espaços. */
 export function chaveTorreTipologia(torre: string | null | undefined, tipologia: string | null | undefined): string {
   return `${String(torre || '').trim().toLowerCase()}||${String(tipologia || '').trim().toLowerCase()}`;

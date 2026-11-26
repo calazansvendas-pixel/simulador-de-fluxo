@@ -7,7 +7,7 @@ import { formatarTelefoneBR } from '../utils/telefone';
 import { PieChart as RechartsPieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Bar, LabelList } from 'recharts';
 import { ActiveTab, Cargo, CommercialCondition, NegociacaoSnapshot, PdfExportSettings, Product, SelectedUnit, SimulacaoReaberta, SimulationData, TelaVisibilitySettings } from '../types';
 import { formatCurrency, formatArea, parseCurrency, formatDateMonthYear, formatDeliveryText, formatForEdit, isTabelaVencida, formatDateBr, getTodayLocalISO } from '../utils/formatters';
-import { calculatePolicyRiskValues, ensureProductConditions, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, isApenasFaseObra, calcularParcelamentoMorar, calcularDescontoAtoPremiado, ATO_PREMIADO_PCT_PADRAO, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
+import { calculatePolicyRiskValues, ensureProductConditions, calcularParcelaPrice, resolveConditionForTorre, resolverDescontoConstrutora, resolverCartaNaMangaMaximo, isCartaNaMangaHabilitada, resolverTetoAtoComDesconto, resolverTetoAtoComDescontoEComissao, getConditionKind, isApenasFaseObra, calcularParcelamentoMorar, calcularDescontoAtoPremiado, ATO_PREMIADO_PCT_PADRAO, monthsBetweenDates, subtractMonthsFromDate, contarSemestraisJunhoDezembro, gerarDatasSemestrais, ConditionKind } from '../utils/calculations';
 import { CONDICOES_APP } from '../config/telasApp';
 import { CLASSE_BOTAO_APARTAR_ATIVO, CLASSE_BOTAO_APARTAR_INATIVO, CONDICOES_BASE, ROTULO_CONDICAO_BASE, condicaoAlternadaComissao, condicaoBaseDe, isComissaoApartadaKind, telaDaCondicao } from '../utils/condicoesBase';
 import { DEFAULT_PDF_EXPORT_SETTINGS } from '../utils/pdfExport';
@@ -442,7 +442,15 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // Construtora e Carta na Manga ficam zerados enquanto ele estiver ativo (o Ato Premiado é desligado no botão).
   const descontoConstrutora = descontoConstrutoraAtivo && !isPagamentoAVistaAtivoManual ? descontoConstrutoraRegra : 0;
   useEffect(() => { setDescontoConstrutoraAtivo(padraoConstrutoraLigado); setCartaNaManga(0); setCartaNaMangaAtiva(false); }, [selectedTorre, selectedUnidade, currentProd?.id]);
-  const cartaNaMangaMax = hasUnitSelected
+  // Desligada na Política da condição: card e linha somem da tela, o teto vira 0 (logo o valor efetivo também)
+  // e qualquer valor digitado antes é apagado, para não voltar ao trocar de condição.
+  const cartaNaMangaHabilitada = isCartaNaMangaHabilitada(currentCond);
+  useEffect(() => {
+    if (!currentCond || cartaNaMangaHabilitada) return;
+    if (cartaNaManga !== 0) setCartaNaManga(0);
+    if (cartaNaMangaAtiva) setCartaNaMangaAtiva(false);
+  }, [currentCond, cartaNaMangaHabilitada, cartaNaManga, cartaNaMangaAtiva]);
+  const cartaNaMangaMax = hasUnitSelected && cartaNaMangaHabilitada
     ? resolverCartaNaMangaMaximo(currentCond?.cartasNaManga, currentProd?.id, selectedTorre, tipologia, precoTabelaLista)
     : 0;
   const cartaNaMangaDigitada = Math.min(cartaNaManga, cartaNaMangaMax);
@@ -2687,7 +2695,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
           onFirstHomeChange={handleFirstHomeChange}
           cartaNaManga={cartaNaMangaDigitada}
           cartaNaMangaMax={cartaNaMangaMax}
-          onCartaNaMangaChange={handleCartaNaMangaChange}
+          onCartaNaMangaChange={cartaNaMangaHabilitada ? handleCartaNaMangaChange : undefined}
           bloqueadaAVista={isPagamentoAVistaAtivoManual}
         />
         </div>
@@ -2762,7 +2770,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       {formatCurrency(isAtoPremiadoEnabled ? displayDescontoAto : 0)}
                     </strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60 last:border-b-0">
                     <span className="text-slate-600">Desconto Construtora:</span>
                     <button
                       type="button"
@@ -2786,6 +2794,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       {formatCurrency(descontoConstrutora)}
                     </strong>
                   </div>
+                  {cartaNaMangaHabilitada && (
                   <div className="flex justify-between items-center py-1 mt-1">
                     <span className="text-slate-600">Carta na Manga:</span>
                     <MiniSwitch
@@ -2798,6 +2807,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
                       {formatCurrency(cartaNaMangaEfetiva)}
                     </strong>
                   </div>
+                  )}
                 </div>
               </div>
 
