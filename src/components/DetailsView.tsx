@@ -1136,6 +1136,9 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
   let riscoMaximoApuradoBruto = 0;
   let taxaBancaria = 0;
+  // "riscoMaximoApuradoTX" da planilha: menor teto da política (imóvel x renda) MENOS a Taxa Bancária sobre ele.
+  // Guardado antes da trava do Sinal Mínimo, que sobrescreve riscoMaximoApuradoBruto com o saldo da dívida.
+  let riscoMaximoApuradoTX = 0;
   let pagamentoAtoSinalEfetivo = 0;
   // ITBI que este laço conseguiu manter parcelável (nunca mais que o saldo
   // ainda não alocado, nem mais que o teto de risco/renda apurado abaixo).
@@ -1264,6 +1267,7 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
 
     riscoMaximoApuradoBruto = resultado.riscoMaximo;
     taxaBancaria = resultado.taxaBancaria;
+    riscoMaximoApuradoTX = Math.max(0, resultado.riscoMaximo - resultado.taxaBancaria);
     pagamentoAtoSinalEfetivo = resultado.pagamentoAto;
 
     // 1. TRAVA DO ATO MÍNIMO (PISO DA POLÍTICA DE CRÉDITO) & REDISTRIBUIÇÃO OBRIGATÓRIA
@@ -1508,14 +1512,13 @@ export const DetailsView: React.FC<DetailsViewProps> = ({
   // nenhuma, então bater com um valor que já tem taxa somada sempre acusava
   // uma sobra do tamanho exato da Taxa Bancária).
   //
-  // TETO COM A TAXA SUBENTENDIDA: o card mostra o Pró-Soluto SEM a Taxa Bancária, mas o indicador "Risco Pró-Soluto
-  // Total" mede (Pró-Soluto + Taxa) ÷ Base Líq. c/ ITBI. Por isso o limite do Pró-Soluto exibido é o teto bruto MENOS a
-  // Taxa Bancária (riscoMaximo − taxaBancaria): assim, em qualquer fluxo (Ato Premiado ligado/desligado, mensais
-  // digitadas à mão etc.) Pró-Soluto + Taxa nunca passa de 100% do teto (ex.: 20,00%, nunca 20,04%). O excedente
-  // migra para o Ato (Imóvel).
-  const tetoProSolutoSemTaxa = Math.max(0, riscoMaximoApuradoBruto - taxaBancaria);
+  // TETO COM A TAXA SUBENTENDIDA (planilha oficial): riscoUtilizado = MIN(riscoMaximoApuradoTX, Total c/ ITBI −
+  // Sinal Mínimo). O card mostra o Pró-Soluto SEM a Taxa Bancária, e o limite dele é o teto da POLÍTICA menos a
+  // taxa — assim (Pró-Soluto + Taxa) nunca passa do teto (ex.: 20,00%, nunca 20,04%). Quando quem manda é o Sinal
+  // Mínimo (há folga no teto), nada é subtraído de novo: o Ato fica no mínimo e o Pró-Soluto leva todo o restante.
+  // O excedente sobre o teto migra para o Ato (Imóvel).
   const excessoRiscoParcela = (hasUnitSelected && riscoMaximoApuradoBruto > 0)
-    ? Math.max(0, proSolutoTotalParceladoSemTravaParcela - tetoProSolutoSemTaxa)
+    ? Math.max(0, proSolutoTotalParceladoSemTravaParcela - riscoMaximoApuradoTX)
     : 0;
   const extraAtoPorTravaParcelaRisco = Math.round(excessoRiscoParcela * 100) / 100;
 
